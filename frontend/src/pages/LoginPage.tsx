@@ -4,10 +4,6 @@ import { DEMO_ACCOUNTS } from '../data/mockData'
 import { apiLogin } from '../api'
 import { 
   Building2, 
-  Users, 
-  Building, 
-  Calendar, 
-  CheckCircle, 
   User, 
   Lock, 
   Eye, 
@@ -53,77 +49,40 @@ export default function LoginPage({ onLogin }: Props) {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-[#f5f7f5] text-gray-800">
       {/* Sisi Kiri: Profil & Informasi Kampus */}
-      <div className="lg:w-[48%] bg-[#0e4b29] text-white flex flex-col justify-between p-8 lg:p-12 border-r border-[#0a381e]">
-        <div>
-          {/* Logo & Identitas Kampus */}
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center text-emerald-300 shrink-0">
-              <Building2 className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-                Universitas Andalas
-              </p>
-              <h2 className="text-base font-bold text-white tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                UPT Asrama Mahasiswa
-              </h2>
-            </div>
+      <div className="lg:w-[48%] bg-[#0e4b29] text-white flex flex-col justify-between p-8 lg:p-14 xl:p-16 border-r border-[#0a381e]">
+        {/* Logo & Identitas Kampus */}
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-emerald-300 shrink-0">
+            <Building2 className="w-7 h-7" />
           </div>
-
-          {/* Judul Sistem */}
-          <div className="max-w-md">
-            <h1 className="text-2xl lg:text-3xl font-extrabold text-white leading-snug" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              Sistem Informasi Presensi Asrama (SIP-ASRAMA)
-            </h1>
-            <p className="mt-3 text-emerald-100/85 text-xs lg:text-sm leading-relaxed">
-              Portal terpadu pencatatan kehadiran mandiri, pengelolaan perizinan, dan pemantauan tata tertib penghuni asrama Universitas Andalas.
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+              Universitas Andalas
             </p>
-          </div>
-
-          {/* Statistik Ringkas */}
-          <div className="mt-8 grid grid-cols-2 gap-3 max-w-md">
-            <div className="p-3.5 rounded-xl bg-black/20 border border-white/10">
-              <div className="flex items-center gap-2 mb-1.5 text-emerald-300">
-                <Users className="w-4 h-4" />
-                <span className="text-[11px] font-semibold text-emerald-200">Total Penghuni</span>
-              </div>
-              <p className="text-xl font-bold text-white" style={{ fontFamily: 'Plus Jakarta Sans' }}>320 Orang</p>
-              <p className="text-[11px] text-emerald-200/70 mt-0.5">Mahasiswa terdaftar</p>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-black/20 border border-white/10">
-              <div className="flex items-center gap-2 mb-1.5 text-emerald-300">
-                <Building className="w-4 h-4" />
-                <span className="text-[11px] font-semibold text-emerald-200">Gedung Asrama</span>
-              </div>
-              <p className="text-xl font-bold text-white" style={{ fontFamily: 'Plus Jakarta Sans' }}>4 Gedung</p>
-              <p className="text-[11px] text-emerald-200/70 mt-0.5">Putra & Putri</p>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-black/20 border border-white/10">
-              <div className="flex items-center gap-2 mb-1.5 text-emerald-300">
-                <Calendar className="w-4 h-4" />
-                <span className="text-[11px] font-semibold text-emerald-200">Sesi Presensi</span>
-              </div>
-              <p className="text-xl font-bold text-white" style={{ fontFamily: 'Plus Jakarta Sans' }}>2 Sesi/Hari</p>
-              <p className="text-[11px] text-emerald-200/70 mt-0.5">Subuh & Malam</p>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-black/20 border border-white/10">
-              <div className="flex items-center gap-2 mb-1.5 text-emerald-300">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-[11px] font-semibold text-emerald-200">Rata-rata Hadir</span>
-              </div>
-              <p className="text-xl font-bold text-white" style={{ fontFamily: 'Plus Jakarta Sans' }}>87%</p>
-              <p className="text-[11px] text-emerald-200/70 mt-0.5">Disiplin asrama</p>
-            </div>
+            <h2 className="text-lg font-bold text-white tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              UPT Asrama Mahasiswa
+            </h2>
           </div>
         </div>
 
+        {/* Judul Sistem - Vertically Centered & Prominent */}
+        <div className="my-auto py-10 max-w-xl">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white leading-[1.15] tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Sistem Informasi Presensi Asrama
+          </h1>
+          <p className="text-xl lg:text-2xl font-bold text-emerald-300 mt-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            (SIP-ASRAMA)
+          </p>
+
+          <p className="mt-6 text-emerald-100/90 text-sm lg:text-base leading-relaxed">
+            Portal terpadu pencatatan kehadiran mandiri, pengelolaan perizinan, dan pemantauan tata tertib penghuni asrama Universitas Andalas.
+          </p>
+        </div>
+
         {/* Footer Kampus */}
-        <div className="mt-8 pt-4 border-t border-white/10 text-[11px] text-emerald-200/70">
-          <p>© 2026 UPT Asrama Mahasiswa Universitas Andalas</p>
-          <p className="text-[10px] text-emerald-200/50 mt-0.5">Kampus Limau Manis, Padang, Sumatera Barat 25163</p>
+        <div className="pt-4 border-t border-white/10 text-xs text-emerald-200/70">
+          <p className="font-medium">© 2026 UPT Asrama Mahasiswa Universitas Andalas</p>
+          <p className="text-[11px] text-emerald-200/50 mt-0.5">Kampus Limau Manis, Padang, Sumatera Barat 25163</p>
         </div>
       </div>
 

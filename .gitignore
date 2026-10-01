@@ -10,6 +10,8 @@ Desktop.ini
 .vscode/
 
 # Backend ignores
+.env
+writable/
 backend/.env
 backend/vendor/
 backend/writable/cache/*
