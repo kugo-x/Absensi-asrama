@@ -1,0 +1,10 @@
+{
+  "description": "Streamlines dormitory attendance tracking with multi-role access, enabling efficient monitoring and management of residents for administrators and staff.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

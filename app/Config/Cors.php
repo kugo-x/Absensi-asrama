@@ -25,16 +25,12 @@ class Cors extends BaseConfig
      *  }
      */
     public array $default = [
-        /**
-         * Origins for the `Access-Control-Allow-Origin` header.
-         *
-         * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
-         *
-         * E.g.:
-         *   - ['http://localhost:8080']
-         *   - ['https://www.example.com']
-         */
-        'allowedOrigins' => [],
+        'allowedOrigins' => ['*'],
+        'allowedOriginsPatterns' => [],
+        'supportsCredentials' => false,
+        'allowedHeaders' => ['*'],
+        'exposedHeaders' => [],
+        'allowedMethods' => ['*'],
 
         /**
          * Origin regex patterns for the `Access-Control-Allow-Origin` header.
