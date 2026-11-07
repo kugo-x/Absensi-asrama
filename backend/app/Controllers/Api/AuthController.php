@@ -21,7 +21,7 @@ class AuthController extends BaseController
 
         $db = \Config\Database::connect();
         $builder = $db->table('user u')
-            ->select('u.NIM, u.Nama, u.Email, u.Role, u.Nomor_kamar, u.Status_aktif, u.Password, k.Id_Gedung, g.Nama as nama_gedung')
+            ->select('u.NIM, u.Nama, u.Email, u.Role, u.Nomor_kamar, u.Status_aktif, u.Password, u.created_at, k.Id_Gedung, g.Nama as nama_gedung')
             ->join('kamar k', 'k.Nomor_kamar = u.Nomor_kamar', 'left')
             ->join('gedung g', 'g.Id_Gedung = k.Id_Gedung', 'left')
             ->where('u.NIM', $nim);
@@ -53,7 +53,9 @@ class AuthController extends BaseController
             'email'      => $user['Email'] ?? '',
             'role'       => $roleMapped,
             'nomorKamar' => $user['Nomor_kamar'] ?? '',
+            'idGedung'   => $user['Id_Gedung'] !== null ? (int) $user['Id_Gedung'] : null,
             'namaGedung' => $user['nama_gedung'] ?? '',
+            'tanggalMasuk' => $user['created_at'] ? substr($user['created_at'], 0, 10) : null,
         ];
 
         return $this->respond([

@@ -22,6 +22,7 @@ class PresensiModel extends Model
         'Status',
         'Foto_wajah',
         'Keterangan',
+        'Dikoreksi_oleh',
     ];
 
     // Dates

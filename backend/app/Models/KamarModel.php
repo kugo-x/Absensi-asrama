@@ -15,6 +15,7 @@ class KamarModel extends Model
     protected $allowedFields    = [
         'Nomor_kamar',
         'Lantai',
+        'Kapasitas',
         'Id_Gedung',
     ];
 

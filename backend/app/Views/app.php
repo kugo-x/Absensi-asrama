@@ -11,19 +11,15 @@
     <?php
       $jsFile = 'assets/index-BMgMyQcY.js';
       $cssFile = 'assets/index-CmpVw8hf.css';
-      // Dynamically locate newest built assets if available
+      // Dynamically locate newest built assets if available (by modification time)
       $assetsDir = FCPATH . 'assets/';
-      if (is_dir($assetsDir)) {
-          $files = scandir($assetsDir);
-          foreach ($files as $file) {
-              if (str_ends_with($file, '.js')) {
-                  $jsFile = 'assets/' . $file;
-              }
-              if (str_ends_with($file, '.css')) {
-                  $cssFile = 'assets/' . $file;
-              }
-          }
-      }
+      $newest = static function (string $pattern): ?string {
+          $files = glob($pattern) ?: [];
+          usort($files, static fn ($a, $b) => filemtime($b) <=> filemtime($a));
+          return $files ? 'assets/' . basename($files[0]) : null;
+      };
+      $jsFile  = $newest($assetsDir . '*.js') ?? $jsFile;
+      $cssFile = $newest($assetsDir . '*.css') ?? $cssFile;
     ?>
     <script type="module" crossorigin src="<?= base_url($jsFile) ?>"></script>
     <link rel="stylesheet" crossorigin href="<?= base_url($cssFile) ?>">

@@ -16,5 +16,9 @@ export default defineConfig({
   },
   server: {
     port: parseInt(process.env.PORT || '5173'),
+    // Teruskan panggilan API ke backend CodeIgniter (php spark serve)
+    proxy: {
+      '/api': 'http://localhost:8080',
+    },
   },
 })

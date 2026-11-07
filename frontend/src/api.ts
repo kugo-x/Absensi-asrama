@@ -1,7 +1,59 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord } from './types'
-import { DEMO_ACCOUNTS, gedungList as initialGedung, kamarList as initialKamar, penghuniList as initialPenghuni, presensiList as initialPresensi, izinList as initialIzin } from './data/mockData'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji } from './types'
+import {
+  DEMO_ACCOUNTS,
+  gedungList as initialGedung,
+  kamarList as initialKamar,
+  penghuniList as initialPenghuni,
+  presensiList as initialPresensi,
+  izinList as initialIzin,
+  sesiList as initialSesi,
+  liburList as initialLibur,
+} from './data/mockData'
 
 const API_BASE = '/api'
+
+function isJson(res: Response) {
+  return (res.headers.get('content-type') || '').includes('application/json')
+}
+
+// GET daftar data; jatuh ke data lokal jika backend tidak tersedia
+async function getList<T>(path: string, fallback: T[]): Promise<T[]> {
+  try {
+    const res = await fetch(`${API_BASE}/${path}`)
+    if (res.ok && isJson(res)) {
+      const data = await res.json()
+      if (Array.isArray(data)) return data
+    }
+  } catch (e) {
+    console.warn(`Falling back to local ${path} data`)
+  }
+  return fallback
+}
+
+export interface ApiResult {
+  ok: boolean
+  message: string
+  // true jika backend tidak bisa dihubungi (mode demo / offline)
+  offline?: boolean
+}
+
+async function postJson(path: string, body: unknown): Promise<ApiResult> {
+  try {
+    const res = await fetch(`${API_BASE}/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    // Respons non-JSON berarti API backend tidak tersedia (misal dev server tanpa backend)
+    if (!isJson(res)) return { ok: false, offline: true, message: 'Server tidak dapat dihubungi.' }
+    const json = await res.json()
+    return { ok: res.ok, message: json.message || json.messages?.error || (res.ok ? 'Berhasil' : 'Permintaan gagal diproses.') }
+  } catch (e) {
+    return { ok: false, offline: true, message: 'Server tidak dapat dihubungi.' }
+  }
+}
+
+// ---------- Auth ----------
 
 export async function apiLogin(nim: string, pass: string): Promise<CurrentUser> {
   try {
@@ -10,155 +62,95 @@ export async function apiLogin(nim: string, pass: string): Promise<CurrentUser> 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nim, password: pass })
     })
-    const json = await res.json()
-    if (res.ok && json.data) {
-      return json.data as CurrentUser
+    if (isJson(res)) {
+      const json = await res.json()
+      if (res.ok && json.data) return json.data as CurrentUser
+      throw new Error(json.messages?.error || json.message || 'NIM atau password salah.')
     }
   } catch (err) {
+    if (err instanceof Error && !(err instanceof TypeError)) throw err
     console.warn('Backend API login unavailable, falling back to local auth:', err)
   }
 
   // Fallback to demo accounts
   const account = DEMO_ACCOUNTS.find(a => a.nim === nim && a.password === pass)
   if (account) {
-    return {
-      nim: account.nim,
-      nama: account.nama,
-      role: account.role,
-      email: account.email,
-      nomorKamar: (account as any).nomorKamar,
-      namaGedung: (account as any).namaGedung,
-    }
+    const { password: _password, ...user } = account
+    return user
   }
   throw new Error('NIM atau password salah.')
 }
 
-export async function fetchGedung(): Promise<Gedung[]> {
-  try {
-    const res = await fetch(`${API_BASE}/gedung`)
-    if (res.ok) {
-      const data = await res.json()
-      if (Array.isArray(data) && data.length > 0) return data
-    }
-  } catch (e) {
-    console.warn('Falling back to local gedung data')
-  }
-  return initialGedung
-}
+// ---------- Master data ----------
 
-export async function fetchKamar(): Promise<Kamar[]> {
-  try {
-    const res = await fetch(`${API_BASE}/kamar`)
-    if (res.ok) {
-      const data = await res.json()
-      if (Array.isArray(data) && data.length > 0) return data
-    }
-  } catch (e) {
-    console.warn('Falling back to local kamar data')
-  }
-  return initialKamar
-}
+export const fetchGedung = () => getList<Gedung>('gedung', initialGedung)
+export const fetchKamar = () => getList<Kamar>('kamar', initialKamar)
+export const fetchPenghuni = () => getList<Penghuni>('penghuni', initialPenghuni)
+export const fetchSesi = () => getList<Sesi>('sesi', initialSesi)
+export const fetchLibur = () => getList<HariLibur>('libur', initialLibur)
 
-export async function fetchPenghuni(): Promise<Penghuni[]> {
-  try {
-    const res = await fetch(`${API_BASE}/penghuni`)
-    if (res.ok) {
-      const data = await res.json()
-      if (Array.isArray(data) && data.length > 0) return data
-    }
-  } catch (e) {
-    console.warn('Falling back to local penghuni data')
-  }
-  return initialPenghuni
-}
+export const updateGedungApi = (id: number, data: { latitude: number | null; longitude: number | null; radiusMeter: number }) =>
+  postJson('gedung/update', { id, ...data })
 
-export async function addPenghuniApi(penghuni: Partial<Penghuni>): Promise<boolean> {
+export const setPjGedungApi = (id: number, nimPj: string | null) =>
+  postJson('gedung/pj', { id, nimPj })
+
+export const saveSesiApi = (sesi: Sesi[]) => postJson('sesi', { sesi })
+
+export const addLiburApi = (data: Omit<HariLibur, 'id'>) => postJson('libur', data)
+
+export const deleteLiburApi = (id: number) => postJson('libur/delete', { id })
+
+export const MODE_UJI_MATI: ModeUji = { abaikanJam: false, abaikanRadius: false }
+
+export async function fetchModeUji(): Promise<ModeUji> {
   try {
-    const res = await fetch(`${API_BASE}/penghuni`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(penghuni)
-    })
-    return res.ok
-  } catch (e) {
-    return false
+    const res = await fetch(`${API_BASE}/mode-uji`)
+    if (!res.ok || !isJson(res)) return MODE_UJI_MATI
+    return await res.json()
+  } catch {
+    return MODE_UJI_MATI
   }
 }
 
-export async function togglePenghuniStatusApi(nim: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE}/penghuni/toggle-status`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nim })
-    })
-    return res.ok
-  } catch (e) {
-    return false
-  }
+export const saveModeUjiApi = (mode: ModeUji) => postJson('mode-uji', mode)
+
+// ---------- Penghuni ----------
+
+export const addPenghuniApi = (penghuni: Partial<Penghuni>) => postJson('penghuni', penghuni)
+
+export const togglePenghuniStatusApi = (nim: string) => postJson('penghuni/toggle-status', { nim })
+
+// Pindah kamar, ubah peran, atau keluarkan dari asrama (nomorKamar null + nonaktif)
+export type UbahPenghuni = Pick<Penghuni, 'nim' | 'nama' | 'email' | 'noHp' | 'asal' | 'role' | 'statusAktif'> & { nomorKamar: string | null }
+
+// `nimLama` menunjuk penghuni yang diubah; `data.nim` adalah NIM barunya (boleh sama)
+export const updatePenghuniApi = (nimLama: string, data: UbahPenghuni) =>
+  postJson('penghuni/update', { ...data, nim: nimLama, nimBaru: data.nim })
+
+// ---------- Presensi ----------
+
+export const fetchPresensi = () => getList<PresensiRecord>('presensi', initialPresensi)
+
+export const checkInApi = (data: { nim: string; sesi: string; tanggal: string; latitude: number; longitude: number; fotoWajah: string; keterangan?: string }) =>
+  postJson('presensi', data)
+
+// Alamat foto wajah presensi: data URL (mode offline) atau nama berkas yang disimpan backend
+export function fotoWajahUrl(foto: string | null | undefined): string | null {
+  if (!foto) return null
+  if (foto.startsWith('data:')) return foto
+  return `${API_BASE}/presensi/foto/${encodeURIComponent(foto)}`
 }
 
-export async function fetchPresensi(): Promise<PresensiRecord[]> {
-  try {
-    const res = await fetch(`${API_BASE}/presensi`)
-    if (res.ok) {
-      const data = await res.json()
-      if (Array.isArray(data) && data.length > 0) return data
-    }
-  } catch (e) {
-    console.warn('Falling back to local presensi data')
-  }
-  return initialPresensi
-}
+export const koreksiPresensiApi = (data: { nim: string; tanggal: string; sesi: string; status: PresensiStatus; keterangan: string; korektorNim: string }) =>
+  postJson('presensi/koreksi', data)
 
-export async function checkInApi(data: { nim: string; sesi: string; tanggal: string; status?: string; keterangan?: string }): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE}/presensi`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    })
-    return res.ok
-  } catch (e) {
-    return false
-  }
-}
+// ---------- Izin ----------
 
-export async function fetchIzin(): Promise<IzinRecord[]> {
-  try {
-    const res = await fetch(`${API_BASE}/izin`)
-    if (res.ok) {
-      const data = await res.json()
-      if (Array.isArray(data) && data.length > 0) return data
-    }
-  } catch (e) {
-    console.warn('Falling back to local izin data')
-  }
-  return initialIzin
-}
+export const fetchIzin = () => getList<IzinRecord>('izin', initialIzin)
 
-export async function submitIzinApi(data: { nim: string; alasan: string; tanggal: string; fileBukti?: string }): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE}/izin`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    })
-    return res.ok
-  } catch (e) {
-    return false
-  }
-}
+export const submitIzinApi = (data: { nim: string; alasan: string; tanggal: string; tanggalSelesai: string; sesi: string | null; fileBukti?: string }) =>
+  postJson('izin', data)
 
-export async function updateIzinStatusApi(id: number, status: 'Disetujui' | 'Ditolak', approverNim: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE}/izin/status`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status, approverNim })
-    })
-    return res.ok
-  } catch (e) {
-    return false
-  }
-}
+export const updateIzinStatusApi = (id: number, status: 'Disetujui' | 'Ditolak', approverNim: string, catatan: string) =>
+  postJson('izin/status', { id, status, approverNim, catatan })

@@ -225,7 +225,7 @@ export function SectionTitle({ children, subtitle }: { children: React.ReactNode
 }
 
 export function Badge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; text: string }> = {
+  const map: Record<string, { bg: string }> = {
     'Hadir': { bg: 'bg-emerald-50 border-emerald-300 text-emerald-800' },
     'Tidak Hadir': { bg: 'bg-rose-50 border-rose-300 text-rose-800' },
     'Izin': { bg: 'bg-amber-50 border-amber-300 text-amber-800' },
@@ -235,6 +235,9 @@ export function Badge({ status }: { status: string }) {
     'Aktif': { bg: 'bg-emerald-50 border-emerald-300 text-emerald-800' },
     'Non-aktif': { bg: 'bg-gray-100 border-gray-300 text-gray-700' },
     'Belum': { bg: 'bg-gray-100 border-gray-300 text-gray-600' },
+    'Libur': { bg: 'bg-sky-50 border-sky-300 text-sky-800' },
+    'Fasil': { bg: 'bg-indigo-50 border-indigo-300 text-indigo-800' },
+    'Penghuni': { bg: 'bg-teal-50 border-teal-300 text-teal-800' },
   }
 
   const current = map[status] || { bg: 'bg-gray-100 border-gray-300 text-gray-700' }

@@ -19,7 +19,10 @@ class IzinModel extends Model
         'Status_persetujuan',
         'File_bukti',
         'Tanggal',
+        'Tanggal_selesai',
+        'Sesi',
         'Tanggal_approval',
+        'Catatan_approver',
     ];
 
     // Dates

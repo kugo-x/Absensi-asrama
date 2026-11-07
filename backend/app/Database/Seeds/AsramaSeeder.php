@@ -13,6 +13,8 @@ class AsramaSeeder extends Seeder
 
         // 1. Clear existing records
         $db->table('izin')->truncate();
+        $db->table('hari_libur')->truncate();
+        $db->table('sesi')->truncate();
         $db->table('presensi')->truncate();
         $db->table('gedung')->truncate();
         $db->table('kamar')->truncate();
@@ -65,18 +67,18 @@ class AsramaSeeder extends Seeder
 
         // 3. Insert Kamar
         $kamarData = [
-            ['Nomor_kamar' => '001-PA',  'Lantai' => 1, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '101-PA',  'Lantai' => 1, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '102-PA',  'Lantai' => 1, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '103-PA',  'Lantai' => 1, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '201-PA',  'Lantai' => 2, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '202-PA',  'Lantai' => 2, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '101-PB',  'Lantai' => 1, 'Id_Gedung' => 2, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '102-PB',  'Lantai' => 1, 'Id_Gedung' => 2, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '001-PtA', 'Lantai' => 1, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '101-PtA', 'Lantai' => 1, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '102-PtA', 'Lantai' => 1, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nomor_kamar' => '201-PtA', 'Lantai' => 2, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '001-PA',  'Lantai' => 1, 'Kapasitas' => 1, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '101-PA',  'Lantai' => 1, 'Kapasitas' => 2, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '102-PA',  'Lantai' => 1, 'Kapasitas' => 2, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '103-PA',  'Lantai' => 1, 'Kapasitas' => 2, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '201-PA',  'Lantai' => 2, 'Kapasitas' => 2, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '202-PA',  'Lantai' => 2, 'Kapasitas' => 2, 'Id_Gedung' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '101-PB',  'Lantai' => 1, 'Kapasitas' => 3, 'Id_Gedung' => 2, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '102-PB',  'Lantai' => 1, 'Kapasitas' => 2, 'Id_Gedung' => 2, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '001-PtA', 'Lantai' => 1, 'Kapasitas' => 1, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '101-PtA', 'Lantai' => 1, 'Kapasitas' => 3, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '102-PtA', 'Lantai' => 1, 'Kapasitas' => 2, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nomor_kamar' => '201-PtA', 'Lantai' => 2, 'Kapasitas' => 2, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
         ];
         $db->table('kamar')->insertBatch($kamarData);
 
@@ -288,12 +290,9 @@ class AsramaSeeder extends Seeder
         $presensiData = [
             ['NIM' => '2310933001', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 05:12:00'), 'Latitude' => -0.91448800, 'Longitude' => 100.46654200, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
             ['NIM' => '2310933002', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 05:30:00'), 'Latitude' => -0.91448800, 'Longitude' => 100.46654200, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['NIM' => '2310933003', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 00:00:00'), 'Latitude' => null, 'Longitude' => null, 'Status' => 'Tidak Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Tanpa keterangan', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['NIM' => '2310933004', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 00:00:00'), 'Latitude' => null, 'Longitude' => null, 'Status' => 'Izin', 'Foto_wajah' => null, 'Keterangan' => 'Pulang kampung', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
             ['NIM' => '2310933005', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 04:55:00'), 'Latitude' => -0.91490000, 'Longitude' => 100.46700000, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
             ['NIM' => '2310933006', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 05:40:00'), 'Latitude' => -0.91490000, 'Longitude' => 100.46700000, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
             ['NIM' => '2310933007', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 05:20:00'), 'Latitude' => -0.91350000, 'Longitude' => 100.46580000, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['NIM' => '2310933008', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 00:00:00'), 'Latitude' => null, 'Longitude' => null, 'Status' => 'Tidak Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Tanpa keterangan', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
             ['NIM' => '2310933009', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 05:10:00'), 'Latitude' => -0.91350000, 'Longitude' => 100.46580000, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
             ['NIM' => '2310933010', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 05:25:00'), 'Latitude' => -0.91350000, 'Longitude' => 100.46580000, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
         ];
@@ -307,8 +306,11 @@ class AsramaSeeder extends Seeder
                 'Alasan'             => 'Keluarga sakit, perlu pulang ke rumah untuk merawat ibu',
                 'Status_persetujuan' => 'Pending',
                 'File_bukti'         => 'surat_dokter.pdf',
-                'Tanggal'            => $today,
+                'Tanggal'            => date('Y-m-d', strtotime('+1 days')),
+                'Tanggal_selesai'    => date('Y-m-d', strtotime('+3 days')),
+                'Sesi'               => null,
                 'Tanggal_approval'   => null,
+                'Catatan_approver'   => null,
                 'created_at'         => date('Y-m-d H:i:s'),
                 'updated_at'         => date('Y-m-d H:i:s'),
             ],
@@ -319,7 +321,10 @@ class AsramaSeeder extends Seeder
                 'Status_persetujuan' => 'Disetujui',
                 'File_bukti'         => 'undangan_wisuda.jpg',
                 'Tanggal'            => date('Y-m-d', strtotime('-2 days')),
+                'Tanggal_selesai'    => date('Y-m-d', strtotime('-1 days')),
+                'Sesi'               => null,
                 'Tanggal_approval'   => date('Y-m-d H:i:s', strtotime('-3 days')),
+                'Catatan_approver'   => 'Disetujui, sampaikan selamat untuk kakaknya',
                 'created_at'         => date('Y-m-d H:i:s', strtotime('-3 days')),
                 'updated_at'         => date('Y-m-d H:i:s', strtotime('-2 days')),
             ],
@@ -330,7 +335,10 @@ class AsramaSeeder extends Seeder
                 'Status_persetujuan' => 'Disetujui',
                 'File_bukti'         => 'foto_tiket.jpg',
                 'Tanggal'            => $today,
+                'Tanggal_selesai'    => date('Y-m-d', strtotime('+1 days')),
+                'Sesi'               => null,
                 'Tanggal_approval'   => date('Y-m-d H:i:s', strtotime('-1 days')),
+                'Catatan_approver'   => 'Hati-hati di jalan',
                 'created_at'         => date('Y-m-d H:i:s', strtotime('-2 days')),
                 'updated_at'         => date('Y-m-d H:i:s', strtotime('-1 days')),
             ],
@@ -341,12 +349,30 @@ class AsramaSeeder extends Seeder
                 'Status_persetujuan' => 'Ditolak',
                 'File_bukti'         => '',
                 'Tanggal'            => date('Y-m-d', strtotime('-4 days')),
+                'Tanggal_selesai'    => null,
+                'Sesi'               => null,
                 'Tanggal_approval'   => date('Y-m-d H:i:s', strtotime('-4 days')),
+                'Catatan_approver'   => 'Surat keterangan dokter tidak dilampirkan',
                 'created_at'         => date('Y-m-d H:i:s', strtotime('-4 days')),
                 'updated_at'         => date('Y-m-d H:i:s', strtotime('-4 days')),
             ],
         ];
         $db->table('izin')->insertBatch($izinData);
+
+        // 7. Insert Sesi (jam presensi)
+        $db->table('sesi')->insertBatch([
+            ['Nama' => 'Subuh', 'Jam_mulai' => '04:00:00', 'Jam_selesai' => '06:00:00', 'Aktif' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ['Nama' => 'Malam', 'Jam_mulai' => '18:00:00', 'Jam_selesai' => '20:30:00', 'Aktif' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+        ]);
+
+        // 8. Insert Hari Libur
+        $db->table('hari_libur')->insert([
+            'Tanggal_mulai'   => date('Y-m-d', strtotime('-10 days')),
+            'Tanggal_selesai' => date('Y-m-d', strtotime('-9 days')),
+            'Keterangan'      => 'Libur Maulid Nabi',
+            'created_at'      => date('Y-m-d H:i:s'),
+            'updated_at'      => date('Y-m-d H:i:s'),
+        ]);
 
         $db->enableForeignKeyChecks();
     }

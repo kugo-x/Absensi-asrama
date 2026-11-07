@@ -1,6 +1,7 @@
 export type Role = 'admin' | 'fasil' | 'penghuni'
-export type SessionType = 'Subuh' | 'Malam'
-export type PresensiStatus = 'Hadir' | 'Tidak Hadir' | 'Izin' | 'Belum'
+// Nama sesi mengikuti tabel `sesi` (misal: Subuh, Malam) sehingga bisa diatur admin
+export type SessionType = string
+export type PresensiStatus = 'Hadir' | 'Tidak Hadir' | 'Izin' | 'Belum' | 'Libur'
 export type IzinStatus = 'Pending' | 'Disetujui' | 'Ditolak'
 
 export interface CurrentUser {
@@ -8,15 +9,19 @@ export interface CurrentUser {
   nama: string
   role: Role
   nomorKamar?: string
+  idGedung?: number
   namaGedung?: string
   email: string
+  tanggalMasuk?: string
 }
 
 export interface Gedung {
   id: number
   nama: string
-  nimPj: string
-  namaPj: string
+  nimPj: string | null
+  namaPj: string | null
+  latitude: number | null
+  longitude: number | null
   radiusMeter: number
   totalKamar: number
   jenis: 'Putra' | 'Putri'
@@ -27,6 +32,7 @@ export interface Kamar {
   lantai: number
   idGedung: number
   namaGedung: string
+  kapasitas: number
   penghuniCount: number
 }
 
@@ -40,7 +46,28 @@ export interface Penghuni {
   noHp: string
   statusAktif: boolean
   role: 'penghuni' | 'fasil'
-  angkatan: string
+  tanggalMasuk: string
+}
+
+export interface Sesi {
+  id: number
+  nama: string
+  jamMulai: string // HH:MM
+  jamSelesai: string // HH:MM
+  aktif: boolean
+}
+
+export interface HariLibur {
+  id: number
+  tanggalMulai: string
+  tanggalSelesai: string
+  keterangan: string
+}
+
+// Pengecualian aturan presensi yang diaktifkan admin untuk mencoba fitur absensi
+export interface ModeUji {
+  abaikanJam: boolean
+  abaikanRadius: boolean
 }
 
 export interface PresensiRecord {
@@ -52,8 +79,12 @@ export interface PresensiRecord {
   tanggal: string
   sesi: SessionType
   waktu: string
+  latitude: number | null
+  longitude: number | null
   status: PresensiStatus
+  fotoWajah: string
   keterangan: string
+  dikoreksiOleh?: string | null
 }
 
 export interface IzinRecord {
@@ -68,7 +99,9 @@ export interface IzinRecord {
   statusPersetujuan: IzinStatus
   fileBukti: string
   tanggal: string
-  tanggalAkhir: string
+  tanggalSelesai: string
+  // null = berlaku untuk seluruh sesi pada rentang tanggal
+  sesi: string | null
+  catatanApprover?: string
   tanggalApproval?: string
-  keteranganPenolakan?: string
 }
