@@ -160,6 +160,7 @@ class DataController extends BaseController
                 u.Asal as asal,
                 u.Email as email,
                 u.No_HP as noHp,
+                u.Password as passwordHash,
                 (u.Status_aktif = 'Aktif') as statusAktif,
                 LOWER(u.Role) as role,
                 COALESCE(DATE(u.created_at), '') as tanggalMasuk
@@ -177,6 +178,8 @@ class DataController extends BaseController
             if ($row['role'] === 'mahasiswa') {
                 $row['role'] = 'penghuni';
             }
+            $row['passwordDefault'] = $row['role'] === 'penghuni' && password_verify('penghuni123', $row['passwordHash']);
+            unset($row['passwordHash']);
         }
         return $this->respond($data);
     }
@@ -329,6 +332,41 @@ class DataController extends BaseController
         }
 
         return $this->respond(['status' => 'success', 'message' => 'Data penghuni berhasil diperbarui']);
+    }
+
+    public function resetPassword()
+    {
+        $token = $this->tokenUser();
+        if (($token['role'] ?? '') !== 'admin') return $this->failForbidden('Hanya admin yang dapat mereset password.');
+        $input = $this->request->getJSON(true) ?? [];
+        $nim = trim($input['nim'] ?? '');
+        $adminNim = trim($input['adminNim'] ?? '');
+        $adminPassword = (string) ($input['adminPassword'] ?? '');
+        $admin = $this->db->table('user')->where('NIM', $token['nim'] ?? '')->get()->getRowArray();
+        if (!$admin || $adminNim !== ($token['nim'] ?? '') || !$adminPassword || !password_verify($adminPassword, $admin['Password'])) {
+            return $this->fail('Verifikasi username atau password admin gagal.', 401);
+        }
+        $user = $this->db->table('user')->where('NIM', $nim)->get()->getRowArray();
+        if (!$user || strtolower($user['Role']) === 'admin') return $this->failNotFound('Penghuni tidak ditemukan.');
+        if (password_verify('penghuni123', $user['Password'])) {
+            return $this->fail('Password akun ini sudah menggunakan password default penghuni123.', 409);
+        }
+        $this->db->table('user')->where('NIM', $nim)->update([
+            'Password' => password_hash('penghuni123', PASSWORD_BCRYPT),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        return $this->respond(['status' => 'success', 'message' => 'Password direset ke penghuni123.']);
+    }
+
+    private function tokenUser(): array
+    {
+        $header = $this->request->getHeaderLine('Authorization');
+        $raw = preg_replace('/^Bearer\s+/i', '', $header);
+        [$encoded, $signature] = array_pad(explode('.', $raw, 2), 2, '');
+        $payload = base64_decode(strtr($encoded, '-_', '+/'));
+        $data = json_decode($payload ?: '', true);
+        $expected = hash_hmac('sha256', $encoded, env('encryption.key', 'sip-asrama-v1'));
+        return $data && hash_equals($expected, $signature) && ($data['exp'] ?? 0) >= time() ? $data : [];
     }
 
     // ----------------------------------------------------

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, IzinRecord, Sesi, HariLibur, ModeUji } from '../types'
-import AppLayout, { StatCard, SectionTitle, Badge } from '../components/AppLayout'
+import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import {
   penghuniList as initialPenghuni,
@@ -14,11 +14,11 @@ import {
 import {
   fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, updateGedungApi, setPjGedungApi,
   fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, type ApiResult, type UbahPenghuni,
-  fetchModeUji, saveModeUjiApi, MODE_UJI_MATI,
+  fetchModeUji, saveModeUjiApi, MODE_UJI_MATI, resetPasswordApi,
 } from '../api'
 import { getCurrentPosition } from '../geo'
 import {
-  hitungStatus, hunianKamar, penghuniWajibAbsen, riwayatPenghuni, sesiAktif, statusSesi, todayLocal, type DataPresensi,
+  addDays, hitungStatus, hunianKamar, penghuniWajibAbsen, riwayatPenghuni, sesiAktif, statusSesi, todayLocal, type DataPresensi,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -48,7 +48,12 @@ import {
   Trash2,
   LogOut,
   Palmtree,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
@@ -110,6 +115,8 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
   const [modeUji, setModeUji] = useState<ModeUji>(MODE_UJI_MATI)
   const [showAddModal, setShowAddModal] = useState(false)
   const [kelola, setKelola] = useState<Penghuni | null>(null)
+  const [resetTarget, setResetTarget] = useState<Penghuni | null>(null)
+  const [showDefaultNotice, setShowDefaultNotice] = useState(true)
   const now = new Date()
 
   useEffect(() => {
@@ -124,6 +131,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
   }, [])
 
   const data: DataPresensi = { presensi, izin, libur }
+  const defaultPasswordCount = penghuni.filter(p => p.role === 'penghuni' && p.statusAktif && p.passwordDefault).length
   const namaGedungKamar = (nomorKamar: string) => kamarList.find(k => k.nomorKamar === nomorKamar)?.namaGedung || ''
 
   const handleAddPenghuni = async (p: Penghuni) => {
@@ -191,9 +199,10 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
 
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}>
+      {showDefaultNotice && defaultPasswordCount > 0 && <DefaultPasswordNotice count={defaultPasswordCount} onClose={() => setShowDefaultNotice(false)} />}
       {activeTab === 'dashboard' && <AdminDashboard penghuni={penghuni} gedungList={gedungList} kamarList={kamarList} sesiList={sesiList} data={data} now={now} />}
       {activeTab === 'penghuni' && (
-        <AdminPenghuni penghuni={penghuni} onAddClick={() => setShowAddModal(true)} onKelola={setKelola} />
+        <AdminPenghuni penghuni={penghuni} onAddClick={() => setShowAddModal(true)} onKelola={setKelola} onResetPassword={nim => setResetTarget(penghuni.find(p => p.nim === nim) || null)} />
       )}
       {activeTab === 'gedung' && (
         <AdminGedung gedungList={gedungList} kamarList={kamarList} penghuni={penghuni} onSaveLokasi={handleSaveLokasi} onSetPj={handleSetPj} />
@@ -226,7 +235,25 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
           onSave={changes => handleUpdatePenghuni(kelola.nim, changes)}
         />
       )}
+      {resetTarget && <ResetPasswordDialog target={resetTarget} onClose={() => setResetTarget(null)} />}
     </AppLayout>
+  )
+}
+
+function DefaultPasswordNotice({ count, onClose }: { count: number; onClose: () => void }) {
+  return (
+    <div className="fixed right-5 top-20 z-40 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-amber-200 bg-white p-4 shadow-xl">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">!</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-extrabold text-gray-900">Password default terdeteksi</p>
+            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-700 cursor-pointer" aria-label="Tutup pemberitahuan"><X className="h-4 w-4" /></button>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-gray-600">{count} akun penghuni aktif masih menggunakan password default <strong>penghuni123</strong>. Minta penghuni segera menggantinya melalui menu Profil.</p>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -322,17 +349,47 @@ function AdminDashboard({ penghuni, gedungList, kamarList, sesiList, data, now }
 // Data Penghuni
 // ---------------------------------------------------------------------------
 
-function AdminPenghuni({ penghuni, onAddClick, onKelola }: {
+function AdminPenghuni({ penghuni, onAddClick, onKelola, onResetPassword }: {
   penghuni: Penghuni[]
   onAddClick: () => void
   onKelola: (p: Penghuni) => void
+  onResetPassword: (nim: string) => void
 }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<'aktif' | 'nonaktif' | 'semua'>('aktif')
+  const [filterGedung, setFilterGedung] = useState('semua')
+  const [page, setPage] = useState(1)
+  const [importMessage, setImportMessage] = useState('')
+  const pageSize = 8
   const q = search.toLowerCase()
   const filtered = penghuni
     .filter(p => filterStatus === 'semua' || (filterStatus === 'aktif' ? p.statusAktif : !p.statusAktif))
-    .filter(p => p.nama.toLowerCase().includes(q) || p.nim.includes(search) || p.nomorKamar.toLowerCase().includes(q) || p.namaGedung.toLowerCase().includes(q))
+    .filter(p => filterGedung === 'semua' || p.namaGedung === filterGedung)
+    .filter(p => p.nama.toLowerCase().includes(q) || p.nim.includes(search) || p.nomorKamar.toLowerCase().includes(q) || p.namaGedung.toLowerCase().includes(q) || p.asal.toLowerCase().includes(q))
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const rows = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+  const importSpreadsheet = (file: File | undefined) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const workbook = XLSX.read(reader.result, { type: 'array' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const sourceRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, '')
+      const required = ['nim', 'nama']
+      const imported = sourceRows.map(sourceRow => {
+        const row = Object.fromEntries(Object.entries(sourceRow).map(([key, value]) => [normalize(key), String(value).trim()]))
+        return { nim: row.nim || '', nama: row.nama || '', email: row.email || '', noHp: row.nohp || '', asal: row.asal || '', nomorKamar: row.nomorkamar || '', namaGedung: row.namagedung || '', statusAktif: true, role: 'penghuni' as const, tanggalMasuk: todayLocal() }
+      }).filter(p => p.nim && p.nama && !penghuni.some(existing => existing.nim === p.nim))
+      if (!sourceRows.length || !required.every(h => normalize(Object.keys(sourceRows[0]).find(key => normalize(key) === h) || '') === h)) return setImportMessage('File wajib memiliki kolom NIM dan Nama.')
+      if (!imported.length) return setImportMessage('Tidak ada baris baru yang dapat diimpor.')
+      imported.forEach(p => addPenghuniApi(p))
+      setImportMessage(`${imported.length} data berhasil diimpor.`)
+      window.location.reload()
+    }
+    reader.readAsArrayBuffer(file)
+  }
 
   return (
     <div className="space-y-4">
@@ -342,7 +399,7 @@ function AdminPenghuni({ penghuni, onAddClick, onKelola }: {
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all font-medium placeholder:text-gray-400"
-              placeholder="Cari berdasarkan nama, NIM, kamar, atau gedung..."
+              placeholder="Cari nama, NIM, kamar, gedung, atau asal..."
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -351,6 +408,10 @@ function AdminPenghuni({ penghuni, onAddClick, onKelola }: {
             <option value="aktif">Penghuni Aktif</option>
             <option value="nonaktif">Nonaktif / Keluar</option>
             <option value="semua">Semua</option>
+          </select>
+          <select className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700" value={filterGedung} onChange={e => { setFilterGedung(e.target.value); setPage(1) }}>
+            <option value="semua">Semua Gedung</option>
+            {[...new Set(penghuni.map(p => p.namaGedung).filter(Boolean))].sort().map(gedung => <option key={gedung} value={gedung}>{gedung}</option>)}
           </select>
         </div>
         <button
@@ -361,7 +422,12 @@ function AdminPenghuni({ penghuni, onAddClick, onKelola }: {
           <UserPlus className="w-4 h-4" />
           <span>Tambah Penghuni</span>
         </button>
+        <label className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer">
+          <FileSpreadsheet className="w-4 h-4" /> Impor Excel / CSV
+          <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={e => importSpreadsheet(e.target.files?.[0])} />
+        </label>
       </div>
+      {importMessage && <p className="text-xs font-semibold text-emerald-700">{importMessage}</p>}
 
       <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs">
         <div className="overflow-x-auto">
@@ -374,7 +440,7 @@ function AdminPenghuni({ penghuni, onAddClick, onKelola }: {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.map(p => (
+              {rows.map(p => (
                 <tr key={p.nim} className="hover:bg-emerald-50/30 transition-colors">
                   <td className="px-5 py-3.5 mono text-xs font-semibold text-gray-600">{p.nim}</td>
                   <td className="px-5 py-3.5 font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{p.nama}</td>
@@ -391,13 +457,24 @@ function AdminPenghuni({ penghuni, onAddClick, onKelola }: {
                     >
                       Kelola
                     </button>
+                    <button
+                      onClick={() => onResetPassword(p.nim)}
+                      className="ml-1 text-xs font-bold px-2.5 py-1 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer"
+                    >Reset sandi</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="px-5 py-3 text-xs text-gray-500 border-t border-gray-100 font-medium bg-gray-50/50">Menampilkan {filtered.length} data</div>
+        <div className="px-5 py-3 text-xs text-gray-500 border-t border-gray-100 font-medium bg-gray-50/50 flex items-center justify-between">
+          <span>Menampilkan {rows.length} dari {filtered.length} data</span>
+          <div className="flex items-center gap-2">
+            <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="px-2 py-1 rounded border disabled:opacity-40">Sebelumnya</button>
+            <span>Halaman {page} / {pageCount}</span>
+            <button disabled={page === pageCount} onClick={() => setPage(p => p + 1)} className="px-2 py-1 rounded border disabled:opacity-40">Berikutnya</button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -461,6 +538,82 @@ function ModalShell({ title, subtitle, icon, onClose, children }: { title: strin
         {children}
       </div>
     </div>
+  )
+}
+
+function ResetPasswordDialog({ target, onClose }: { target: Penghuni; onClose: () => void }) {
+  const [password, setPassword] = useState('')
+  const [adminNim, setAdminNim] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState('')
+  const [rejection, setRejection] = useState('')
+  const [done, setDone] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const submit = async () => {
+    if (!adminNim.trim() || !password) {
+      setError('Username dan password admin wajib diisi.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    const result = await resetPasswordApi(target.nim, adminNim.trim(), password)
+    setLoading(false)
+    if (!result.ok) {
+      setRejection(result.message)
+      return
+    }
+    setDone(true)
+  }
+
+  return (
+    <ConfirmDialog
+      title={done ? 'Password Berhasil Direset' : 'Verifikasi Reset Password'}
+      message={done ? `Password ${target.nama} telah direset ke password awal penghuni.` : `Verifikasi username dan password admin untuk mereset akun ${target.nama} (${target.nim}).`}
+      confirmLabel={done ? 'Selesai' : 'Reset Password'}
+      onCancel={onClose}
+      onConfirm={done ? onClose : submit}
+      loading={loading}
+    >
+      {!done && (
+        <div>
+          <label className={labelCls}>Username / NIM Admin</label>
+          <input
+            autoFocus
+            type="text"
+            value={adminNim}
+            onChange={e => setAdminNim(e.target.value)}
+            className={inputCls}
+            placeholder="Masukkan username admin"
+          />
+          <label className={labelCls}>Password Admin</label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submit() }}
+              className={`${inputCls} pr-10`}
+              placeholder="Masukkan password admin"
+            />
+            <button type="button" onClick={() => setShowPassword(value => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 cursor-pointer" aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}>
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          {error && <p className="mt-2 text-xs font-semibold text-rose-700">{error}</p>}
+          <p className="mt-2 text-[11px] text-gray-500">Password awal akun menjadi <strong>penghuni123</strong>.</p>
+        </div>
+      )}
+      {rejection && (
+        <ConfirmDialog
+          title="Reset Sandi Ditolak"
+          message={rejection}
+          confirmLabel="Oke"
+          onCancel={() => { setRejection(''); onClose() }}
+          onConfirm={() => { setRejection(''); onClose() }}
+        />
+      )}
+    </ConfirmDialog>
   )
 }
 
@@ -1123,6 +1276,65 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
 // Laporan
 // ---------------------------------------------------------------------------
 
+type ExportFormat = 'csv' | 'xlsx' | 'doc' | 'pdf'
+
+function downloadReport(filename: string, headers: string[], rows: unknown[][], format: ExportFormat, title: string) {
+  const escapeCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
+  const content = [headers, ...rows].map(row => row.map(escapeCell).join(',')).join('\r\n')
+  if (format === 'xlsx') {
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: headers.length - 1 } }) }
+    worksheet['!cols'] = headers.map((header, index) => ({
+      wch: Math.min(32, Math.max(header.length + 2, ...rows.slice(0, 100).map(row => String(row[index] ?? '').length + 2))),
+    }))
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Laporan')
+    XLSX.writeFile(workbook, filename)
+    return
+  }
+
+  if (format === 'pdf') {
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    pdf.setFontSize(14)
+    pdf.text(title, 14, 14)
+    pdf.setFontSize(8)
+    pdf.text(`Dicetak ${new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(new Date())}`, 14, 20)
+    autoTable(pdf, {
+      head: [headers],
+      body: rows.map(row => row.map(value => String(value ?? ''))),
+      startY: 25,
+      theme: 'grid',
+      styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
+      headStyles: { fillColor: [6, 95, 70], textColor: 255 },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      margin: { left: 10, right: 10 },
+    })
+    pdf.save(filename)
+    return
+  }
+
+  if (format === 'doc') {
+    const tableRows = [headers, ...rows].map((row, index) => `<tr>${row.map(value => index === 0 ? `<th>${String(value ?? '')}</th>` : `<td>${String(value ?? '')}</td>`).join('')}</tr>`).join('')
+    const html = `<html><head><meta charset="utf-8"><style>body{font-family:Arial;color:#19352a}h1{font-size:18pt}p{font-size:9pt;color:#666}table{border-collapse:collapse;font-family:Arial;font-size:10pt;width:100%}th,td{border:1px solid #9bb5a5;padding:6px;text-align:left}th{background:#065f46;color:#fff}tr:nth-child(even){background:#f0fdf4}</style></head><body><h1>${title}</h1><p>Dicetak ${new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(new Date())}</p><table>${tableRows}</table></body></html>`
+    const blob = new Blob([html], { type: 'application/msword' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+    return
+  }
+
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 function AdminLaporan({ penghuni, gedungList, sesiList, data, now }: {
   penghuni: Penghuni[]
   gedungList: Gedung[]
@@ -1147,6 +1359,38 @@ function AdminLaporan({ penghuni, gedungList, sesiList, data, now }: {
   const izinBulanIni = data.izin.filter(i => i.tanggal >= awalBulan).length
   const terbaik = perGedung.filter(x => x.c.wajib > 0).sort((a, b) => b.c.persen - a.c.persen)[0]
 
+  const ekspor = (title: string, format: ExportFormat) => {
+    let headers: string[] = []
+    let rows: unknown[][] = []
+
+    if (title === 'Presensi Harian' || title === 'Presensi Mingguan') {
+      const mulai = title === 'Presensi Harian' ? today : addDays(today, -6)
+      headers = ['Tanggal', 'Sesi', 'NIM', 'Nama', 'Gedung', 'Kamar', 'Status', 'Waktu', 'Keterangan']
+      rows = data.presensi
+        .filter(p => p.tanggal >= mulai && p.tanggal <= today)
+        .sort((a, b) => `${a.tanggal}${a.sesi}`.localeCompare(`${b.tanggal}${b.sesi}`))
+        .map(p => [p.tanggal, p.sesi, p.nim, p.namaPenghuni, p.namaGedung, p.nomorKamar, p.status, p.waktu, p.keterangan])
+    } else if (title === 'Rekap Perizinan') {
+      headers = ['NIM', 'Nama', 'Gedung', 'Kamar', 'Tanggal Mulai', 'Tanggal Selesai', 'Sesi', 'Alasan', 'Status', 'Catatan']
+      rows = data.izin.map(i => [i.nim, i.namaPenghuni, i.namaGedung, i.nomorKamar, i.tanggal, i.tanggalSelesai, i.sesi || 'Semua sesi', i.alasan, i.statusPersetujuan, i.catatanApprover || ''])
+    } else if (title === 'Daftar Penghuni') {
+      headers = ['NIM', 'Nama', 'Email', 'No. HP', 'Asal', 'Peran', 'Status', 'Gedung', 'Kamar', 'Tanggal Masuk']
+      rows = penghuni.map(p => [p.nim, p.nama, p.email, p.noHp, p.asal, p.role, p.statusAktif ? 'Aktif' : 'Nonaktif', p.namaGedung, p.nomorKamar, p.tanggalMasuk])
+    } else if (title === 'Statistik Gedung') {
+      headers = ['Gedung', 'Hadir', 'Tidak Hadir', 'Izin', 'Belum', 'Total Wajib', 'Persentase Hadir']
+      rows = perGedung.map(x => [x.gedung.nama, x.c.Hadir, x.c['Tidak Hadir'], x.c.Izin, x.c.Belum, x.c.wajib, `${x.c.persen}%`])
+    } else {
+      headers = ['NIM', 'Nama', 'Hadir', 'Tidak Hadir', 'Izin', 'Belum', 'Total Wajib', 'Persentase Hadir']
+      rows = penghuniWajibAbsen(penghuni).map(p => {
+        const stats = hitungStatus(riwayatPenghuni(p.nim, p.tanggalMasuk > awalBulan ? p.tanggalMasuk : awalBulan, today, sesiList, data, now).map(r => r.detail.status))
+        return [p.nim, p.nama, stats.Hadir, stats['Tidak Hadir'], stats.Izin, stats.Belum, stats.wajib, `${stats.persen}%`]
+      })
+    }
+
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    downloadReport(`${slug}-${today}.${format}`, headers, rows, format, title)
+  }
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl p-6 border border-emerald-100/80 shadow-xs">
@@ -1166,14 +1410,25 @@ function AdminLaporan({ penghuni, gedungList, sesiList, data, now }: {
                 <h5 className="font-bold text-sm text-emerald-950 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>{item.title}</h5>
                 <p className="text-xs text-gray-500 leading-relaxed font-medium">{item.desc}</p>
               </div>
-              <button
-                onClick={() => alert(`Mengunduh berkas ${item.title}...`)}
-                className="mt-4 w-full py-2 px-3 rounded-lg text-xs font-bold text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-700 hover:text-white transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                style={{ fontFamily: 'Plus Jakarta Sans' }}
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Unduh CSV</span>
-              </button>
+              <div className="mt-4 grid grid-cols-4 gap-1.5">
+                {([
+                  ['csv', 'CSV'],
+                  ['xlsx', 'Excel'],
+                  ['doc', 'Word'],
+                  ['pdf', 'PDF'],
+                ] as const).map(([format, label]) => (
+                  <button
+                    key={format}
+                    onClick={() => ekspor(item.title, format)}
+                    className="py-2 px-1 rounded-lg text-[11px] font-bold text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-700 hover:text-white transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                    style={{ fontFamily: 'Plus Jakarta Sans' }}
+                    title={`Unduh ${item.title} sebagai ${label}`}
+                  >
+                    {format === 'pdf' ? <Download className="w-3 h-3" /> : null}
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
         </div>

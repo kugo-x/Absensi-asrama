@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { CurrentUser, Gedung, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
-import AppLayout, { StatCard, SectionTitle, Badge } from '../components/AppLayout'
+import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { SesiIcon, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
 import {
@@ -10,7 +10,7 @@ import {
   sesiList as initialSesi,
   liburList as initialLibur,
 } from '../data/mockData'
-import { fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI } from '../api'
+import { fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI, changePasswordApi, uploadProfilePhotoApi } from '../api'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
   addDays, cariLibur, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
@@ -40,7 +40,11 @@ import {
   Bell,
   Palmtree,
   Camera,
+  Eye,
+  EyeOff,
+  Pencil,
 } from 'lucide-react'
+import Cropper, { type Area } from 'react-easy-crop'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
@@ -257,7 +261,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       )}
       {activeTab === 'riwayat' && <PenghuniRiwayat riwayat={riwayat} />}
       {activeTab === 'izin' && <PenghuniIzin izinData={izinData} setIzinData={setIzinData} user={user} sesiList={sesiAktif(sesiList)} today={today} />}
-      {activeTab === 'profil' && <PenghuniProfil user={user} />}
+      {activeTab === 'profil' && <PenghuniProfil user={user} onLogout={onLogout} />}
     </AppLayout>
   )
 }
@@ -449,7 +453,7 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, foto, onFotoCh
   const diluarRadius = gps.status === 'ok' && !inRadius && !abaikanRadius
 
   return (
-    <div className="grid lg:grid-cols-12 gap-6 w-full items-start">
+    <div className="grid min-w-0 grid-cols-1 gap-6 w-full items-start lg:grid-cols-12">
       {/* Kolom Kiri: Form & Aksi Presensi */}
       <div className="lg:col-span-7 space-y-6">
         <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-2xs">
@@ -846,17 +850,107 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
   )
 }
 
-function PenghuniProfil({ user }: { user: CurrentUser }) {
+async function getCroppedPhoto(imageSrc: string, crop: Area): Promise<string> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image()
+    element.onload = () => resolve(element)
+    element.onerror = reject
+    element.src = imageSrc
+  })
+  const canvas = document.createElement('canvas')
+  canvas.width = crop.width
+  canvas.height = crop.height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Canvas foto tidak tersedia.')
+  context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height)
+  return canvas.toDataURL('image/jpeg', 0.9)
+}
+
+function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) {
+  const [passwordLama, setPasswordLama] = useState('')
+  const [passwordBaru, setPasswordBaru] = useState('')
+  const [konfirmasi, setKonfirmasi] = useState('')
+  const [fotoProfil, setFotoProfil] = useState(user.fotoProfil || '')
+  const [fotoDipilih, setFotoDipilih] = useState<string | null>(null)
+  const [pendingFoto, setPendingFoto] = useState<string | null>(null)
+  const [crop, setCrop] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
+  const [passwordChanged, setPasswordChanged] = useState(false)
+  const [confirmPasswordChange, setConfirmPasswordChange] = useState(false)
+  const [showPassword, setShowPassword] = useState<number | null>(null)
+  const [notice, setNotice] = useState('')
+
+  const simpanPassword = async () => {
+    setNotice('')
+    if (passwordBaru.length < 8) return setNotice('Password baru minimal 8 karakter.')
+    if (passwordBaru !== konfirmasi) return setNotice('Konfirmasi password tidak sama.')
+    setConfirmPasswordChange(true)
+  }
+
+  const ubahPassword = async () => {
+    const result = await changePasswordApi(user.nim, passwordLama, passwordBaru)
+    setNotice(result.message)
+    if (result.ok) {
+      setConfirmPasswordChange(false)
+      setPasswordLama('')
+      setPasswordBaru('')
+      setKonfirmasi('')
+      setPasswordChanged(true)
+    }
+  }
+
+  const pilihFoto = (file: File | undefined) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) return setNotice('File foto harus berupa gambar.')
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const foto = String(reader.result)
+      setFotoDipilih(foto)
+      setCrop({ x: 0, y: 0 })
+      setZoom(1)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const selesaiCrop = async () => {
+    if (!fotoDipilih || !croppedAreaPixels) return
+    try {
+      setPendingFoto(await getCroppedPhoto(fotoDipilih, croppedAreaPixels))
+      setFotoDipilih(null)
+    } catch {
+      setNotice('Foto tidak dapat diproses.')
+    }
+  }
+
+  const konfirmasiFoto = async () => {
+    if (!pendingFoto) return
+    const foto = pendingFoto
+    const result = await uploadProfilePhotoApi(user.nim, foto)
+    if (result.ok || result.offline) {
+      setFotoProfil(foto)
+      setPendingFoto(null)
+      const saved = JSON.parse(localStorage.getItem('sip-asrama-user') || '{}')
+      localStorage.setItem('sip-asrama-user', JSON.stringify({ ...saved, fotoProfil: foto }))
+      window.dispatchEvent(new Event('profile-updated'))
+    }
+    setNotice(result.message)
+  }
+
   return (
     <div className="grid lg:grid-cols-12 gap-6 w-full items-start">
       {/* Kolom Kiri: Informasi Identitas Penghuni */}
-      <div className="lg:col-span-6 bg-white rounded-xl p-5 border border-gray-200 shadow-2xs space-y-5">
-        <SectionTitle subtitle="Informasi akun mahasiswa penghuni asrama yang terdaftar">Data Identitas Diri</SectionTitle>
+      <div className="min-w-0 lg:col-span-6 bg-white rounded-xl p-5 border border-gray-200 shadow-2xs space-y-5">
+        <SectionTitle subtitle="Akun non-admin dapat mengubah foto profil dan password">Data Identitas Diri</SectionTitle>
 
         <div className="flex items-center gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
-          <div className="w-14 h-14 rounded-lg flex items-center justify-center text-xl font-bold bg-[#0e4b29] text-white shrink-0" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            {user.nama.charAt(0).toUpperCase()}
-          </div>
+          <label className="relative w-14 h-14 rounded-lg flex items-center justify-center text-xl font-bold bg-[#0e4b29] text-white shrink-0 overflow-hidden cursor-pointer" title="Edit foto profil">
+            {fotoProfil ? <img src={fotoProfil} alt="Foto profil" className="w-full h-full object-cover" /> : user.nama.charAt(0).toUpperCase()}
+            <input type="file" accept="image/*" className="hidden" onChange={e => pilihFoto(e.target.files?.[0])} />
+            <span className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-tl-md bg-emerald-700 text-white shadow-sm">
+              <Pencil className="h-3 w-3" />
+            </span>
+          </label>
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-base text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{user.nama}</h3>
             <p className="mono text-xs text-gray-500">{user.nim}</p>
@@ -865,25 +959,28 @@ function PenghuniProfil({ user }: { user: CurrentUser }) {
         </div>
 
         <div className="space-y-2.5 text-xs">
-          {[
-            { label: 'Alamat Email', value: user.email, icon: <Mail className="w-4 h-4 text-emerald-700" /> },
-            { label: 'Gedung Asrama', value: user.namaGedung || '-', icon: <Building className="w-4 h-4 text-emerald-700" /> },
-            { label: 'Nomor Kamar', value: user.nomorKamar || '-', icon: <DoorClosed className="w-4 h-4 text-emerald-700" /> },
-            { label: 'Terdaftar Sejak', value: user.tanggalMasuk || '-', icon: <ShieldCheck className="w-4 h-4 text-emerald-700" /> },
-          ].map(row => (
-            <div key={row.label} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-white">
-              <div className="w-7 h-7 rounded bg-gray-100 flex items-center justify-center shrink-0">{row.icon}</div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{row.label}</p>
-                <p className="text-xs font-semibold text-gray-800 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{row.value}</p>
+            {[
+              { label: 'Alamat Email', value: user.email, icon: <Mail className="w-4 h-4 text-emerald-700" /> },
+              { label: 'Nomor HP', value: user.noHp || '-', icon: <User className="w-4 h-4 text-emerald-700" /> },
+              { label: 'Asal Daerah', value: user.asal || '-', icon: <MapPin className="w-4 h-4 text-emerald-700" /> },
+              { label: 'Gedung Asrama', value: user.namaGedung || '-', icon: <Building className="w-4 h-4 text-emerald-700" /> },
+              { label: 'Nomor Kamar', value: user.nomorKamar || '-', icon: <DoorClosed className="w-4 h-4 text-emerald-700" /> },
+              { label: 'Terdaftar Sejak', value: user.tanggalMasuk || '-', icon: <ShieldCheck className="w-4 h-4 text-emerald-700" /> },
+            ].map(row => (
+              <div key={row.label} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-white">
+                <div className="w-7 h-7 rounded bg-gray-100 flex items-center justify-center shrink-0">{row.icon}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{row.label}</p>
+                  <p className="text-xs font-semibold text-gray-800 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{row.value}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
+        {notice && <p className="text-xs font-semibold text-emerald-700">{notice}</p>}
       </div>
 
       {/* Kolom Kanan: Pengaturan Keamanan & Password */}
-      <div className="lg:col-span-6 bg-white rounded-xl p-5 border border-gray-200 shadow-2xs space-y-4">
+      <div className="min-w-0 lg:col-span-6 bg-white rounded-xl p-5 border border-gray-200 shadow-2xs space-y-4">
         <SectionTitle subtitle="Ganti kata sandi secara berkala untuk menjaga keamanan akun Anda">Keamanan & Ubah Password</SectionTitle>
 
         <div className="space-y-3">
@@ -891,29 +988,92 @@ function PenghuniProfil({ user }: { user: CurrentUser }) {
             { label: 'Password Saat Ini', placeholder: 'Masukkan password lama' },
             { label: 'Password Baru', placeholder: 'Minimal 8 karakter' },
             { label: 'Konfirmasi Password Baru', placeholder: 'Ulangi password baru' },
-          ].map(f => (
+          ].map((f, index) => (
             <div key={f.label}>
               <label className="block text-xs font-semibold text-gray-700 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>{f.label}</label>
               <div className="relative flex items-center">
                 <Lock className="w-4 h-4 absolute left-3 text-gray-400 pointer-events-none" />
                 <input
-                  type="password"
+                  type={showPassword === index ? 'text' : 'password'}
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-xs text-gray-800 outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 transition-colors placeholder:text-gray-400"
                   placeholder={f.placeholder}
+                  value={[passwordLama, passwordBaru, konfirmasi][index]}
+                  onChange={e => [setPasswordLama, setPasswordBaru, setKonfirmasi][index](e.target.value)}
                 />
+                <button type="button" onClick={() => setShowPassword(showPassword === index ? null : index)} className="absolute right-3 text-gray-400 hover:text-gray-700 cursor-pointer" aria-label={showPassword === index ? 'Sembunyikan password' : 'Tampilkan password'}>
+                  {showPassword === index ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
           ))}
           <button
             type="button"
-            onClick={() => alert('Fitur ubah password berhasil disimulasikan!')}
+            onClick={simpanPassword}
             className="w-full mt-2 py-2.5 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer"
             style={{ fontFamily: 'Plus Jakarta Sans' }}
           >
             Simpan Perubahan Password
           </button>
+          {notice && <p className="text-xs font-semibold text-emerald-700">{notice}</p>}
         </div>
       </div>
+      {confirmPasswordChange && (
+        <ConfirmDialog
+          title="Konfirmasi Perubahan Password"
+          message="Password belum diubah. Tekan Oke untuk menyimpan password baru, atau Batal untuk tetap menggunakan password lama."
+          confirmLabel="Oke"
+          onCancel={() => setConfirmPasswordChange(false)}
+          onConfirm={ubahPassword}
+        />
+      )}
+      {fotoDipilih && (
+        <ConfirmDialog
+          title="Sesuaikan Foto Profil"
+          message="Geser dan atur ukuran foto sebelum melanjutkan."
+          confirmLabel="Gunakan Foto Ini"
+          onCancel={() => setFotoDipilih(null)}
+          onConfirm={selesaiCrop}
+        >
+          <div className="relative h-64 overflow-hidden rounded-xl bg-gray-900">
+            <Cropper
+              image={fotoDipilih}
+              crop={crop}
+              zoom={zoom}
+              aspect={1}
+              cropShape="round"
+              showGrid
+              onCropChange={setCrop}
+              onZoomChange={setZoom}
+              onCropComplete={(_, pixels) => setCroppedAreaPixels(pixels)}
+            />
+          </div>
+          <label className="mt-4 block text-xs font-bold text-gray-700">
+            Zoom
+            <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={e => setZoom(Number(e.target.value))} className="mt-2 w-full accent-emerald-700" />
+          </label>
+        </ConfirmDialog>
+      )}
+      {pendingFoto && (
+        <ConfirmDialog
+          title="Konfirmasi Foto Profil"
+          message="Gunakan foto ini sebagai foto profil akun Anda?"
+          confirmLabel="Simpan Foto"
+          onCancel={() => setPendingFoto(null)}
+          onConfirm={konfirmasiFoto}
+        >
+          <img src={pendingFoto} alt="Pratinjau foto profil" className="mx-auto h-40 w-40 rounded-xl object-cover border border-emerald-100" />
+        </ConfirmDialog>
+      )}
+      {passwordChanged && (
+        <ConfirmDialog
+          title="Password Akun Berhasil Diubah"
+          message="Demi keamanan, Anda akan logout dan perlu login kembali dengan password baru."
+          confirmLabel="Oke"
+          hideCancel
+          onCancel={onLogout}
+          onConfirm={onLogout}
+        />
+      )}
     </div>
   )
 }

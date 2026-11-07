@@ -12,7 +12,11 @@ export interface CurrentUser {
   idGedung?: number
   namaGedung?: string
   email: string
+  noHp?: string
+  asal?: string
   tanggalMasuk?: string
+  token?: string
+  fotoProfil?: string
 }
 
 export interface Gedung {
@@ -47,6 +51,7 @@ export interface Penghuni {
   statusAktif: boolean
   role: 'penghuni' | 'fasil'
   tanggalMasuk: string
+  passwordDefault?: boolean
 }
 
 export interface Sesi {

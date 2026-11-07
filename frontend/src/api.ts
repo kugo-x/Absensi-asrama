@@ -12,6 +12,21 @@ import {
 
 const API_BASE = '/api'
 
+const TOKEN_KEY = 'sip-asrama-token'
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
+function authHeaders(headers: Record<string, string> = {}) {
+  const token = getAuthToken()
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers
+}
+
 function isJson(res: Response) {
   return (res.headers.get('content-type') || '').includes('application/json')
 }
@@ -19,7 +34,7 @@ function isJson(res: Response) {
 // GET daftar data; jatuh ke data lokal jika backend tidak tersedia
 async function getList<T>(path: string, fallback: T[]): Promise<T[]> {
   try {
-    const res = await fetch(`${API_BASE}/${path}`)
+    const res = await fetch(`${API_BASE}/${path}`, { headers: authHeaders() })
     if (res.ok && isJson(res)) {
       const data = await res.json()
       if (Array.isArray(data)) return data
@@ -41,13 +56,17 @@ async function postJson(path: string, body: unknown): Promise<ApiResult> {
   try {
     const res = await fetch(`${API_BASE}/${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body)
     })
     // Respons non-JSON berarti API backend tidak tersedia (misal dev server tanpa backend)
     if (!isJson(res)) return { ok: false, offline: true, message: 'Server tidak dapat dihubungi.' }
     const json = await res.json()
-    return { ok: res.ok, message: json.message || json.messages?.error || (res.ok ? 'Berhasil' : 'Permintaan gagal diproses.') }
+    if (res.status === 401) {
+      clearAuthToken()
+      window.dispatchEvent(new Event('auth-expired'))
+    }
+    return { ok: res.ok, message: json.message || json.messages?.error || json.error || (res.ok ? 'Berhasil' : 'Permintaan gagal diproses.') }
   } catch (e) {
     return { ok: false, offline: true, message: 'Server tidak dapat dihubungi.' }
   }
@@ -64,7 +83,10 @@ export async function apiLogin(nim: string, pass: string): Promise<CurrentUser> 
     })
     if (isJson(res)) {
       const json = await res.json()
-      if (res.ok && json.data) return json.data as CurrentUser
+      if (res.ok && json.data) {
+        if (json.token) localStorage.setItem(TOKEN_KEY, json.token)
+        return { ...json.data, token: json.token } as CurrentUser
+      }
       throw new Error(json.messages?.error || json.message || 'NIM atau password salah.')
     }
   } catch (err) {
@@ -76,7 +98,9 @@ export async function apiLogin(nim: string, pass: string): Promise<CurrentUser> 
   const account = DEMO_ACCOUNTS.find(a => a.nim === nim && a.password === pass)
   if (account) {
     const { password: _password, ...user } = account
-    return user
+    const offlineToken = btoa(JSON.stringify({ nim: user.nim, role: user.role, offline: true }))
+    localStorage.setItem(TOKEN_KEY, offlineToken)
+    return { ...user, token: offlineToken }
   }
   throw new Error('NIM atau password salah.')
 }
@@ -127,6 +151,18 @@ export type UbahPenghuni = Pick<Penghuni, 'nim' | 'nama' | 'email' | 'noHp' | 'a
 // `nimLama` menunjuk penghuni yang diubah; `data.nim` adalah NIM barunya (boleh sama)
 export const updatePenghuniApi = (nimLama: string, data: UbahPenghuni) =>
   postJson('penghuni/update', { ...data, nim: nimLama, nimBaru: data.nim })
+
+export const changePasswordApi = (nim: string, passwordLama: string, passwordBaru: string) =>
+  postJson('auth/change-password', { nim, passwordLama, passwordBaru })
+
+export const resetPasswordApi = (nim: string, adminNim: string, adminPassword: string) =>
+  postJson('penghuni/reset-password', { nim, adminNim, adminPassword })
+
+export const uploadProfilePhotoApi = (nim: string, fotoProfil: string) =>
+  postJson('auth/profile-photo', { nim, fotoProfil })
+
+export const updateProfileApi = (nim: string, data: { nama: string; email: string; noHp: string; asal: string }) =>
+  postJson('auth/profile', { nim, ...data })
 
 // ---------- Presensi ----------
 

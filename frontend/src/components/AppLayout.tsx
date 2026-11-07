@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CurrentUser } from '../types'
 import { Building2, LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar } from 'lucide-react'
 
@@ -27,6 +27,10 @@ const ROLE_ICONS: Record<string, React.ReactNode> = {
 
 export default function AppLayout({ user, onLogout, navItems, activeTab, onTabChange, children }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  useEffect(() => {
+    setSidebarOpen(false)
+  }, [activeTab])
 
   const todayFormatted = new Intl.DateTimeFormat('id-ID', {
     weekday: 'long',
@@ -77,8 +81,8 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
         {/* User Card */}
         <div className="px-5 py-3.5 border-b border-white/10 bg-black/15">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-emerald-700 text-white font-bold text-xs flex items-center justify-center border border-emerald-500/40">
-              {user.nama.charAt(0).toUpperCase()}
+            <div className="w-8 h-8 rounded-full bg-emerald-700 text-white font-bold text-xs flex items-center justify-center border border-emerald-500/40 overflow-hidden">
+              {user.fotoProfil ? <img src={user.fotoProfil} alt="Foto profil" className="h-full w-full object-cover" /> : user.nama.charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold text-white truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
@@ -166,7 +170,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
         </header>
 
         {/* Content Body */}
-        <main className="flex-1 p-5 lg:p-7 max-w-7xl w-full mx-auto">
+        <main className="min-w-0 flex-1 overflow-x-hidden p-5 lg:p-7 max-w-7xl w-full mx-auto">
           {children}
         </main>
       </div>
@@ -220,6 +224,38 @@ export function SectionTitle({ children, subtitle }: { children: React.ReactNode
       {subtitle && (
         <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
       )}
+    </div>
+  )
+}
+
+export function ConfirmDialog({ title, message, confirmLabel = 'Konfirmasi', onCancel, onConfirm, loading = false, hideCancel = false, children }: {
+  title: string
+  message?: string
+  confirmLabel?: string
+  onCancel: () => void
+  onConfirm: () => void
+  loading?: boolean
+  hideCancel?: boolean
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-emerald-100">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{title}</h3>
+            {message && <p className="mt-1 text-sm leading-relaxed text-gray-500">{message}</p>}
+          </div>
+          <button type="button" onClick={onCancel} className="rounded-lg px-2 py-1 text-xl leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700 cursor-pointer" aria-label="Tutup">×</button>
+        </div>
+        {children && <div className="mt-5">{children}</div>}
+        <div className="mt-6 flex justify-end gap-2">
+          {!hideCancel && <button type="button" onClick={onCancel} className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-200 cursor-pointer">Batal</button>}
+          <button type="button" onClick={onConfirm} disabled={loading} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-60 cursor-pointer">
+            {loading ? 'Memproses...' : confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

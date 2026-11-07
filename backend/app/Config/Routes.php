@@ -8,11 +8,16 @@ $routes->get('/', 'Home::index');
 $routes->group('api', static function ($routes) {
     // Auth
     $routes->post('auth/login', 'Api\AuthController::login');
+    $routes->post('auth/change-password', 'Api\AuthController::changePassword');
+    $routes->post('auth/profile-photo', 'Api\AuthController::profilePhoto');
+    $routes->post('auth/profile', 'Api\AuthController::profile');
     $routes->options('auth/login', static function () {
         return response()->setStatusCode(200);
     });
 
-    // Master Data
+    // Semua endpoint data wajib membawa token hasil login.
+    $routes->group('', ['filter' => 'api-auth'], static function ($routes) {
+        // Master Data
     $routes->get('gedung', 'Api\DataController::getGedung');
     $routes->post('gedung/update', 'Api\DataController::updateGedung');
     $routes->post('gedung/pj', 'Api\DataController::setPjGedung');
@@ -23,6 +28,7 @@ $routes->group('api', static function ($routes) {
     $routes->post('penghuni', 'Api\DataController::addPenghuni');
     $routes->post('penghuni/toggle-status', 'Api\DataController::togglePenghuniStatus');
     $routes->post('penghuni/update', 'Api\DataController::updatePenghuni');
+    $routes->post('penghuni/reset-password', 'Api\DataController::resetPassword');
 
     // Presensi
     $routes->get('presensi', 'Api\DataController::getPresensi');
@@ -43,6 +49,8 @@ $routes->group('api', static function ($routes) {
     $routes->post('libur/delete', 'Api\PengaturanController::deleteLibur');
     $routes->get('mode-uji', 'Api\PengaturanController::getModeUji');
     $routes->post('mode-uji', 'Api\PengaturanController::saveModeUji');
+
+    });
 
     // Generic OPTIONS handler for CORS preflight
     $routes->options('(:any)', static function () {
