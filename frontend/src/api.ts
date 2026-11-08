@@ -37,7 +37,10 @@ async function getList<T>(path: string, fallback: T[]): Promise<T[]> {
     const res = await fetch(`${API_BASE}/${path}`, { headers: authHeaders() })
     if (res.ok && isJson(res)) {
       const data = await res.json()
-      if (Array.isArray(data)) return data
+      if (Array.isArray(data)) {
+        if (data.length === 0 && (path === 'sesi' || path === 'gedung')) return fallback
+        return data
+      }
     }
   } catch (e) {
     console.warn(`Falling back to local ${path} data`)

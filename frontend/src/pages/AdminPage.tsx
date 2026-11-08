@@ -19,7 +19,7 @@ import {
 } from '../api'
 import { getCurrentPosition } from '../geo'
 import {
-  addDays, hitungStatus, hunianKamar, penghuniWajibAbsen, riwayatPenghuni, sesiAktif, statusSesi, todayLocal, type DataPresensi,
+  addDays, cariLibur, faseSesi, hitungStatus, hunianKamar, penghuniWajibAbsen, riwayatPenghuni, sesiAktif, statusSesi, todayLocal, type DataPresensi,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -51,6 +51,10 @@ import {
   Palmtree,
   Eye,
   EyeOff,
+  Clock,
+  ArrowRight,
+  ShieldCheck,
+  FileText,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
@@ -209,7 +213,18 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}>
       {showDefaultNotice && defaultPasswordCount > 0 && <DefaultPasswordNotice count={defaultPasswordCount} onClose={() => setShowDefaultNotice(false)} />}
-      {activeTab === 'dashboard' && <AdminDashboard penghuni={penghuni} gedungList={gedungList} kamarList={kamarList} sesiList={sesiList} data={data} now={now} />}
+      {activeTab === 'dashboard' && (
+        <AdminDashboard
+          penghuni={penghuni}
+          gedungList={gedungList}
+          kamarList={kamarList}
+          sesiList={sesiList}
+          data={data}
+          now={now}
+          modeUji={modeUji}
+          onNavigateTab={setActiveTab}
+        />
+      )}
       {activeTab === 'penghuni' && (
         <AdminPenghuni penghuni={penghuni} onAddClick={() => setShowAddModal(true)} onKelola={setKelola} onResetPassword={nim => setResetTarget(penghuni.find(p => p.nim === nim) || null)} />
       )}
@@ -218,9 +233,15 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
       )}
       {activeTab === 'presensi' && <AdminPresensiIzin penghuni={penghuni} gedungList={gedungList} sesiList={sesiList} data={data} now={now} />}
       {activeTab === 'pengaturan' && (
-        <div className="space-y-6">
-          <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
-          <AturanPresensiCard aturan={aturan} onSave={handleSaveAturan} />
+        <div className="space-y-5">
+          <div className="grid lg:grid-cols-12 gap-5 items-stretch">
+            <div className="lg:col-span-7">
+              <AturanPresensiCard aturan={aturan} onSave={handleSaveAturan} />
+            </div>
+            <div className="lg:col-span-5">
+              <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
+            </div>
+          </div>
           <AdminPengaturan sesiList={sesiList} libur={libur} onSaveSesi={handleSaveSesi} onAddLibur={handleAddLibur} onDeleteLibur={handleDeleteLibur} />
         </div>
       )}
@@ -271,84 +292,347 @@ function DefaultPasswordNotice({ count, onClose }: { count: number; onClose: () 
 // Dashboard
 // ---------------------------------------------------------------------------
 
-function AdminDashboard({ penghuni, gedungList, kamarList, sesiList, data, now }: {
+function AdminDashboard({
+  penghuni,
+  gedungList,
+  kamarList,
+  sesiList,
+  data,
+  now,
+  modeUji,
+  onNavigateTab,
+}: {
   penghuni: Penghuni[]
   gedungList: Gedung[]
   kamarList: Kamar[]
   sesiList: Sesi[]
   data: DataPresensi
   now: Date
+  modeUji?: ModeUji
+  onNavigateTab?: (tab: string) => void
 }) {
   const today = todayLocal()
   const wajib = penghuniWajibAbsen(penghuni)
   const fasil = penghuni.filter(p => p.role === 'fasil' && p.statusAktif).length
   const kapasitas = kamarList.reduce((sum, k) => sum + k.kapasitas, 0)
   const terisi = kamarList.reduce((sum, k) => sum + hunianKamar(k, penghuni), 0)
+  const persenHunian = kapasitas > 0 ? Math.round((terisi / kapasitas) * 100) : 0
   const tanpaPj = gedungList.filter(g => !g.nimPj)
   const tanpaKoordinat = gedungList.filter(g => g.latitude === null || g.longitude === null)
   const sesiHariIni = sesiAktif(sesiList)
+  const liburHariIni = cariLibur(today, data.libur)
+
+  // Hitung total akumulasi kehadiran hari ini dari seluruh sesi aktif
+  const totalStatusList = sesiHariIni.flatMap(s =>
+    wajib.map(p => statusSesi(p.nim, today, s, data, now).status)
+  )
+  const totalRekap = hitungStatus(totalStatusList)
+  const sesiBerjalan = sesiHariIni.find(s => faseSesi(s, today, now) === 'dibuka')
+  const presensiTerkini = [...data.presensi].slice(-6).reverse()
+  const izinTerkini = [...data.izin].slice(-5).reverse()
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<Users className="w-6 h-6 text-emerald-700" />} label="Penghuni Wajib Absen" value={wajib.length} sub={`${penghuni.filter(p => !p.statusAktif).length} nonaktif / keluar`} color="#064e3b" />
-        <StatCard icon={<Building className="w-6 h-6 text-blue-700" />} label="Gedung Asrama" value={gedungList.length} sub={`${gedungList.length - tanpaKoordinat.length} sudah berkoordinat`} color="#1e40af" />
-        <StatCard icon={<UserCheck className="w-6 h-6 text-amber-700" />} label="Fasilitator" value={fasil} sub={`${gedungList.length - tanpaPj.length} gedung memiliki PJ`} color="#b45309" />
-        <StatCard icon={<DoorClosed className="w-6 h-6 text-purple-700" />} label="Hunian Kamar" value={`${terisi}/${kapasitas}`} sub={`${kamarList.length} kamar, ${kapasitas - terisi} tempat kosong`} color="#6b21a8" />
+    <div className="space-y-4">
+      {/* 4 StatCards Utama */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard
+          icon={<Users className="w-5 h-5 text-emerald-700" />}
+          label="Penghuni Wajib Absen"
+          value={wajib.length}
+          sub={`${penghuni.filter(p => !p.statusAktif).length} nonaktif`}
+          color="#064e3b"
+        />
+        <StatCard
+          icon={<Building className="w-5 h-5 text-blue-700" />}
+          label="Gedung Asrama"
+          value={gedungList.length}
+          sub={`${gedungList.length - tanpaKoordinat.length} ber-GPS`}
+          color="#1e40af"
+        />
+        <StatCard
+          icon={<UserCheck className="w-5 h-5 text-amber-700" />}
+          label="Fasilitator"
+          value={fasil}
+          sub={`${gedungList.length - tanpaPj.length} gedung ber-PJ`}
+          color="#b45309"
+        />
+        <StatCard
+          icon={<DoorClosed className="w-5 h-5 text-purple-700" />}
+          label="Hunian Kamar"
+          value={`${terisi}/${kapasitas}`}
+          sub={`${persenHunian}% terisi`}
+          color="#6b21a8"
+        />
       </div>
 
-      {(tanpaPj.length > 0 || tanpaKoordinat.length > 0) && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
-          <p className="font-bold flex items-center gap-1.5"><AlertCircle className="w-4 h-4" /> Perlu ditindaklanjuti</p>
-          {tanpaPj.length > 0 && <p>• Gedung tanpa fasil PJ (izin penghuninya tidak ada yang menyetujui): {tanpaPj.map(g => g.nama).join(', ')}</p>}
-          {tanpaKoordinat.length > 0 && <p>• Gedung tanpa koordinat (penghuninya tidak bisa presensi): {tanpaKoordinat.map(g => g.nama).join(', ')}</p>}
-        </div>
-      )}
+      {/* Ringkasan Presensi Hari Ini (KPI Bar) */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-200/90 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              Presensi Hari Ini
+            </span>
+            {liburHariIni ? (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-100 text-sky-800">
+                🌴 Libur: {liburHariIni.keterangan}
+              </span>
+            ) : sesiBerjalan ? (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Sesi {sesiBerjalan.nama} ({sesiBerjalan.jamMulai}–{sesiBerjalan.jamSelesai})
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500">
+                {sesiHariIni.length > 0 ? 'Sesi Selesai / Belum Buka' : 'Tidak Ada Sesi Aktif'}
+              </span>
+            )}
+          </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl p-6 border border-emerald-100/80 shadow-xs">
-          <SectionTitle subtitle="Kehadiran penghuni wajib absen per gedung pada sesi hari ini">Kehadiran Hari Ini per Gedung</SectionTitle>
-          <div className="space-y-4">
+          {/* 4 Counter Pills */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+              {totalRekap.Hadir} Hadir
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-gray-50 border border-gray-200 text-gray-600 text-xs font-medium">
+              {totalRekap.Belum} Belum
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
+              {totalRekap.Izin} Izin
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
+              {totalRekap['Tidak Hadir']} Alpa
+            </span>
+            <span className="px-2.5 py-0.5 rounded-md bg-[#0e4b29] text-white text-xs font-bold shadow-2xs">
+              {totalRekap.persen}%
+            </span>
+          </div>
+        </div>
+
+        {/* Progress Bar Akumulasi */}
+        <div className="h-2 rounded-full bg-gray-100 overflow-hidden flex mt-3">
+          <div
+            className="h-full bg-emerald-600 transition-all duration-300"
+            style={{ width: `${totalRekap.wajib > 0 ? (totalRekap.Hadir / totalRekap.wajib) * 100 : 0}%` }}
+          />
+          <div
+            className="h-full bg-amber-400 transition-all duration-300"
+            style={{ width: `${totalRekap.wajib > 0 ? (totalRekap.Izin / totalRekap.wajib) * 100 : 0}%` }}
+          />
+          <div
+            className="h-full bg-rose-500 transition-all duration-300"
+            style={{ width: `${totalRekap.wajib > 0 ? (totalRekap['Tidak Hadir'] / totalRekap.wajib) * 100 : 0}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Grid 2 Kolom: Monitoring Gedung (Kiri) & Pusat Operasional (Kanan) */}
+      <div className="grid lg:grid-cols-12 gap-4 items-start">
+        {/* Kolom Kiri: Kehadiran Hari Ini per Gedung */}
+        <div className="lg:col-span-7 bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+            <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              Kehadiran per Gedung
+            </h4>
+            {onNavigateTab && (
+              <button
+                onClick={() => onNavigateTab('presensi')}
+                className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
+              >
+                <span>Detail</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-2.5">
             {gedungList.map(g => {
               const anggota = penghuniWajibAbsen(penghuni, g.nama)
+              const bldgStatusList = sesiHariIni.flatMap(s =>
+                anggota.map(p => statusSesi(p.nim, today, s, data, now).status)
+              )
+              const bldgRekap = hitungStatus(bldgStatusList)
+
               return (
-                <div key={g.id}>
-                  <div className="flex justify-between items-center text-sm mb-1.5">
-                    <span className="font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>{g.nama}</span>
-                    <span className="text-xs text-gray-500">{anggota.length} penghuni</span>
+                <div key={g.id} className="p-3 rounded-xl border border-gray-100 bg-gray-50/60 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-bold text-xs text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                        {g.nama}
+                      </span>
+                      <span className="text-[10px] text-gray-400">· {g.namaPj || 'Tanpa PJ'}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-bold text-emerald-900 mono">
+                        {bldgRekap.persen}%
+                      </span>
+                      <span className="text-[11px] text-gray-400">({anggota.length} org)</span>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {sesiHariIni.map(s => {
-                      const c = hitungStatus(anggota.map(p => statusSesi(p.nim, today, s, data, now).status))
-                      return (
-                        <span key={s.id} className="text-[11px] font-semibold px-2 py-1 rounded-md bg-gray-50 border border-gray-200 text-gray-700">
-                          {s.nama}: <span className="text-emerald-700">{c.Hadir} hadir</span> · <span className="text-gray-500">{c.Belum} belum</span> · <span className="text-rose-700">{c['Tidak Hadir']} alpa</span> · <span className="text-amber-700">{c.Izin + c.Libur} izin/libur</span>
-                        </span>
-                      )
-                    })}
+
+                  {/* Progress bar per gedung */}
+                  <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden flex mb-2">
+                    <div
+                      className="h-full bg-emerald-600 transition-all duration-300"
+                      style={{ width: `${bldgRekap.wajib > 0 ? (bldgRekap.Hadir / bldgRekap.wajib) * 100 : 0}%` }}
+                    />
+                    <div
+                      className="h-full bg-amber-400 transition-all duration-300"
+                      style={{ width: `${bldgRekap.wajib > 0 ? (bldgRekap.Izin / bldgRekap.wajib) * 100 : 0}%` }}
+                    />
+                    <div
+                      className="h-full bg-rose-500 transition-all duration-300"
+                      style={{ width: `${bldgRekap.wajib > 0 ? (bldgRekap['Tidak Hadir'] / bldgRekap.wajib) * 100 : 0}%` }}
+                    />
                   </div>
+
+                  {/* Sesi breakdown pills */}
+                  {sesiHariIni.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {sesiHariIni.map(s => {
+                        const c = hitungStatus(anggota.map(p => statusSesi(p.nim, today, s, data, now).status))
+                        const fase = faseSesi(s, today, now)
+                        return (
+                          <div
+                            key={s.id}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-white border border-gray-200 flex items-center gap-1"
+                          >
+                            <span className="font-bold text-gray-700">{s.nama}:</span>
+                            <span className="text-emerald-700 font-bold">{c.Hadir}H</span>
+                            <span className="text-gray-300">/</span>
+                            <span className="text-gray-500">{c.Belum}B</span>
+                            <span className="text-gray-300">/</span>
+                            <span className="text-rose-600">{c['Tidak Hadir']}A</span>
+                            <span
+                              className={`text-[9px] px-1 rounded font-bold uppercase ml-0.5 ${
+                                fase === 'dibuka'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : fase === 'ditutup'
+                                  ? 'bg-gray-100 text-gray-500'
+                                  : 'bg-blue-50 text-blue-700'
+                              }`}
+                            >
+                              {fase === 'dibuka' ? 'Buka' : fase === 'ditutup' ? 'Tutup' : 'Nanti'}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-emerald-100/80 shadow-xs">
-          <SectionTitle subtitle="Aturan yang sedang berlaku (diatur di menu Sesi & Hari Libur)">Informasi Operasional & Sesi</SectionTitle>
-          <div className="space-y-2.5">
-            {sesiList.map(s => (
-              <div key={s.id} className="flex justify-between items-center py-2 border-b border-gray-100 text-sm">
-                <span className="text-gray-500 font-medium">Jadwal Sesi {s.nama}</span>
-                <span className={`font-bold mono px-2 py-0.5 rounded-md bg-gray-50 ${s.aktif ? 'text-blue-800' : 'text-gray-400 line-through'}`}>{s.jamMulai} – {s.jamSelesai} WIB</span>
-              </div>
-            ))}
-            {gedungList.map(g => (
-              <div key={g.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0 text-sm">
-                <span className="text-gray-500 font-medium">Radius {g.nama}</span>
-                <span className="font-bold mono px-2 py-0.5 rounded-md bg-gray-50 text-amber-700">{g.radiusMeter} m</span>
-              </div>
-            ))}
+        {/* Kolom Kanan: Operasional & Kesiapan */}
+        <div className="lg:col-span-5 space-y-3">
+          {/* Status Sesi Hari Ini */}
+          <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-2.5">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                Jadwal Sesi
+              </h4>
+              {onNavigateTab && (
+                <button
+                  onClick={() => onNavigateTab('pengaturan')}
+                  className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 cursor-pointer"
+                >
+                  Atur
+                </button>
+              )}
+            </div>
+
+            <div className="divide-y divide-gray-100 text-xs">
+              {sesiList.map(s => {
+                const fase = s.aktif ? faseSesi(s, today, now) : null
+                return (
+                  <div key={s.id} className="py-2 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-bold ${s.aktif ? 'text-gray-800' : 'text-gray-400 line-through'}`}>
+                        {s.nama}
+                      </span>
+                      <span className="mono text-[11px] text-gray-400">{s.jamMulai}–{s.jamSelesai}</span>
+                    </div>
+
+                    {s.aktif && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                          fase === 'dibuka'
+                            ? 'bg-emerald-100 text-emerald-800 animate-pulse'
+                            : fase === 'ditutup'
+                            ? 'bg-gray-100 text-gray-500'
+                            : 'bg-blue-50 text-blue-700'
+                        }`}
+                      >
+                        {fase === 'dibuka' ? '🟢 Dibuka' : fase === 'ditutup' ? 'Selesai' : 'Nanti'}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
+
+          {/* Status Konfigurasi & Alerts Ringkas */}
+          <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-2">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 text-xs">
+              <span className="font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Kesiapan Sistem</span>
+              {tanpaPj.length === 0 && tanpaKoordinat.length === 0 ? (
+                <span className="text-[11px] font-bold text-emerald-700">✓ Siap Operasional</span>
+              ) : (
+                <span className="text-[11px] font-bold text-amber-700">⚠️ Ada Kendala</span>
+              )}
+            </div>
+
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between py-1 border-b border-gray-50">
+                <span className="text-gray-500">Mode Uji</span>
+                <span className={`font-bold text-[11px] ${modeUji?.abaikanJam || modeUji?.abaikanRadius ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {modeUji?.abaikanJam || modeUji?.abaikanRadius ? 'Aktif (Bypass)' : 'Nonaktif (Normal)'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-gray-50">
+                <span className="text-gray-500">Koordinat GPS</span>
+                <span className={`font-bold text-[11px] ${tanpaKoordinat.length > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {tanpaKoordinat.length > 0 ? `${tanpaKoordinat.length} gedung belum diset` : `${gedungList.length} gedung siap`}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-1">
+                <span className="text-gray-500">PJ Fasilitator</span>
+                <span className={`font-bold text-[11px] ${tanpaPj.length > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {tanpaPj.length > 0 ? `${tanpaPj.length} gedung kosong` : 'Lengkap'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Navigasi Cepat (3 Tombol Icon) */}
+          {onNavigateTab && (
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => onNavigateTab('presensi')}
+                className="py-2 rounded-xl bg-white border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/40 text-xs font-semibold text-gray-700 flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+              >
+                <ClipboardList className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Presensi</span>
+              </button>
+              <button
+                onClick={() => onNavigateTab('penghuni')}
+                className="py-2 rounded-xl bg-white border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/40 text-xs font-semibold text-gray-700 flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+              >
+                <Users className="w-3.5 h-3.5 text-blue-700" />
+                <span>Penghuni</span>
+              </button>
+              <button
+                onClick={() => onNavigateTab('laporan')}
+                className="py-2 rounded-xl bg-white border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/40 text-xs font-semibold text-gray-700 flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+              >
+                <FileBarChart className="w-3.5 h-3.5 text-purple-700" />
+                <span>Rekap</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1101,39 +1385,63 @@ function ModeUjiCard({ modeUji, onSave }: { modeUji: ModeUji; onSave: (mode: Mod
   const ubah = async (changes: Partial<ModeUji>) => {
     setSaving(true)
     const result = await onSave({ ...modeUji, ...changes })
-    setMsg(result.ok || result.offline ? { type: 'success', text: 'Mode uji disimpan dan langsung berlaku.' } : { type: 'error', text: result.message })
+    setMsg(result.ok || result.offline ? { type: 'success', text: 'Tersimpan.' } : { type: 'error', text: result.message })
     setSaving(false)
   }
 
-  const opsi: { key: keyof ModeUji; label: string; desc: string }[] = [
-    { key: 'abaikanJam', label: 'Abaikan jam sesi', desc: 'Penghuni dapat presensi kapan saja untuk sesi hari ini yang belum tercatat.' },
-    { key: 'abaikanRadius', label: 'Abaikan radius GPS', desc: 'Presensi diterima walau di luar radius gedung. Lokasi GPS tetap dibaca dan dicatat.' },
-  ]
-
   return (
-    <div className={`rounded-2xl p-6 border shadow-xs ${aktif ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-emerald-100/80'}`}>
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <SectionTitle subtitle="Pengecualian aturan presensi untuk mencoba fitur absensi. Matikan kembali setelah selesai.">Mode Uji Absensi</SectionTitle>
-        <span className={`shrink-0 px-2.5 py-1 rounded-full text-[11px] font-bold ${aktif ? 'bg-amber-200 text-amber-900' : 'bg-gray-100 text-gray-600'}`}>
-          {aktif ? 'AKTIF' : 'NONAKTIF'}
-        </span>
-      </div>
-      <div className="grid sm:grid-cols-2 gap-3">
-        {opsi.map(o => (
-          <label key={o.key} className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer ${modeUji[o.key] ? 'border-amber-400 bg-white' : 'border-gray-200 bg-white'}`}>
-            <input type="checkbox" className="mt-0.5" checked={modeUji[o.key]} disabled={saving} onChange={e => ubah({ [o.key]: e.target.checked })} />
-            <span>
-              <span className="block text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{o.label}</span>
-              <span className="block text-xs text-gray-500 mt-0.5">{o.desc}</span>
-            </span>
+    <div className={`h-full rounded-2xl border p-5 shadow-2xs flex flex-col justify-between transition-colors ${aktif ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-gray-200'}`}>
+      <div>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${aktif ? 'bg-amber-200 text-amber-900' : 'bg-gray-100 text-gray-700'}`}>
+              <ShieldAlert className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Mode Uji (Bypass Aturan)</h4>
+              <p className="text-[11px] text-gray-400">Pengecualian aturan untuk simulasi absensi</p>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider ${aktif ? 'bg-amber-200 text-amber-900 animate-pulse' : 'bg-gray-100 text-gray-500'}`}>
+            {aktif ? 'AKTIF' : 'NONAKTIF'}
+          </span>
+        </div>
+
+        <div className="space-y-2 mt-3">
+          <label className={`p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${modeUji.abaikanJam ? 'border-amber-400 bg-white shadow-2xs' : 'border-gray-200 bg-gray-50/50 hover:bg-white'}`}>
+            <div className="min-w-0">
+              <span className="block text-xs font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Abaikan Jam Sesi</span>
+              <span className="block text-[11px] text-gray-500">Bisa absen kapan saja hari ini</span>
+            </div>
+            <input
+              type="checkbox"
+              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-700 accent-emerald-700 cursor-pointer shrink-0"
+              checked={modeUji.abaikanJam}
+              disabled={saving}
+              onChange={e => ubah({ abaikanJam: e.target.checked })}
+            />
           </label>
-        ))}
+
+          <label className={`p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${modeUji.abaikanRadius ? 'border-amber-400 bg-white shadow-2xs' : 'border-gray-200 bg-gray-50/50 hover:bg-white'}`}>
+            <div className="min-w-0">
+              <span className="block text-xs font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Abaikan Radius GPS</span>
+              <span className="block text-[11px] text-gray-500">Bisa absen di luar radius gedung</span>
+            </div>
+            <input
+              type="checkbox"
+              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-700 accent-emerald-700 cursor-pointer shrink-0"
+              checked={modeUji.abaikanRadius}
+              disabled={saving}
+              onChange={e => ubah({ abaikanRadius: e.target.checked })}
+            />
+          </label>
+        </div>
       </div>
-      <p className="text-[11px] text-gray-500 mt-3">
-        Berlaku untuk semua penghuni dan diperiksa juga oleh server. Presensi selama mode uji diberi keterangan <strong>[Mode Uji]</strong>.
-        Alternatif tanpa mode uji: atur titik gedung ke lokasi Anda di menu <strong>Gedung &amp; Kamar</strong>, atau ubah jam sesi di bawah.
-      </p>
-      {msg && <p className={`text-xs font-semibold mt-2 ${msg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</p>}
+
+      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px]">
+        <p className="text-gray-400">Presensi uji ditandai label <span className="font-semibold text-gray-600">[Mode Uji]</span></p>
+        {msg && <span className={`font-semibold ${msg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</span>}
+      </div>
     </div>
   )
 }
@@ -1144,56 +1452,70 @@ function AturanPresensiCard({ aturan, onSave }: { aturan: AturanPresensi; onSave
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  // Sinkronkan form saat nilai dari server selesai dimuat
   useEffect(() => setForm(aturan), [aturan])
 
   const simpan = async () => {
     setSaving(true)
     const result = await onSave(form)
-    setMsg(result.ok || result.offline ? { type: 'success', text: 'Aturan presensi disimpan dan langsung berlaku.' } : { type: 'error', text: result.message })
+    setMsg(result.ok || result.offline ? { type: 'success', text: 'Aturan disimpan.' } : { type: 'error', text: result.message })
     setSaving(false)
   }
 
-  const fields: { key: keyof AturanPresensi; label: string; satuan: string; desc: string; min: number; max: number }[] = [
-    { key: 'gpsAkurasiMaks', label: 'Batas akurasi GPS', satuan: 'meter', min: 0, max: 5000, desc: 'Presensi ditolak jika akurasi lokasi perangkat lebih buruk dari nilai ini. 0 = tidak diperiksa.' },
-    { key: 'batasTidakHadir', label: 'Ambang peringatan Tidak Hadir', satuan: 'sesi / 30 hari', min: 1, max: 100, desc: 'Fasil diperingatkan bila penghuni Tidak Hadir sebanyak ini atau lebih.' },
-    { key: 'pengingatMenit', label: 'Pengingat sebelum sesi ditutup', satuan: 'menit', min: 0, max: 180, desc: 'Banner pengingat untuk penghuni yang belum presensi. 0 = mati.' },
+  const fields: { key: keyof AturanPresensi; label: string; satuan: string; hint: string; min: number; max: number }[] = [
+    { key: 'gpsAkurasiMaks', label: 'Batas Akurasi GPS', satuan: 'm', hint: '0 = tanpa batas', min: 0, max: 5000 },
+    { key: 'batasTidakHadir', label: 'Ambang Alpa Fasil', satuan: 'sesi', hint: 'Per 30 hari', min: 1, max: 100 },
+    { key: 'pengingatMenit', label: 'Pengingat Presensi', satuan: 'menit', hint: '0 = nonaktif', min: 0, max: 180 },
   ]
 
   return (
-    <div className="rounded-2xl p-6 border shadow-xs bg-white border-emerald-100/80">
-      <div className="mb-4">
-        <SectionTitle subtitle="Berlaku untuk semua gedung dan diperiksa juga oleh server.">Aturan Presensi</SectionTitle>
+    <div className="h-full rounded-2xl p-5 border border-gray-200 bg-white shadow-2xs flex flex-col justify-between">
+      <div>
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-800 flex items-center justify-center shrink-0">
+            <Settings className="w-4 h-4" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Parameter Presensi</h4>
+            <p className="text-[11px] text-gray-400">Aturan toleransi GPS dan ambang notifikasi sistem</p>
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-3 gap-3 mt-3">
+          {fields.map(f => (
+            <div key={f.key} className="p-3 rounded-xl border border-gray-200 bg-gray-50/50">
+              <span className="block text-xs font-bold text-gray-700 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{f.label}</span>
+              <div className="flex items-center gap-1.5 mt-2">
+                <input
+                  type="number"
+                  min={f.min}
+                  max={f.max}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-900 outline-none focus:border-emerald-700"
+                  value={form[f.key]}
+                  disabled={saving}
+                  onChange={e => { setForm(prev => ({ ...prev, [f.key]: Number(e.target.value) })); setMsg(null) }}
+                />
+                <span className="text-[11px] font-semibold text-gray-500 shrink-0">{f.satuan}</span>
+              </div>
+              <span className="block text-[10px] text-gray-400 mt-1">{f.hint}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="grid sm:grid-cols-3 gap-3">
-        {fields.map(f => (
-          <label key={f.key} className="p-3 rounded-xl border border-gray-200 block">
-            <span className="block text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{f.label}</span>
-            <span className="flex items-center gap-2 mt-2">
-              <input
-                type="number"
-                min={f.min}
-                max={f.max}
-                className="w-24 px-3 py-2 rounded-lg border border-gray-200 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10"
-                value={form[f.key]}
-                disabled={saving}
-                onChange={e => { setForm(prev => ({ ...prev, [f.key]: Number(e.target.value) })); setMsg(null) }}
-              />
-              <span className="text-xs text-gray-500">{f.satuan}</span>
-            </span>
-            <span className="block text-xs text-gray-500 mt-1.5">{f.desc}</span>
-          </label>
-        ))}
-      </div>
-      <div className="flex items-center gap-3 mt-4">
+
+      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+        {msg ? (
+          <p className={`text-xs font-semibold ${msg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</p>
+        ) : (
+          <span className="text-[11px] text-gray-400">Berlaku untuk seluruh gedung</span>
+        )}
         <button
           onClick={simpan}
           disabled={saving}
-          className="px-4 py-2 rounded-xl font-bold text-sm text-white bg-emerald-700 hover:bg-emerald-800 transition-colors cursor-pointer disabled:opacity-50"
+          className="px-4 py-1.5 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+          style={{ fontFamily: 'Plus Jakarta Sans' }}
         >
           {saving ? 'Menyimpan...' : 'Simpan Aturan'}
         </button>
-        {msg && <p className={`text-xs font-semibold ${msg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</p>}
       </div>
     </div>
   )
@@ -1235,7 +1557,7 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
       return
     }
     const result = await onSaveSesi(draft.map(s => ({ ...s, nama: s.nama.trim() })))
-    setSesiMsg(result.ok || result.offline ? { type: 'success', text: 'Jadwal sesi disimpan. Berlaku untuk presensi berikutnya.' } : { type: 'error', text: result.message })
+    setSesiMsg(result.ok || result.offline ? { type: 'success', text: 'Jadwal sesi disimpan.' } : { type: 'error', text: result.message })
   }
 
   const tambahLibur = async () => {
@@ -1253,87 +1575,130 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
     setLiburForm({ tanggalMulai: '', tanggalSelesai: '', keterangan: '' })
   }
 
-  const fieldCls = 'px-3 py-2 rounded-lg border border-gray-200 text-sm outline-none focus:border-emerald-600 bg-white'
+  const fieldCls = 'px-3 py-1.5 rounded-lg border border-gray-300 text-xs outline-none focus:border-emerald-700 bg-white'
 
   return (
-    <div className="grid lg:grid-cols-2 gap-6 items-start">
-      <div className="bg-white rounded-2xl p-6 border border-emerald-100/80 shadow-xs space-y-4">
-        <SectionTitle subtitle="Jam buka presensi. Ubah sesuai kebutuhan, misalnya saat Ramadan.">Jadwal Sesi Presensi</SectionTitle>
-        <div className="space-y-3">
+    <div className="grid lg:grid-cols-2 gap-5 items-start">
+      {/* Jadwal Sesi */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+          <div>
+            <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Jadwal Sesi Presensi</h4>
+            <p className="text-[11px] text-gray-400">Atur jam operasional presensi harian</p>
+          </div>
+          <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+            {draft.filter(s => s.aktif).length} sesi aktif
+          </span>
+        </div>
+
+        <div className="space-y-2.5">
           {draft.map(s => (
-            <div key={s.id} className={`p-3 rounded-xl border ${s.aktif ? 'border-emerald-100 bg-emerald-50/30' : 'border-gray-200 bg-gray-50'}`}>
-              <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
+            <div key={s.id} className={`p-3 rounded-xl border transition-colors ${s.aktif ? 'border-emerald-200 bg-emerald-50/20' : 'border-gray-200 bg-gray-50/60 opacity-75'}`}>
+              <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
                 <div>
-                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">Nama Sesi</label>
-                  <input className={`${fieldCls} w-full`} value={s.nama} onChange={e => updateDraft(s.id, { nama: e.target.value })} />
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Nama Sesi</label>
+                  <input className={`${fieldCls} w-full font-semibold text-gray-800`} value={s.nama} onChange={e => updateDraft(s.id, { nama: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">Mulai</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Mulai</label>
                   <input type="time" className={fieldCls} value={s.jamMulai} onChange={e => updateDraft(s.id, { jamMulai: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">Selesai</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Selesai</label>
                   <input type="time" className={fieldCls} value={s.jamSelesai} onChange={e => updateDraft(s.id, { jamSelesai: e.target.value })} />
                 </div>
               </div>
-              <label className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
-                <input type="checkbox" checked={s.aktif} onChange={e => updateDraft(s.id, { aktif: e.target.checked })} />
-                <span>Sesi aktif (wajib presensi)</span>
-              </label>
+              <div className="mt-2.5 pt-2 border-t border-gray-200/60 flex items-center justify-between">
+                <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5 rounded text-emerald-700 accent-emerald-700 cursor-pointer"
+                    checked={s.aktif}
+                    onChange={e => updateDraft(s.id, { aktif: e.target.checked })}
+                  />
+                  <span>Wajib Presensi</span>
+                </label>
+                <span className="text-[10px] font-medium text-gray-400">{s.aktif ? 'Aktif' : 'Nonaktif'}</span>
+              </div>
             </div>
           ))}
         </div>
-        <div className="flex gap-2">
+
+        <div className="flex gap-2 pt-2 border-t border-gray-100">
           <button
             onClick={() => setDraft(prev => [...prev, { id: Date.now(), nama: '', jamMulai: '', jamSelesai: '', aktif: true }])}
-            className="flex-1 py-2.5 rounded-xl text-xs font-bold text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-50 flex items-center justify-center gap-1.5 cursor-pointer"
+            className="flex-1 py-2 rounded-lg text-xs font-bold text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+            style={{ fontFamily: 'Plus Jakarta Sans' }}
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Tambah Sesi</span>
           </button>
-          <button onClick={simpanSesi} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 flex items-center justify-center gap-1.5 cursor-pointer">
+          <button
+            onClick={simpanSesi}
+            className="flex-1 py-2 rounded-lg text-xs font-bold text-white bg-[#0e4b29] hover:bg-[#0b3c20] flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+            style={{ fontFamily: 'Plus Jakarta Sans' }}
+          >
             <Save className="w-3.5 h-3.5" />
             <span>Simpan Jadwal</span>
           </button>
         </div>
-        <p className="text-[11px] text-gray-400">Nonaktifkan sesi alih-alih menghapusnya agar riwayat presensi lama tetap terbaca.</p>
         {sesiMsg && <p className={`text-xs font-semibold ${sesiMsg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{sesiMsg.text}</p>}
       </div>
 
-      <div className="bg-white rounded-2xl p-6 border border-emerald-100/80 shadow-xs space-y-4">
-        <SectionTitle subtitle="Tanggal tanpa kewajiban presensi; tidak dihitung sebagai Tidak Hadir">Hari Libur & Masa Libur Semester</SectionTitle>
-        <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 space-y-2">
+      {/* Hari Libur & Kalender */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+          <div>
+            <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Hari Libur & Cuti</h4>
+            <p className="text-[11px] text-gray-400">Periode bebas presensi (tidak dihitung alpa)</p>
+          </div>
+          <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+            {libur.length} periode
+          </span>
+        </div>
+
+        <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 space-y-2.5">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[11px] font-semibold text-gray-600 mb-1">Mulai</label>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Mulai</label>
               <input type="date" className={`${fieldCls} w-full`} value={liburForm.tanggalMulai} onChange={e => setLiburForm(f => ({ ...f, tanggalMulai: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-gray-600 mb-1">Selesai</label>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Selesai</label>
               <input type="date" min={liburForm.tanggalMulai} className={`${fieldCls} w-full`} value={liburForm.tanggalSelesai} onChange={e => setLiburForm(f => ({ ...f, tanggalSelesai: e.target.value }))} />
             </div>
           </div>
-          <input className={`${fieldCls} w-full`} placeholder="Keterangan, misal: Libur semester ganjil" value={liburForm.keterangan} onChange={e => setLiburForm(f => ({ ...f, keterangan: e.target.value }))} />
-          <button onClick={tambahLibur} className="w-full py-2 rounded-lg text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 flex items-center justify-center gap-1.5 cursor-pointer">
+          <input className={`${fieldCls} w-full`} placeholder="Keterangan libur (cth: Libur Semester Ganjil)" value={liburForm.keterangan} onChange={e => setLiburForm(f => ({ ...f, keterangan: e.target.value }))} />
+          <button
+            onClick={tambahLibur}
+            className="w-full py-2 rounded-lg text-xs font-bold text-white bg-[#0e4b29] hover:bg-[#0b3c20] flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+            style={{ fontFamily: 'Plus Jakarta Sans' }}
+          >
             <Plus className="w-3.5 h-3.5" />
             <span>Tambah Hari Libur</span>
           </button>
           {liburMsg && <p className={`text-xs font-semibold ${liburMsg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{liburMsg.text}</p>}
         </div>
 
-        <div className="space-y-2">
-          {libur.length === 0 && <p className="text-xs text-gray-400 text-center py-4">Belum ada hari libur</p>}
+        <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+          {libur.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-6 border border-dashed border-gray-200 rounded-xl">
+              Belum ada hari libur yang tercatat
+            </p>
+          )}
           {libur.map(l => (
-            <div key={l.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-sky-100 bg-sky-50/40">
-              <div className="flex items-center gap-2.5">
-                <Palmtree className="w-4 h-4 text-sky-600 shrink-0" />
-                <div>
-                  <p className="text-sm font-bold text-gray-900">{l.keterangan}</p>
-                  <p className="text-xs text-gray-500 mono">{l.tanggalMulai === l.tanggalSelesai ? l.tanggalMulai : `${l.tanggalMulai} s/d ${l.tanggalSelesai}`}</p>
+            <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border border-sky-100 bg-sky-50/50 hover:bg-sky-50 transition-colors">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                  <Palmtree className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{l.keterangan}</p>
+                  <p className="text-[11px] text-gray-500 mono">{l.tanggalMulai === l.tanggalSelesai ? l.tanggalMulai : `${l.tanggalMulai} s/d ${l.tanggalSelesai}`}</p>
                 </div>
               </div>
-              <button onClick={() => onDeleteLibur(l.id)} className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer" title="Hapus">
-                <Trash2 className="w-4 h-4" />
+              <button onClick={() => onDeleteLibur(l.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0" title="Hapus">
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
           ))}

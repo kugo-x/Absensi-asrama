@@ -232,94 +232,148 @@ function FasilDashboard({ sesiList, rekapRows, today, now, liburHariIni, pending
   const sesi = sesiList.some(x => x.nama === pilihan) ? pilihan : defaultSesi
   const rows = rekapRows(today, sesi)
   const s = sesiList.find(x => x.nama === sesi)
+  const c = hitungStatus(rows.map(r => r.detail.status))
+  const fase = s ? (now < new Date(`${today}T${s.jamMulai}`) ? 'belum' : now > new Date(`${today}T${s.jamSelesai}`) ? 'tutup' : 'buka') : null
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-white border border-emerald-100/80 shadow-xs">
-        <div>
-          <h4 className="font-extrabold text-base text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pantauan Sesi Hari Ini</h4>
-          <p className="text-xs text-gray-500 font-medium">Siapa saja yang sudah dan belum absen di gedung Anda</p>
+    <div className="space-y-4">
+      {/* Header Ringkasan & Filter Sesi */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-200/90 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              Pantauan Sesi
+            </span>
+            {liburHariIni ? (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-100 text-sky-800">
+                🌴 Libur: {liburHariIni.keterangan}
+              </span>
+            ) : fase === 'buka' ? (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Sesi {sesi} Sedang Dibuka
+              </span>
+            ) : s ? (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500">
+                Sesi {sesi} ({s.jamMulai}–{s.jamSelesai}) · {fase === 'tutup' ? 'Ditutup' : 'Akan Datang'}
+              </span>
+            ) : null}
+          </div>
+
+          <SesiToggle sesiList={sesiList} value={sesi} onChange={setSesi} />
         </div>
-        <SesiToggle sesiList={sesiList} value={sesi} onChange={setSesi} />
+
+        {/* Metrik Pills & Progress Bar */}
+        <div className="pt-2 border-t border-gray-100">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+                {c.Hadir} Hadir
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-gray-50 border border-gray-200 text-gray-600 text-xs font-medium">
+                {c.Belum} Belum
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
+                {c['Tidak Hadir']} Alpa
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
+                {c.Izin + c.Libur} Izin
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 font-medium">{c.Hadir}/{rows.length} penghuni</span>
+              <span className="px-2.5 py-0.5 rounded-md bg-[#0e4b29] text-white text-xs font-bold shadow-2xs">
+                {c.persen}%
+              </span>
+            </div>
+          </div>
+
+          <div className="h-2 rounded-full bg-gray-100 overflow-hidden flex">
+            <div
+              className="h-full bg-emerald-600 transition-all duration-300"
+              style={{ width: `${rows.length > 0 ? (c.Hadir / rows.length) * 100 : 0}%` }}
+            />
+            <div
+              className="h-full bg-amber-400 transition-all duration-300"
+              style={{ width: `${rows.length > 0 ? ((c.Izin + c.Libur) / rows.length) * 100 : 0}%` }}
+            />
+            <div
+              className="h-full bg-rose-500 transition-all duration-300"
+              style={{ width: `${rows.length > 0 ? (c['Tidak Hadir'] / rows.length) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
       </div>
 
-      {liburHariIni && (
-        <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 text-sky-900 text-xs font-semibold flex items-center gap-2">
-          <Palmtree className="w-4 h-4 text-sky-600" />
-          <span>Hari ini libur ({liburHariIni.keterangan}). Tidak ada kewajiban presensi.</span>
+      {/* Tindak Lanjut Mendesak (Jika ada) */}
+      {(fotoMenunggu > 0 || pendingIzin.length > 0 || sering.length > 0) && (
+        <div className="space-y-2">
+          {fotoMenunggu > 0 && (
+            <div className="p-3 rounded-xl bg-orange-50 border border-orange-200/90 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <Camera className="w-4 h-4 text-orange-600 shrink-0" />
+                <span className="font-bold text-orange-950 truncate">
+                  {fotoMenunggu} foto presensi menunggu validasi
+                </span>
+              </div>
+              <button
+                onClick={onLihatFoto}
+                className="px-3 py-1 rounded-lg text-xs font-bold text-orange-900 bg-white hover:bg-orange-100 border border-orange-300 cursor-pointer shadow-2xs shrink-0"
+              >
+                Validasi
+              </button>
+            </div>
+          )}
+
+          {pendingIzin.length > 0 && (
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200/90 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileCheck className="w-4 h-4 text-amber-700 shrink-0" />
+                <span className="font-bold text-amber-950 truncate">
+                  {pendingIzin.length} permohonan izin perlu persetujuan
+                </span>
+                <span className="text-amber-800 hidden sm:inline truncate">
+                  ({pendingIzin[0].namaPenghuni} - {pendingIzin[0].alasan})
+                </span>
+              </div>
+              <button
+                onClick={() => onOpenIzin(pendingIzin[0])}
+                className="px-3 py-1 rounded-lg text-xs font-bold text-amber-950 bg-white hover:bg-amber-100 border border-amber-300 cursor-pointer shadow-2xs shrink-0"
+              >
+                Tinjau ({pendingIzin.length})
+              </button>
+            </div>
+          )}
+
+          {sering.length > 0 && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-200/90 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span className="font-bold text-red-950 truncate">
+                  {sering.length} penghuni sering alpa (≥{batasTidakHadir} sesi)
+                </span>
+              </div>
+              <button
+                onClick={onLihatRekap}
+                className="px-3 py-1 rounded-lg text-xs font-bold text-red-900 bg-white hover:bg-red-100 border border-red-300 cursor-pointer shadow-2xs shrink-0"
+              >
+                Rekap
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {fotoMenunggu > 0 && (
-        <div className="p-4 rounded-2xl bg-orange-50 border border-orange-200 flex flex-col sm:flex-row sm:items-center gap-3">
-          <Camera className="w-5 h-5 text-orange-600 shrink-0" />
-          <p className="flex-1 text-sm font-bold text-orange-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            {fotoMenunggu} foto presensi menunggu validasi Anda
-          </p>
-          <button onClick={onLihatFoto} className="shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold text-orange-800 bg-white hover:bg-orange-100 border border-orange-200 cursor-pointer">
-            Validasi Sekarang
-          </button>
-        </div>
-      )}
-
-      {sering.length > 0 && (
-        <div className="p-4 rounded-2xl bg-red-50 border border-red-200 flex flex-col sm:flex-row sm:items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-bold text-red-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {sering.length} penghuni Tidak Hadir ≥ {batasTidakHadir} sesi dalam 30 hari terakhir
-            </p>
-            <p className="text-xs text-red-800 mt-0.5">
-              {sering.slice(0, 5).map(r => `${r.penghuni.nama} (${r.c['Tidak Hadir']}×)`).join(', ')}{sering.length > 5 ? `, dan ${sering.length - 5} lainnya` : ''}
-            </p>
-          </div>
-          <button onClick={onLihatRekap} className="shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold text-red-800 bg-white hover:bg-red-100 border border-red-200 cursor-pointer">
-            Lihat Rekap
-          </button>
-        </div>
-      )}
-
-      <RekapStats rows={rows} />
-
-      <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs">
-        <div className="px-6 py-4 border-b border-emerald-100">
-          <SectionTitle subtitle={s ? `Sesi ${s.nama} ${s.jamMulai}–${s.jamSelesai} WIB · penghuni yang belum absen saat sesi ditutup otomatis Tidak Hadir` : ''}>
-            Daftar Penghuni — Sesi {sesi}
-          </SectionTitle>
+      {/* Tabel Penghuni */}
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-2xs">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+          <span className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Daftar Penghuni — Sesi {sesi || 'Aktif'}
+          </span>
+          <span className="text-xs text-gray-400 font-medium">{rows.length} penghuni terdaftar</span>
         </div>
         <RekapTable rows={rows} onKoreksi={row => onKoreksi(row, sesi)} />
       </div>
-
-      {pendingIzin.length > 0 && (
-        <div className="bg-amber-50/80 rounded-2xl p-6 border border-amber-200/80 shadow-xs">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertCircle className="w-5 h-5 text-amber-700" />
-            <h4 className="font-extrabold text-base text-amber-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              Pengajuan Izin Menunggu Persetujuan ({pendingIzin.length})
-            </h4>
-          </div>
-          <div className="grid gap-3">
-            {pendingIzin.map(i => (
-              <div key={i.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-white border border-amber-200 shadow-2xs">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{i.namaPenghuni}</span>
-                    <span className="mono text-xs text-gray-500">({i.nim} · {i.nomorKamar})</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-0.5">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}</p>
-                  <p className="text-xs text-amber-900 mt-1 font-medium leading-relaxed">{i.alasan}</p>
-                </div>
-                <button
-                  onClick={() => onOpenIzin(i)}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer shrink-0"
-                >
-                  Tinjau
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

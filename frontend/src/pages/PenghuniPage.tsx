@@ -43,6 +43,7 @@ import {
   Eye,
   EyeOff,
   Pencil,
+  ArrowRight,
 } from 'lucide-react'
 import Cropper, { type Area } from 'react-easy-crop'
 
@@ -288,6 +289,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           gedung={gedung}
           notice={notice}
           today={today}
+          onNavigateTab={setActiveTab}
         />
       )}
       {activeTab === 'presensi' && (
@@ -326,7 +328,7 @@ function NoticeBox({ notice }: { notice: Notice | null }) {
   )
 }
 
-function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni, onBukaPresensi, gedung, notice, today }: {
+function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni, onBukaPresensi, gedung, notice, today, onNavigateTab }: {
   user: CurrentUser
   sesiHariIni: SesiHariIni[]
   riwayat: ReturnType<typeof riwayatPenghuni>
@@ -336,6 +338,7 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
   gedung: Gedung | null
   notice: Notice | null
   today: string
+  onNavigateTab?: (tab: string) => void
 }) {
   const rekap = hitungStatus(riwayat.map(r => r.detail.status))
   // Pemberitahuan keputusan izin dalam 7 hari terakhir
@@ -345,57 +348,59 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
     .map(r => r.detail.presensi)
     .filter((p): p is NonNullable<typeof p> => !!p && p.statusFoto === 'Ditolak' && (p.divalidasiPada || '') >= addDays(today, -7))
 
+  // Ambil 5 riwayat presensi yang relevan / terbaru
+  const riwayatTerkini = riwayat.filter(r => r.detail.status !== 'Belum').slice(0, 5)
+
   return (
-    <div className="space-y-6">
-      {/* Welcome Banner */}
+    <div className="space-y-4">
+      {/* Welcome Banner Ringkas */}
       <div
-        className="rounded-3xl p-6 lg:p-8 text-white relative overflow-hidden shadow-lg border border-emerald-500/20"
+        className="rounded-2xl p-5 lg:p-6 text-white relative overflow-hidden shadow-xs"
         style={{ background: 'linear-gradient(135deg, #064e3b 0%, #065f46 60%, #047857 100%)' }}
       >
-        <div className="absolute -top-12 -right-12 w-64 h-64 rounded-full bg-emerald-400/10 blur-2xl pointer-events-none" />
-        <div className="relative z-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-emerald-200 text-xs font-bold mb-3 border border-white/15">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Mahasiswa Penghuni Asrama</span>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md text-emerald-200 text-xs font-semibold mb-2 border border-white/10">
+              <Sparkles className="w-3 h-3 text-emerald-300" />
+              <span>Mahasiswa Penghuni Asrama</span>
+            </div>
+            <h2 className="text-xl lg:text-2xl font-bold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              Selamat Datang, {user.nama}!
+            </h2>
+            <p className="text-emerald-100/80 text-xs mt-1 flex items-center gap-2">
+              <span className="font-semibold text-white">Kamar {user.nomorKamar || '-'}</span>
+              <span>•</span>
+              <span>{user.namaGedung || '-'}</span>
+            </p>
           </div>
-          <h2 className="text-2xl lg:text-3xl font-extrabold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Selamat Datang, {user.nama}!
-          </h2>
-          <p className="text-emerald-100/80 text-sm mt-1 flex items-center gap-2">
-            <span>Kamar {user.nomorKamar || '-'}</span>
-            <span>•</span>
-            <span>{user.namaGedung || '-'}</span>
-          </p>
 
-          <div className="mt-6 grid grid-cols-3 gap-3 max-w-lg">
+          {/* 3 Stats di Kanan Banner */}
+          <div className="grid grid-cols-3 gap-2 w-full lg:w-auto">
             {[
               { label: 'Kehadiran 30 Hari', value: `${rekap.persen}%` },
               { label: 'Tidak Hadir', value: `${rekap['Tidak Hadir']} Sesi` },
-              { label: 'Sesi Izin', value: `${rekap.Izin} Sesi` },
+              { label: 'Izin', value: `${rekap.Izin} Sesi` },
             ].map(s => (
-              <div key={s.label} className="p-3.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 text-center">
-                <p className="text-[11px] font-medium text-emerald-200/80">{s.label}</p>
-                <p className="text-xl lg:text-2xl font-extrabold text-white mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.value}</p>
+              <div key={s.label} className="px-3.5 py-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 text-center min-w-[90px]">
+                <p className="text-[10px] font-medium text-emerald-200/90">{s.label}</p>
+                <p className="text-base lg:text-lg font-extrabold text-white mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.value}</p>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Pemberitahuan keputusan izin */}
+      {/* Pemberitahuan keputusan izin / foto ditolak */}
       {fotoDitolak.length > 0 && (
-        <div className="bg-white rounded-2xl p-5 border border-red-200 shadow-xs">
-          <div className="flex items-center gap-2 mb-3">
+        <div className="bg-white rounded-xl p-3.5 border border-red-200 shadow-2xs">
+          <div className="flex items-center gap-2 mb-2">
             <Camera className="w-4 h-4 text-red-700" />
-            <h4 className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Foto Presensi Ditolak</h4>
+            <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Foto Presensi Ditolak</h4>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {fotoDitolak.map(p => (
-              <div key={p.id} className="p-3 rounded-lg border text-xs bg-red-50/60 border-red-100">
-                <p className="font-semibold text-gray-800">{p.tanggal} · Sesi {p.sesi} — tercatat Tidak Hadir</p>
-                <p className="text-gray-600 mt-0.5">
-                  Ditolak oleh {p.namaValidator || 'fasilitator'}{p.catatanValidasi ? `: ${p.catatanValidasi}` : ''}. Hubungi fasilitator gedung jika ini keliru.
-                </p>
+              <div key={p.id} className="p-2.5 rounded-lg border text-xs bg-red-50/60 border-red-100 flex items-center justify-between">
+                <span>{p.tanggal} · Sesi {p.sesi} divalidasi tidak sah{p.catatanValidasi ? `: ${p.catatanValidasi}` : ''}</span>
               </div>
             ))}
           </div>
@@ -403,103 +408,264 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
       )}
 
       {pemberitahuan.length > 0 && (
-        <div className="bg-white rounded-2xl p-5 border border-blue-100 shadow-xs">
-          <div className="flex items-center gap-2 mb-3">
+        <div className="bg-white rounded-xl p-3.5 border border-blue-100 shadow-2xs">
+          <div className="flex items-center gap-2 mb-2">
             <Bell className="w-4 h-4 text-blue-700" />
-            <h4 className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pemberitahuan Izin</h4>
+            <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pemberitahuan Izin</h4>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {pemberitahuan.map(i => (
-              <div key={i.id} className={`p-3 rounded-lg border text-xs ${i.statusPersetujuan === 'Disetujui' ? 'bg-blue-50/60 border-blue-100' : 'bg-red-50/60 border-red-100'}`}>
-                <div className="flex items-center gap-2 mb-1">
+              <div key={i.id} className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 ${i.statusPersetujuan === 'Disetujui' ? 'bg-blue-50/60 border-blue-100' : 'bg-red-50/60 border-red-100'}`}>
+                <div className="flex items-center gap-2">
                   <Badge status={i.statusPersetujuan} />
-                  <span className="font-semibold text-gray-800">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}</span>
+                  <span className="font-medium text-gray-800">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)} — {i.alasan}</span>
                 </div>
-                <p className="text-gray-600">
-                  Izin "{i.alasan}" {i.statusPersetujuan === 'Disetujui' ? 'disetujui' : 'ditolak'} oleh {i.namaApprover || 'fasilitator'}
-                  {i.catatanApprover ? ` — Catatan: ${i.catatanApprover}` : ''}
-                </p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Sesi Presensi Hari Ini */}
-      <div>
-        <SectionTitle subtitle="Status kehadiran Anda pada setiap sesi hari ini">
-          Status Presensi Hari Ini
-        </SectionTitle>
-        {liburHariIni && (
-          <div className="mb-4 p-3 rounded-xl bg-sky-50 border border-sky-200 text-sky-900 text-xs font-semibold flex items-center gap-2">
-            <Palmtree className="w-4 h-4 text-sky-600" />
-            <span>Hari ini libur ({liburHariIni.keterangan}). Tidak ada kewajiban presensi.</span>
-          </div>
-        )}
-        <div className="grid sm:grid-cols-2 gap-4">
-          {sesiHariIni.map(({ sesi, detail }) => (
-            <div
-              key={sesi.id}
-              className={`bg-white rounded-2xl p-5 border shadow-xs hover:shadow-md transition-all flex flex-col justify-between ${
-                detail.status === 'Hadir' ? 'border-emerald-300 bg-emerald-50/20' : 'border-emerald-100'
-              }`}
-            >
-              <div>
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center border border-gray-100">
-                      <SesiIcon nama={sesi.nama} className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="font-extrabold text-base text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi {sesi.nama}</h4>
-                      <p className="text-xs text-gray-400 font-medium">{sesi.jamMulai} – {sesi.jamSelesai} WIB</p>
-                    </div>
-                  </div>
-                  <Badge status={detail.status} />
-                </div>
-
-                {jamPresensi(detail.presensi) && detail.presensi?.statusFoto !== 'Ditolak' && (
-                  <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold flex items-center gap-2 mb-3">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>Tercatat pada pukul {jamPresensi(detail.presensi)} WIB</span>
-                  </div>
-                )}
-                {detail.presensi?.statusFoto === 'Ditolak' && (
-                  <p className="p-2.5 rounded-xl bg-red-50 text-red-800 text-xs font-semibold mb-3">
-                    Foto presensi pukul {detail.presensi.waktu} ditolak fasilitator{detail.presensi.catatanValidasi ? `: ${detail.presensi.catatanValidasi}` : ''}
-                  </p>
-                )}
-                {detail.presensi?.otomatis && (
-                  <p className="text-xs text-gray-500 mb-3">Tidak ada presensi hingga sesi ditutup</p>
-                )}
-                {!detail.presensi && keteranganStatus(detail) && (
-                  <p className="text-xs text-gray-500 mb-3">{keteranganStatus(detail)}</p>
-                )}
-              </div>
-
-              {bisaPresensi(detail) ? (
-                <button
-                  onClick={() => onBukaPresensi(sesi.nama)}
-                  className="w-full mt-3 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                  style={{ fontFamily: 'Plus Jakarta Sans' }}
-                >
-                  <UserCheck className="w-4 h-4" />
-                  <span>{`Presensi Sesi ${sesi.nama}`}</span>
-                </button>
-              ) : detail.status === 'Belum' && (
-                <p className="mt-3 text-xs text-gray-400 font-medium text-center">{alasanTidakBisaPresensi(detail, sesi)}</p>
+      {/* Layout Grid 12 Kolom Memenuhi Layar */}
+      <div className="grid lg:grid-cols-12 gap-4 items-start">
+        {/* Kolom Kiri: Sesi Presensi & Riwayat Terkini */}
+        <div className="lg:col-span-8 space-y-4">
+          {/* Sesi Presensi Hari Ini */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                Status Presensi Hari Ini
+              </h3>
+              {liburHariIni && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-sky-800 flex items-center gap-1">
+                  <Palmtree className="w-3 h-3 text-sky-600" />
+                  <span>Libur: {liburHariIni.keterangan}</span>
+                </span>
               )}
             </div>
-          ))}
-        </div>
-        {notice && <div className="mt-4"><NoticeBox notice={notice} /></div>}
-      </div>
 
-      {/* Geofence Notice */}
-      <div className="rounded-2xl p-4 bg-emerald-50/80 border border-emerald-200/80 flex items-start gap-3">
-        <MapPin className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
-        <div className="text-xs text-emerald-950 font-medium leading-relaxed">
-          <strong className="font-bold text-emerald-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Verifikasi Radius GPS Aktif:</strong> Presensi mandiri divalidasi dengan radius {gedung?.radiusMeter ?? '-'} meter dari titik koordinat {gedung?.nama || 'gedung asrama Anda'}. Pastikan izin akses lokasi pada browser Anda telah diizinkan.
+            <div className="grid sm:grid-cols-2 gap-3">
+              {sesiHariIni.map(({ sesi, detail }) => {
+                const boleh = bisaPresensi(detail)
+                return (
+                  <div
+                    key={sesi.id}
+                    className={`bg-white rounded-2xl p-4 border shadow-2xs transition-all flex flex-col justify-between ${
+                      detail.status === 'Hadir' ? 'border-emerald-300 bg-emerald-50/20' : 'border-gray-200'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center border border-gray-100 text-gray-700">
+                            <SesiIcon nama={sesi.nama} className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                              Sesi {sesi.nama}
+                            </h4>
+                            <p className="text-[11px] text-gray-400 mono">{sesi.jamMulai} – {sesi.jamSelesai} WIB</p>
+                          </div>
+                        </div>
+                        <Badge status={detail.status} />
+                      </div>
+
+                      {/* Keterangan Status Presensi */}
+                      {jamPresensi(detail.presensi) && detail.presensi?.statusFoto !== 'Ditolak' ? (
+                        <p className="text-[11px] text-emerald-800 font-medium bg-emerald-50 px-2.5 py-1 rounded-lg">
+                          ✓ Tercatat pukul {jamPresensi(detail.presensi)} WIB
+                        </p>
+                      ) : detail.presensi?.statusFoto === 'Ditolak' ? (
+                        <p className="text-[11px] text-rose-800 font-medium bg-rose-50 px-2.5 py-1 rounded-lg">
+                          ✗ Foto ditolak: {detail.presensi.catatanValidasi || 'Tidak sesuai'}
+                        </p>
+                      ) : detail.status === 'Tidak Hadir' ? (
+                        <p className="text-[11px] text-rose-700 font-medium bg-rose-50/60 px-2.5 py-1 rounded-lg">
+                          Tidak hadir hingga sesi ditutup
+                        </p>
+                      ) : detail.status === 'Izin' ? (
+                        <p className="text-[11px] text-amber-800 font-medium bg-amber-50 px-2.5 py-1 rounded-lg">
+                          Izin disetujui
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {boleh ? (
+                      <button
+                        onClick={() => onBukaPresensi(sesi.nama)}
+                        className="w-full mt-3 py-2 px-3 rounded-lg text-xs font-bold text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                        style={{ fontFamily: 'Plus Jakarta Sans' }}
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>Presensi Sekarang</span>
+                      </button>
+                    ) : detail.status === 'Belum' ? (
+                      <p className="mt-2 text-[11px] text-gray-400 font-medium text-center">
+                        {alasanTidakBisaPresensi(detail, sesi)}
+                      </p>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+            {notice && <div className="mt-3"><NoticeBox notice={notice} /></div>}
+          </div>
+
+          {/* Geofence Notice Ringkas */}
+          <div className="rounded-xl px-3.5 py-2.5 bg-emerald-50/70 border border-emerald-200/80 flex items-center gap-2 text-xs text-emerald-900">
+            <MapPin className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span className="text-[11px] font-medium leading-tight">
+              <strong>Radius GPS:</strong> Maks. {gedung?.radiusMeter ?? 50}m dari {gedung?.nama || 'Asrama'}. Pastikan akses lokasi browser diizinkan.
+            </span>
+          </div>
+
+          {/* Log Presensi Terbaru */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-emerald-700" />
+                <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                  Aktivitas Presensi Terakhir Anda
+                </h4>
+              </div>
+              {onNavigateTab && (
+                <button
+                  onClick={() => onNavigateTab('riwayat')}
+                  className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Lihat Semua Riwayat</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="divide-y divide-gray-100 text-xs">
+              {riwayatTerkini.length === 0 ? (
+                <div className="py-7 text-center text-gray-400">
+                  <Clock className="w-6 h-6 mx-auto mb-1 text-gray-300" />
+                  <p className="text-xs">Belum ada aktivitas presensi yang tercatat</p>
+                </div>
+              ) : (
+                riwayatTerkini.map(({ tanggal, sesi, detail }) => (
+                  <div key={`${tanggal}-${sesi.nama}`} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <Badge status={detail.status} />
+                      <div>
+                        <p className="font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                          Sesi {sesi.nama}
+                        </p>
+                        <p className="text-[11px] text-gray-400">{tanggal}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      {jamPresensi(detail.presensi) ? (
+                        <p className="text-xs font-bold text-emerald-900 mono">{jamPresensi(detail.presensi)} WIB</p>
+                      ) : (
+                        <p className="text-[11px] text-gray-400">{keteranganStatus(detail)}</p>
+                      )}
+                      {detail.presensi?.statusFoto && (
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                          detail.presensi.statusFoto === 'Diterima' ? 'text-emerald-700 bg-emerald-50' :
+                          detail.presensi.statusFoto === 'Ditolak' ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'
+                        }`}>
+                          Foto: {detail.presensi.statusFoto}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Kolom Kanan: Informasi Kamar & Izin Cepat */}
+        <div className="lg:col-span-4 space-y-4">
+          {/* Info Gedung & Kamar Asrama */}
+          <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                Informasi Hunian Asrama
+              </h4>
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                Aktif
+              </span>
+            </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between py-1 border-b border-gray-50">
+                <span className="text-gray-500">Gedung</span>
+                <span className="font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{user.namaGedung || '-'}</span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-gray-50">
+                <span className="text-gray-500">Nomor Kamar</span>
+                <span className="font-bold text-emerald-800 mono">{user.nomorKamar || '-'}</span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-gray-50">
+                <span className="text-gray-500">Fasilitator Gedung</span>
+                <span className="font-semibold text-gray-800">{gedung?.namaPj || 'Fasilitator Gedung'}</span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-gray-50">
+                <span className="text-gray-500">Radius Absen GPS</span>
+                <span className="font-semibold text-gray-800">{gedung?.radiusMeter ?? 50} meter</span>
+              </div>
+              <div className="flex items-center justify-between py-1">
+                <span className="text-gray-500">Jam Malam Asrama</span>
+                <span className="font-bold text-gray-700">22:00 WIB</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Permohonan Izin Terkini & Quick Action */}
+          <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                Permohonan Izin Terakhir
+              </h4>
+              {onNavigateTab && (
+                <button
+                  onClick={() => onNavigateTab('izin')}
+                  className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Ajukan Baru</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {izinData.length === 0 ? (
+              <div className="py-4 text-center text-gray-400">
+                <FileText className="w-6 h-6 mx-auto mb-1 text-gray-300" />
+                <p className="text-xs">Belum ada pengajuan izin aktif</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {izinData.slice(0, 3).map(i => (
+                  <div key={i.id} className="p-2.5 rounded-xl border border-gray-100 bg-gray-50/70 text-xs">
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="font-bold text-gray-800 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                        {formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}
+                      </span>
+                      <Badge status={i.statusPersetujuan} />
+                    </div>
+                    <p className="text-gray-600 truncate text-[11px]">{i.alasan}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Aturan Singkat Presensi */}
+          <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-100 text-xs text-emerald-900 space-y-1.5">
+            <div className="font-bold text-emerald-950 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-700" />
+              <span>Panduan Singkat Presensi</span>
+            </div>
+            <ul className="text-[11px] text-emerald-800/90 space-y-1 list-disc list-inside">
+              <li>Presensi mandiri dibuka sesuai jadwal sesi.</li>
+              <li>Pastikan berada dalam radius {gedung?.radiusMeter ?? 50}m.</li>
+              <li>Ambil foto selfie jelas dan langsung dari kamera.</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -828,113 +994,138 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
   const labelCls = 'block text-xs font-semibold text-gray-700 mb-1'
 
   return (
-    <div className="grid lg:grid-cols-12 gap-6 w-full items-start">
-      {/* Kolom Kiri: Form Pengajuan Izin */}
-      <div className="lg:col-span-5">
-        <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-2xs">
-          <SectionTitle subtitle="Izin yang disetujui otomatis mengubah status presensi menjadi Izin">
-            Formulir Pengajuan Izin
-          </SectionTitle>
-          <div className="space-y-4">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tanggal Mulai</label>
-                <input type="date" min={today} className={inputCls} value={form.tanggal} onChange={e => setForm(p => ({ ...p, tanggal: e.target.value }))} />
-              </div>
-              <div>
-                <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tanggal Selesai</label>
-                <input type="date" min={form.tanggal || today} className={inputCls} value={form.tanggalSelesai} onChange={e => setForm(p => ({ ...p, tanggalSelesai: e.target.value }))} />
-              </div>
-            </div>
-            <p className="text-[11px] text-gray-400 -mt-2">Kosongkan tanggal selesai jika izin hanya satu hari.</p>
-
-            <div>
-              <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi yang Diizinkan</label>
-              <select className={`${inputCls} bg-white`} value={form.sesi} onChange={e => setForm(p => ({ ...p, sesi: e.target.value }))}>
-                <option value="">Seharian (semua sesi)</option>
-                {sesiList.map(s => <option key={s.id} value={s.nama}>Hanya sesi {s.nama} ({s.jamMulai}–{s.jamSelesai})</option>)}
-              </select>
-            </div>
-
-            <div>
-              <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Alasan / Keperluan Izin</label>
-              <textarea
-                className={inputCls}
-                rows={4}
-                placeholder="Tuliskan keterangan lengkap alasan izin (misal: sakit, kuliah malam, keperluan keluarga)..."
-                value={form.alasan}
-                onChange={e => setForm(p => ({ ...p, alasan: e.target.value }))}
-              />
-            </div>
-
-            <div>
-              <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Nama Berkas Bukti (PDF / JPG)</label>
-              <div className="relative flex items-center">
-                <Paperclip className="w-4 h-4 absolute left-3 text-gray-400 pointer-events-none" />
-                <input type="text" placeholder="Contoh: surat_dokter.pdf" className={`${inputCls} pl-9`} value={form.fileBukti} onChange={e => setForm(p => ({ ...p, fileBukti: e.target.value }))} />
-              </div>
-            </div>
-
-            {notice && <NoticeBox notice={notice} />}
-
-            <button
-              type="button"
-              disabled={submitting}
-              className="w-full py-2.5 px-4 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-              onClick={handleSubmit}
-              style={{ fontFamily: 'Plus Jakarta Sans' }}
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>{submitting ? 'Mengirim Permohonan...' : 'Kirim Permohonan Izin'}</span>
-            </button>
-          </div>
-        </div>
+    <div className="w-full space-y-4">
+      {/* Banner info ringkas */}
+      <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center gap-2.5">
+        <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
+        <p className="text-xs text-emerald-800">Izin yang disetujui fasilitator otomatis mengubah status presensi menjadi <strong>Izin</strong>. Ajukan sebelum sesi dimulai.</p>
       </div>
 
-      {/* Kolom Kanan: Riwayat Pengajuan Izin */}
-      <div className="lg:col-span-7 space-y-4">
-        <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-2xs">
-          <SectionTitle subtitle="Daftar pengajuan izin dan keputusan dari fasilitator gedung">
-            Riwayat Permohonan Izin ({izinData.length})
-          </SectionTitle>
+      <div className="grid lg:grid-cols-5 gap-4 items-start">
+        {/* Kolom Kiri: Form Pengajuan */}
+        <div className="lg:col-span-2">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60">
+              <p className="text-sm font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>Formulir Pengajuan Izin</p>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tgl Mulai</label>
+                  <input type="date" min={today} className={inputCls} value={form.tanggal} onChange={e => setForm(p => ({ ...p, tanggal: e.target.value }))} />
+                </div>
+                <div>
+                  <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tgl Selesai</label>
+                  <input type="date" min={form.tanggal || today} className={inputCls} value={form.tanggalSelesai} onChange={e => setForm(p => ({ ...p, tanggalSelesai: e.target.value }))} />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400 -mt-1">Kosongkan jika izin hanya satu hari.</p>
 
-          <div className="space-y-3">
-            {izinData.length === 0 && (
-              <div className="p-8 text-center border border-dashed border-gray-200 rounded-lg">
-                <p className="text-xs text-gray-400 font-medium">Belum ada riwayat pengajuan izin yang tercatat</p>
+              <div>
+                <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi</label>
+                <select className={`${inputCls} bg-white`} value={form.sesi} onChange={e => setForm(p => ({ ...p, sesi: e.target.value }))}>
+                  <option value="">Seharian (semua sesi)</option>
+                  {sesiList.map(s => <option key={s.id} value={s.nama}>Sesi {s.nama} ({s.jamMulai}–{s.jamSelesai})</option>)}
+                </select>
               </div>
-            )}
-            {izinData.map(i => (
-              <div key={i.id} className="p-4 rounded-lg border border-gray-200 bg-gray-50/50 hover:bg-gray-50 transition-colors">
-                <div className="flex items-start justify-between gap-3 mb-1.5">
-                  <Badge status={i.statusPersetujuan} />
-                  <span className="text-[11px] font-medium text-gray-500">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}</span>
-                </div>
-                <p className="text-xs font-semibold text-gray-900 leading-relaxed mt-2">{i.alasan}</p>
-                <div className="flex flex-wrap items-center gap-3 mt-3 text-[11px] text-gray-500">
-                  {i.fileBukti && (
-                    <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                      <Paperclip className="w-3 h-3" />
-                      <span>{i.fileBukti}</span>
-                    </span>
-                  )}
-                  {i.namaApprover && (
-                    <span className="inline-flex items-center gap-1 text-emerald-800">
-                      <User className="w-3 h-3" />
-                      <span>{i.statusPersetujuan === 'Ditolak' ? 'Ditolak' : 'Disetujui'} oleh {i.namaApprover}{i.tanggalApproval ? ` · ${i.tanggalApproval}` : ''}</span>
-                    </span>
-                  )}
-                </div>
-                {i.catatanApprover && (
-                  <p className={`text-xs mt-2.5 p-2 rounded border ${i.statusPersetujuan === 'Ditolak' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-800 border-blue-200'}`}>
-                    Catatan fasilitator: {i.catatanApprover}
-                  </p>
-                )}
-                {i.statusPersetujuan === 'Disetujui' && i.tanggal <= today && today <= (i.tanggalSelesai || i.tanggal) && (
-                  <p className="text-[11px] mt-2 text-amber-700 font-semibold">Izin ini sedang berlaku hari ini.</p>
-                )}
+
+              <div>
+                <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Alasan / Keperluan</label>
+                <textarea
+                  className={inputCls}
+                  rows={3}
+                  placeholder="Misal: sakit, kuliah malam, keperluan keluarga..."
+                  value={form.alasan}
+                  onChange={e => setForm(p => ({ ...p, alasan: e.target.value }))}
+                />
               </div>
-            ))}
+
+              <div>
+                <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Berkas Bukti (opsional)</label>
+                <div className="relative flex items-center">
+                  <Paperclip className="w-3.5 h-3.5 absolute left-3 text-gray-400 pointer-events-none" />
+                  <input type="text" placeholder="surat_dokter.pdf" className={`${inputCls} pl-8`} value={form.fileBukti} onChange={e => setForm(p => ({ ...p, fileBukti: e.target.value }))} />
+                </div>
+              </div>
+
+              {notice && <NoticeBox notice={notice} />}
+
+              <button
+                type="button"
+                disabled={submitting}
+                className="w-full py-2 px-4 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                onClick={handleSubmit}
+                style={{ fontFamily: 'Plus Jakarta Sans' }}
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{submitting ? 'Mengirim...' : 'Kirim Permohonan Izin'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Kolom Kanan: Riwayat */}
+        <div className="lg:col-span-3">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between">
+              <p className="text-sm font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>Riwayat Permohonan Izin</p>
+              <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{izinData.length} pengajuan</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {izinData.length === 0 && (
+                <div className="py-8 text-center">
+                  <FileText className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                  <p className="text-xs text-gray-400 font-medium">Belum ada riwayat pengajuan izin</p>
+                </div>
+              )}
+              {izinData.map(i => (
+                <div key={i.id} className="px-4 py-3 hover:bg-gray-50/70 transition-colors">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex items-center gap-2">
+                      <Badge status={i.statusPersetujuan} />
+                      {i.statusPersetujuan === 'Disetujui' && i.tanggal <= today && today <= (i.tanggalSelesai || i.tanggal) && (
+                        <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Berlaku hari ini</span>
+                      )}
+                    </div>
+                    <span className="text-[11px] font-medium text-gray-400 shrink-0">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}</span>
+                  </div>
+                  <p className="text-xs text-gray-700 leading-relaxed">{i.alasan}</p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px]">
+                    {i.fileBukti && (
+                      <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                        <Paperclip className="w-3 h-3" />
+                        <span>{i.fileBukti}</span>
+                      </span>
+                    )}
+                    {i.namaApprover && (
+                      <span className="inline-flex items-center gap-1 text-gray-500">
+                        <User className="w-3 h-3" />
+                        <span>{i.statusPersetujuan === 'Ditolak' ? 'Ditolak' : 'Disetujui'} oleh {i.namaApprover}{i.tanggalApproval ? ` · ${i.tanggalApproval}` : ''}</span>
+                      </span>
+                    )}
+                  </div>
+                  {i.catatanApprover && (
+                    <p className={`text-[11px] mt-2 px-2.5 py-1.5 rounded border ${i.statusPersetujuan === 'Ditolak' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-blue-50 text-blue-800 border-blue-100'}`}>
+                      💬 {i.catatanApprover}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Panduan Singkat & Ringkasan Izin */}
+          <div className="p-4 rounded-xl bg-gray-50/80 border border-gray-200 text-xs text-gray-700 space-y-2 mt-4">
+            <h5 className="font-bold text-gray-900 flex items-center gap-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              <ShieldCheck className="w-4 h-4 text-emerald-700" />
+              <span>Ketentuan Pengajuan Izin Asrama</span>
+            </h5>
+            <ul className="text-[11px] text-gray-600 space-y-1 list-disc list-inside leading-relaxed">
+              <li>Permohonan izin diajukan sebelum sesi presensi yang bersangkutan dimulai.</li>
+              <li>Izin sakit atau pulang kampung lebih dari 1 hari wajib menyertakan bukti/surat keterangan.</li>
+              <li>Keputusan persetujuan izin sepenuhnya ditentukan oleh Fasilitator Gedung Anda.</li>
+              <li>Izin yang disetujui otomatis mengubah status presensi menjadi <strong>Izin</strong> (bebas alpa).</li>
+            </ul>
           </div>
         </div>
       </div>
@@ -1030,83 +1221,200 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
   }
 
   return (
-    <div className="grid lg:grid-cols-12 gap-6 w-full items-start">
-      {/* Kolom Kiri: Informasi Identitas Penghuni */}
-      <div className="min-w-0 lg:col-span-6 bg-white rounded-xl p-5 border border-gray-200 shadow-2xs space-y-5">
-        <SectionTitle subtitle="Akun non-admin dapat mengubah foto profil dan password">Data Identitas Diri</SectionTitle>
+    <div className="grid lg:grid-cols-12 gap-5 w-full items-start">
+      {/* Kolom Kiri: Kartu Identitas Digital Penghuni & Status Layanan */}
+      <div className="lg:col-span-4 space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+          {/* Banner Kartu */}
+          <div className="bg-gradient-to-br from-[#0e4b29] via-[#125832] to-[#176d3e] p-6 text-white text-center relative">
+            <div className="absolute top-3 right-3 opacity-20">
+              <Building className="w-16 h-16 text-white" />
+            </div>
 
-        <div className="flex items-center gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
-          <label className="relative w-14 h-14 rounded-lg flex items-center justify-center text-xl font-bold bg-[#0e4b29] text-white shrink-0 overflow-hidden cursor-pointer" title="Edit foto profil">
-            {fotoProfil ? <img src={fotoProfil} alt="Foto profil" className="w-full h-full object-cover" /> : user.nama.charAt(0).toUpperCase()}
-            <input type="file" accept="image/*" className="hidden" onChange={e => pilihFoto(e.target.files?.[0])} />
-            <span className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-tl-md bg-emerald-700 text-white shadow-sm">
-              <Pencil className="h-3 w-3" />
-            </span>
-          </label>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-base text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{user.nama}</h3>
-            <p className="mono text-xs text-gray-500">{user.nim}</p>
-            <div className="mt-1.5"><Badge status="Aktif" /></div>
+            <div className="relative inline-block mx-auto mb-3">
+              <label
+                className="relative w-20 h-20 rounded-2xl flex items-center justify-center text-3xl font-bold bg-white/10 backdrop-blur-md text-white border-2 border-white/30 shadow-md overflow-hidden cursor-pointer group transition-transform hover:scale-105"
+                title="Klik untuk ganti foto profil"
+              >
+                {fotoProfil ? (
+                  <img src={fotoProfil} alt="Foto profil" className="w-full h-full object-cover" />
+                ) : (
+                  user.nama.charAt(0).toUpperCase()
+                )}
+                <input type="file" accept="image/*" className="hidden" onChange={e => pilihFoto(e.target.files?.[0])} />
+                <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Camera className="w-5 h-5 text-white" />
+                  <span className="text-[10px] text-white font-medium mt-0.5">Ubah</span>
+                </div>
+              </label>
+              <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm border-2 border-[#0e4b29]">
+                <Pencil className="h-3 w-3" />
+              </span>
+            </div>
+
+            <h3 className="font-bold text-base text-white truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              {user.nama}
+            </h3>
+            <p className="mono text-xs text-emerald-100/90 mt-0.5 tracking-wide">{user.nim}</p>
+
+            <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-xs font-semibold text-emerald-50">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Penghuni Asrama Aktif</span>
+            </div>
+          </div>
+
+          {/* Info Lokasi & Detail Kamar */}
+          <div className="p-4 space-y-3 bg-gray-50/50">
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Gedung</p>
+                <p className="text-xs font-bold text-emerald-950 mt-0.5 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                  {user.namaGedung || '-'}
+                </p>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Kamar</p>
+                <p className="text-xs font-bold text-emerald-950 mt-0.5 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                  {user.nomorKamar || '-'}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-3 py-2 bg-emerald-50/80 border border-emerald-100 rounded-xl flex items-center justify-between text-xs text-emerald-900">
+              <span className="font-medium text-[11px]">Terdaftar sejak</span>
+              <span className="font-bold mono text-[11px]">{user.tanggalMasuk || '-'}</span>
+            </div>
           </div>
         </div>
 
-        <div className="space-y-2.5 text-xs">
+        {/* Info Layanan Asrama */}
+        <div className="bg-white rounded-2xl p-4 border border-gray-200/90 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+            <h5 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              Ketentuan & Fasilitas Kamar
+            </h5>
+            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              TA 2026/2027
+            </span>
+          </div>
+          <div className="space-y-2 text-xs">
+            <div className="flex items-center justify-between py-1 border-b border-gray-50">
+              <span className="text-gray-500">Kapasitas Standar</span>
+              <span className="font-semibold text-gray-800">2 Orang / Kamar</span>
+            </div>
+            <div className="flex items-center justify-between py-1 border-b border-gray-50">
+              <span className="text-gray-500">Kunci Gerbang Malam</span>
+              <span className="font-bold text-emerald-800">22:00 WIB</span>
+            </div>
+            <div className="flex items-center justify-between py-1 border-b border-gray-50">
+              <span className="text-gray-500">Izin Menginap Luar</span>
+              <span className="font-semibold text-gray-800">Wajib Menu Izin</span>
+            </div>
+            <div className="flex items-center justify-between py-1">
+              <span className="text-gray-500">Layanan Darurat</span>
+              <span className="font-semibold text-gray-800">Pos Pengelola Asrama</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Kolom Kanan: Rincian Data Pribadi & Form Keamanan */}
+      <div className="lg:col-span-8 space-y-4">
+        {/* Data Informasi Akun */}
+        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                Informasi Data Pribadi
+              </h4>
+              <p className="text-[11px] text-gray-400">Detail identitas penghuni terdaftar di sistem asrama</p>
+            </div>
+            <Badge status="Aktif" />
+          </div>
+
+          <div className="divide-y divide-gray-100 text-xs">
             {[
               { label: 'Alamat Email', value: user.email, icon: <Mail className="w-4 h-4 text-emerald-700" /> },
-              { label: 'Nomor HP', value: user.noHp || '-', icon: <User className="w-4 h-4 text-emerald-700" /> },
+              { label: 'Nomor WhatsApp / HP', value: user.noHp || '-', icon: <User className="w-4 h-4 text-emerald-700" /> },
               { label: 'Asal Daerah', value: user.asal || '-', icon: <MapPin className="w-4 h-4 text-emerald-700" /> },
               { label: 'Gedung Asrama', value: user.namaGedung || '-', icon: <Building className="w-4 h-4 text-emerald-700" /> },
               { label: 'Nomor Kamar', value: user.nomorKamar || '-', icon: <DoorClosed className="w-4 h-4 text-emerald-700" /> },
-              { label: 'Terdaftar Sejak', value: user.tanggalMasuk || '-', icon: <ShieldCheck className="w-4 h-4 text-emerald-700" /> },
-            ].map(row => (
-              <div key={row.label} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-white">
-                <div className="w-7 h-7 rounded bg-gray-100 flex items-center justify-center shrink-0">{row.icon}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{row.label}</p>
-                  <p className="text-xs font-semibold text-gray-800 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{row.value}</p>
+              { label: 'Status Verifikasi Akun', value: 'Terverifikasi (NIM Aktif)', icon: <ShieldCheck className="w-4 h-4 text-emerald-700" /> },
+            ].map((row, idx) => (
+              <div key={idx} className="flex items-center px-5 py-3 hover:bg-gray-50/60 transition-colors">
+                <div className="flex items-center gap-2.5 w-48 shrink-0 text-gray-500 font-medium">
+                  {row.icon}
+                  <span>{row.label}</span>
+                </div>
+                <div className="flex-1 min-w-0 font-semibold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                  {row.value}
                 </div>
               </div>
             ))}
+          </div>
         </div>
-        {notice && <p className="text-xs font-semibold text-emerald-700">{notice}</p>}
-      </div>
 
-      {/* Kolom Kanan: Pengaturan Keamanan & Password */}
-      <div className="min-w-0 lg:col-span-6 bg-white rounded-xl p-5 border border-gray-200 shadow-2xs space-y-4">
-        <SectionTitle subtitle="Ganti kata sandi secara berkala untuk menjaga keamanan akun Anda">Keamanan & Ubah Password</SectionTitle>
+        {/* Keamanan & Ganti Password */}
+        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/70 flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800">
+              <Lock className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                Keamanan & Ganti Password
+              </h4>
+              <p className="text-[11px] text-gray-400">Perbarui kata sandi akun secara berkala</p>
+            </div>
+          </div>
 
-        <div className="space-y-3">
-          {[
-            { label: 'Password Saat Ini', placeholder: 'Masukkan password lama' },
-            { label: 'Password Baru', placeholder: 'Minimal 8 karakter' },
-            { label: 'Konfirmasi Password Baru', placeholder: 'Ulangi password baru' },
-          ].map((f, index) => (
-            <div key={f.label}>
-              <label className="block text-xs font-semibold text-gray-700 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>{f.label}</label>
-              <div className="relative flex items-center">
-                <Lock className="w-4 h-4 absolute left-3 text-gray-400 pointer-events-none" />
-                <input
-                  type={showPassword === index ? 'text' : 'password'}
-                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-xs text-gray-800 outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 transition-colors placeholder:text-gray-400"
-                  placeholder={f.placeholder}
-                  value={[passwordLama, passwordBaru, konfirmasi][index]}
-                  onChange={e => [setPasswordLama, setPasswordBaru, setKonfirmasi][index](e.target.value)}
-                />
-                <button type="button" onClick={() => setShowPassword(showPassword === index ? null : index)} className="absolute right-3 text-gray-400 hover:text-gray-700 cursor-pointer" aria-label={showPassword === index ? 'Sembunyikan password' : 'Tampilkan password'}>
-                  {showPassword === index ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          <div className="p-5 space-y-4">
+            <div className="grid sm:grid-cols-3 gap-3">
+              {[
+                { label: 'Password Lama', placeholder: 'Masukkan password lama' },
+                { label: 'Password Baru', placeholder: 'Minimal 8 karakter' },
+                { label: 'Konfirmasi Baru', placeholder: 'Ulangi password baru' },
+              ].map((f, index) => (
+                <div key={f.label}>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                    {f.label}
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type={showPassword === index ? 'text' : 'password'}
+                      className="w-full px-3 py-2 pr-8 rounded-lg border border-gray-300 text-xs text-gray-800 outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 transition-colors placeholder:text-gray-400"
+                      placeholder={f.placeholder}
+                      value={[passwordLama, passwordBaru, konfirmasi][index]}
+                      onChange={e => [setPasswordLama, setPasswordBaru, setKonfirmasi][index](e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(showPassword === index ? null : index)}
+                      className="absolute right-2.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                      aria-label={showPassword === index ? 'Sembunyikan password' : 'Tampilkan password'}
+                    >
+                      {showPassword === index ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-100">
+              <p className="text-[11px] text-gray-400">Setelah password diubah, Anda akan diminta login ulang demi keamanan.</p>
+              <div className="flex items-center gap-3">
+                {notice && <p className="text-xs font-semibold text-emerald-700">{notice}</p>}
+                <button
+                  type="button"
+                  onClick={simpanPassword}
+                  className="py-2 px-5 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer"
+                  style={{ fontFamily: 'Plus Jakarta Sans' }}
+                >
+                  Simpan Perubahan
                 </button>
               </div>
             </div>
-          ))}
-          <button
-            type="button"
-            onClick={simpanPassword}
-            className="w-full mt-2 py-2.5 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer"
-            style={{ fontFamily: 'Plus Jakarta Sans' }}
-          >
-            Simpan Perubahan Password
-          </button>
-          {notice && <p className="text-xs font-semibold text-emerald-700">{notice}</p>}
+          </div>
         </div>
       </div>
       {confirmPasswordChange && (

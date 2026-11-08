@@ -40,7 +40,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
   }).format(new Date())
 
   return (
-    <div className="flex min-h-screen bg-[#f4f6f4] text-gray-800">
+    <div className="flex min-h-screen bg-[#edf2ee] text-gray-800">
       {/* Mobile backdrop */}
       {sidebarOpen && (
         <div 
@@ -170,7 +170,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
         </header>
 
         {/* Content Body */}
-        <main className="min-w-0 flex-1 overflow-x-hidden p-5 lg:p-7 max-w-7xl w-full mx-auto">
+        <main className="min-w-0 flex-1 overflow-x-hidden p-4 lg:p-6 w-full">
           {children}
         </main>
       </div>
