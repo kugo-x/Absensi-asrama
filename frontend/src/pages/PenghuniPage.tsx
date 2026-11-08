@@ -15,7 +15,7 @@ import {
 import { fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, changePasswordApi, uploadProfilePhotoApi } from '../api'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
-  addDays, cariLibur, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
+  addDays, cariLibur, formatTanggal, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
   faseSesi, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi, type StatusDetail,
 } from '../logic'
 import {
@@ -403,7 +403,7 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
           <div className="space-y-1.5">
             {fotoDitolak.map(p => (
               <div key={p.id} className="p-2.5 rounded-lg border text-xs bg-red-50/60 border-red-100 flex items-center justify-between">
-                <span>{p.tanggal} · Sesi {p.sesi} divalidasi tidak sah{p.catatanValidasi ? `: ${p.catatanValidasi}` : ''}</span>
+                <span>{formatTanggal(p.tanggal)} · Sesi {p.sesi} divalidasi tidak sah{p.catatanValidasi ? `: ${p.catatanValidasi}` : ''}</span>
               </div>
             ))}
           </div>
@@ -557,7 +557,7 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
                         <p className="font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>
                           Sesi {sesi.nama}
                         </p>
-                        <p className="text-[11px] text-gray-400">{tanggal}</p>
+                        <p className="text-[11px] text-gray-400">{formatTanggal(tanggal)}</p>
                       </div>
                     </div>
                     <div className="text-right">
@@ -908,7 +908,7 @@ function PenghuniRiwayat({ riwayat }: { riwayat: ReturnType<typeof riwayatPenghu
                 const rec = detail.presensi
                 return (
                   <tr key={`${tanggal}-${sesi.nama}`} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-5 py-3 font-semibold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{tanggal}</td>
+                    <td className="px-5 py-3 font-semibold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatTanggal(tanggal)}</td>
                     <td className="px-5 py-3">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-800 border border-gray-200">
                         <SesiIcon nama={sesi.nama} className="w-3 h-3" />
@@ -1103,7 +1103,7 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
                     {i.namaApprover && (
                       <span className="inline-flex items-center gap-1 text-gray-500">
                         <User className="w-3 h-3" />
-                        <span>{i.statusPersetujuan === 'Ditolak' ? 'Ditolak' : 'Disetujui'} oleh {i.namaApprover}{i.tanggalApproval ? ` · ${i.tanggalApproval}` : ''}</span>
+                        <span>{i.statusPersetujuan === 'Ditolak' ? 'Ditolak' : 'Disetujui'} oleh {i.namaApprover}{i.tanggalApproval ? ` · ${formatTanggal(i.tanggalApproval, 'tanpaHari')}` : ''}</span>
                       </span>
                     )}
                   </div>

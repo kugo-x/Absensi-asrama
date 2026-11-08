@@ -14,7 +14,7 @@ import {
 } from '../data/mockData'
 import { fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur, updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT } from '../api'
 import {
-  cariLibur, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi,
+  cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -573,7 +573,7 @@ function KartuValidasiFoto({ rec, onValidasi }: {
             {rec.statusFoto && <FotoBadge status={rec.statusFoto} />}
           </div>
           <p className="mono text-xs text-gray-500">{rec.nim} · Kamar {rec.nomorKamar}</p>
-          <p className="text-xs text-gray-600 mt-1 font-medium">{rec.tanggal} · Sesi {rec.sesi} · {rec.waktu} WIB</p>
+          <p className="text-xs text-gray-600 mt-1 font-medium">{formatTanggal(rec.tanggal)} · Sesi {rec.sesi} · {rec.waktu} WIB</p>
           {rec.latitude !== null && rec.longitude !== null && (
             <a href={`https://www.google.com/maps?q=${rec.latitude},${rec.longitude}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mt-1 text-xs text-blue-700 hover:underline">
               <MapPin className="w-3 h-3" />
@@ -819,7 +819,7 @@ function KoreksiModal({ target, onClose, onSave }: {
             </div>
             <div>
               <h3 className="font-extrabold text-base text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>Koreksi Presensi</h3>
-              <p className="text-xs text-gray-400">{target.row.penghuni.nama} · {target.tanggal} · Sesi {target.sesi}</p>
+              <p className="text-xs text-gray-400">{target.row.penghuni.nama} · {formatTanggal(target.tanggal)} · Sesi {target.sesi}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer">

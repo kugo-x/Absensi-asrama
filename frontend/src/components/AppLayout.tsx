@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CurrentUser } from '../types'
 import NotifikasiBell, { type Notifikasi } from './Notifikasi'
-import { Building2, LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Building2, LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar, ChevronLeft } from 'lucide-react'
 
 interface NavItem { id: string; label: string; icon: React.ReactNode }
 
@@ -56,6 +56,84 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
     setSidebarOpen(false)
   }, [activeTab])
 
+  // Animasi keluar untuk modal, toast, dan popup. Komponen-komponen itu dilepas React
+  // seketika saat ditutup; agar tidak hilang mendadak, salinan visualnya (tidak bisa diklik,
+  // tanpa state) dipudarkan sebentar lalu dibuang. Murni tampilan — logika tidak tersentuh.
+  const lapisanKeluar = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const SALINAN = ['modal-keluar', 'toast-keluar', 'pop-keluar']
+    const mo = new MutationObserver(daftar => {
+      for (const m of daftar) {
+        m.removedNodes.forEach(node => {
+          if (!(node instanceof HTMLElement) || SALINAN.some(k => node.classList.contains(k))) return
+          const induk = m.target as HTMLElement
+          let wadah: Element | null = null
+          let kelas = ''
+          if (node.classList.contains('dp-pop') && induk === document.body) {
+            wadah = document.body
+            kelas = 'pop-keluar'
+          } else if (node.classList.contains('fixed') && induk.closest('main') && lapisanKeluar.current) {
+            wadah = lapisanKeluar.current
+            kelas = node.classList.contains('inset-0') ? 'modal-keluar' : 'toast-keluar'
+          }
+          if (!wadah) return
+          const salinan = node.cloneNode(true) as HTMLElement
+          salinan.classList.remove('dp-pop')
+          salinan.classList.add(kelas)
+          salinan.setAttribute('aria-hidden', 'true')
+          salinan.setAttribute('inert', '')
+          salinan.style.pointerEvents = 'none'
+          salinan.removeAttribute('id')
+          salinan.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'))
+          wadah.appendChild(salinan)
+          const buang = () => salinan.remove()
+          salinan.addEventListener('animationend', e => { if (e.target === salinan) buang() })
+          window.setTimeout(buang, 450)
+        })
+      }
+    })
+    mo.observe(document.body, { childList: true, subtree: true })
+    return () => mo.disconnect()
+  }, [])
+
+  // Judul tab browser mengikuti halaman yang sedang dibuka
+  const judulHalaman = (navItems.find(n => n.id === activeTab)?.label ?? 'Dashboard').replace(/\s*\(\d+\)$/, '')
+  useEffect(() => {
+    document.title = `${judulHalaman} · SIP Asrama`
+  }, [judulHalaman])
+
+  // Teks sidebar memudar saat diciutkan (cepat) dan muncul kembali setelah panel cukup lebar
+  const pudar = `transition-opacity ${ciut ? 'duration-150 lg:opacity-0 lg:pointer-events-none' : 'duration-300 delay-150'}`
+
+  // Kelompok menu di sidebar: profil dipisah ke bagian "Akun"
+  const grupMenu = [
+    { judul: 'Menu Utama', items: navItems.filter(n => n.id !== 'profil') },
+    { judul: 'Akun', items: navItems.filter(n => n.id === 'profil') },
+  ].filter(g => g.items.length > 0)
+
+  // Penanda menu aktif yang bergeser mengikuti tombol menu yang dipilih
+  const tombolRef = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [indikator, setIndikator] = useState<{ top: number; height: number } | null>(null)
+  const navRef = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const ukur = () => {
+      const el = tombolRef.current[activeTab]
+      const baru = el ? { top: el.offsetTop, height: el.offsetHeight } : null
+      setIndikator(lama => (lama && baru && lama.top === baru.top && lama.height === baru.height ? lama : baru))
+    }
+    ukur()
+    // Ukur ulang setiap kali ukuran sidebar berubah (termasuk selama animasi ciut/lebar),
+    // agar penanda tidak tertinggal di posisi saat sidebar masih sempit.
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(ukur) : null
+    if (navRef.current) ro?.observe(navRef.current)
+    window.addEventListener('resize', ukur)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener('resize', ukur)
+    }
+  }, [activeTab, ciut, navItems.length])
+
   const todayFormatted = new Intl.DateTimeFormat('id-ID', {
     weekday: 'long',
     day: 'numeric',
@@ -65,140 +143,156 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
 
   return (
     <div className="liquid flex min-h-screen text-gray-800">
-      {/* Mobile backdrop */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-45 lg:hidden"
-          onClick={() => setSidebarOpen(false)} 
-        />
-      )}
+      {/* Latar laci menu (mobile): selalu ada agar bisa memudar masuk & keluar */}
+      <div
+        aria-hidden={!sidebarOpen}
+        className={`fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-45 lg:hidden transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={() => setSidebarOpen(false)}
+      />
 
-      {/* Sidebar: panel mengambang di desktop, laci geser di mobile */}
-      <div className={`fixed lg:sticky top-0 left-0 z-50 lg:z-40 h-screen shrink-0 lg:p-3 transition-transform duration-300 ease-out lg:translate-x-0 ${
+      {/* Sidebar: panel mengambang di desktop, laci geser di mobile.
+          Saat diciutkan, ikon TIDAK berpindah posisi: panel hanya menyempit dan teks memudar,
+          sehingga animasinya mulus (tanpa lompatan tata letak). */}
+      <div className={`group/sidebar fixed lg:sticky top-0 left-0 z-50 lg:z-40 h-screen shrink-0 lg:p-3 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] lg:translate-x-0 ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         <aside
-          className={`relative flex flex-col h-full overflow-hidden text-white lg:rounded-3xl lg:border lg:border-white/10 backdrop-blur-xl transition-[width] duration-300 ease-out ${
-            ciut ? 'lg:w-19' : 'lg:w-62'
-          } w-68`}
+          className={`relative flex flex-col h-full overflow-hidden text-white lg:rounded-[24px] transition-[width] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+            ciut ? 'lg:w-[68px]' : 'lg:w-[252px]'
+          } w-[276px]`}
           style={{
-            // Panel gelap polos, sedikit tembus pandang
-            background: 'rgb(12 44 29 / 0.96)',
-            boxShadow: 'inset 0 1px 0 rgb(255 255 255 / 0.08), 0 10px 30px -12px rgb(17 24 39 / 0.35)',
+            background: 'linear-gradient(180deg, #0f3322 0%, #0b2a1c 45%, #092317 100%)',
+            boxShadow: 'inset 0 0 0 1px rgb(255 255 255 / 0.06), inset 0 1px 0 rgb(255 255 255 / 0.06), 0 14px 36px -16px rgb(17 24 39 / 0.5)',
             fontFamily: 'Plus Jakarta Sans',
           }}
         >
           {/* Brand */}
-          <div className={`relative flex items-center gap-3 pt-5 pb-4 ${ciut ? 'lg:justify-center lg:px-0' : ''} px-5`}>
-            <div className="w-10 h-10 shrink-0 rounded-2xl bg-emerald-500 flex items-center justify-center text-white">
-              <Building2 className="w-5 h-5" strokeWidth={2.4} />
+          <div className="flex items-center gap-3 shrink-0 h-[76px] pl-4 pr-3">
+            <div className="w-9 h-9 shrink-0 rounded-xl bg-emerald-400 flex items-center justify-center text-emerald-950 shadow-[inset_0_-2px_0_rgb(0_0_0/0.12)]">
+              <Building2 className="w-5 h-5" strokeWidth={2.3} />
             </div>
-            <div className={`min-w-0 flex-1 ${ciut ? 'lg:hidden' : ''}`}>
+            <div className={`min-w-0 flex-1 whitespace-nowrap ${pudar}`}>
               <div className="font-extrabold text-[15px] leading-tight tracking-tight">SIP Asrama</div>
-              <div className="text-[11px] font-medium text-emerald-300/80 truncate">Universitas Andalas</div>
+              <div className="text-[11px] font-medium text-emerald-200/50">Universitas Andalas</div>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
               aria-label="Tutup menu"
-              className="lg:hidden p-1.5 rounded-xl text-white/60 hover:text-white hover:bg-white/10 cursor-pointer"
+              className="lg:hidden w-8 h-8 shrink-0 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/8 cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
+
+          <div className="mx-3 h-px shrink-0 bg-white/[0.07]" />
 
           {/* Navigasi */}
-          <nav className={`relative flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 ${ciut ? 'lg:px-3' : ''} px-3`}>
-            <p className={`px-3 pt-2 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-200/40 ${ciut ? 'lg:hidden' : ''}`}>
-              Menu
-            </p>
-            {navItems.map(item => {
-              const isActive = activeTab === item.id
-              // Label seperti "Validasi Foto (3)" ditampilkan sebagai label + badge angka
-              const m = item.label.match(/^(.*?)\s*\((\d+)\)$/)
-              const label = m ? m[1] : item.label
-              const badge = m ? m[2] : null
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => { onTabChange(item.id); setSidebarOpen(false) }}
-                  title={ciut ? item.label : undefined}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`group relative w-full flex items-center gap-3 rounded-2xl text-[13px] font-semibold text-left cursor-pointer transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 ${
-                    ciut ? 'lg:justify-center lg:px-0 lg:py-2' : ''
-                  } px-2 py-2 ${
-                    isActive
-                      ? 'bg-white text-emerald-950 shadow-lg shadow-black/20'
-                      : 'text-emerald-50/70 hover:text-white hover:bg-white/7'
-                  }`}
-                >
-                  <span className={`relative w-9 h-9 shrink-0 rounded-xl flex items-center justify-center transition-colors ${
-                    isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-white/6 text-emerald-300/90 group-hover:bg-white/10 group-hover:text-emerald-200'
-                  }`}>
-                    {item.icon}
-                    {badge && ciut && (
-                      <span className="hidden lg:block absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-[#0a2e1c]" />
-                    )}
-                  </span>
-                  <span className={`flex-1 truncate ${ciut ? 'lg:hidden' : ''}`}>{label}</span>
-                  {badge && (
-                    <span className={`min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center ${
-                      isActive ? 'bg-emerald-600 text-white' : 'bg-amber-400 text-amber-950'
-                    } ${ciut ? 'lg:hidden' : ''}`}>
-                      {badge}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
+          <nav ref={navRef} className="relative flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
+            {/* Penanda menu aktif yang bergeser (efek pegas) */}
+            {indikator && (
+              <span
+                aria-hidden
+                className="absolute left-3 right-3 rounded-xl ring-1 ring-inset ring-emerald-300/15 transition-[translate,height] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-[translate]"
+                style={{
+                  top: 0,
+                  height: indikator.height,
+                  translate: `0 ${indikator.top}px`,
+                  background: 'linear-gradient(90deg, rgb(52 211 153 / 0.2) 0%, rgb(52 211 153 / 0.07) 60%, rgb(52 211 153 / 0.03) 100%)',
+                }}
+              >
+                <span className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-emerald-400" />
+              </span>
+            )}
+
+            {grupMenu.map(grup => (
+              <div key={grup.judul} className="mb-4 last:mb-0">
+                <p className={`px-3 pb-2 whitespace-nowrap overflow-hidden text-[10.5px] font-semibold uppercase tracking-[0.14em] text-emerald-100/30 ${pudar}`}>
+                  {grup.judul}
+                </p>
+                <div className="space-y-1">
+                  {grup.items.map(item => {
+                    const isActive = activeTab === item.id
+                    // Label seperti "Validasi Foto (3)" ditampilkan sebagai label + badge angka
+                    const m = item.label.match(/^(.*?)\s*\((\d+)\)$/)
+                    const label = m ? m[1] : item.label
+                    const badge = m ? m[2] : null
+                    return (
+                      <button
+                        key={item.id}
+                        ref={el => { tombolRef.current[item.id] = el }}
+                        onClick={() => { onTabChange(item.id); setSidebarOpen(false) }}
+                        title={ciut ? item.label : undefined}
+                        aria-current={isActive ? 'page' : undefined}
+                        className={`group relative z-10 w-full flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] text-left whitespace-nowrap cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 ${
+                          isActive ? 'text-white font-semibold' : 'text-emerald-50/60 font-medium hover:text-white hover:bg-white/[0.045]'
+                        }`}
+                      >
+                        <span className={`relative shrink-0 [&_svg]:w-[19px] [&_svg]:h-[19px] transition-[color,scale] duration-300 ${
+                          isActive ? 'text-emerald-300' : 'text-emerald-100/40 group-hover:text-emerald-100/80 group-hover:scale-110'
+                        }`}>
+                          {item.icon}
+                          {badge && (
+                            <span className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#0b2a1c] transition-opacity duration-300 opacity-0 ${ciut ? 'lg:opacity-100' : ''}`} />
+                          )}
+                        </span>
+                        <span className={`flex-1 min-w-0 truncate ${pudar}`}>{label}</span>
+                        {badge && (
+                          <span className={`min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center tabular-nums bg-amber-400 text-amber-950 ${pudar}`}>
+                            {badge}
+                          </span>
+                        )}
+                        {isActive && !badge && (
+                          <span className={`w-1.5 h-1.5 shrink-0 rounded-full bg-emerald-400/80 ${pudar}`} />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
 
-          {/* Ciutkan (desktop) */}
-          <div className={`relative hidden lg:flex px-3 pb-2 ${ciut ? 'justify-center' : 'justify-end'}`}>
-            <button
-              onClick={() => setCiut(c => !c)}
-              aria-label={ciut ? 'Lebarkan menu' : 'Ciutkan menu'}
-              title={ciut ? 'Lebarkan menu' : 'Ciutkan menu'}
-              className="p-2 rounded-xl text-emerald-200/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            >
-              {ciut ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-            </button>
-          </div>
-
           {/* Profil + keluar */}
-          <div className="relative p-3 pt-2">
-            <div className={`group/profil flex items-center gap-3 rounded-2xl bg-white/5 border border-white/10 transition-colors hover:bg-white/8 ${
-              ciut ? 'lg:flex-col lg:p-2 lg:gap-2' : ''
-            } p-2`}>
-              {/* Avatar: foto profil atau inisial */}
-              <div className="relative shrink-0" title={ciut ? `${user.nama} · ${ROLE_LABELS[user.role]}` : undefined}>
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white font-extrabold text-[13px] tracking-wide flex items-center justify-center overflow-hidden ring-1 ring-white/15">
+          <div className="shrink-0 px-3 pb-3 pt-2 space-y-1">
+            <div className="h-px bg-white/[0.07] mb-2" />
+            <div className="flex items-center gap-3 h-12 pl-1 pr-2 rounded-xl whitespace-nowrap" title={ciut ? `${user.nama} · ${ROLE_LABELS[user.role]}` : undefined}>
+              <div className="relative shrink-0">
+                <div className="w-9 h-9 rounded-full bg-emerald-600 text-white font-bold text-[12px] tracking-wide flex items-center justify-center overflow-hidden ring-2 ring-emerald-300/25">
                   {user.fotoProfil ? <img src={user.fotoProfil} alt="Foto profil" className="h-full w-full object-cover" /> : inisial(user.nama)}
                 </div>
-                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0c2c1d]" aria-label="Sedang aktif" />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#092317]" aria-label="Sedang aktif" />
               </div>
-
-              {/* Nama, NIM, peran */}
-              <div className={`flex-1 min-w-0 ${ciut ? 'lg:hidden' : ''}`}>
-                <p className="text-[13px] font-bold leading-tight line-clamp-2 break-words" title={user.nama}>{user.nama}</p>
-                <div className="flex items-center gap-1.5 mt-1 min-w-0">
-                  <span className="inline-flex items-center gap-1 shrink-0 px-1.5 py-1 rounded-md bg-emerald-400/15 text-emerald-200 text-[10px] font-bold leading-none [&_svg]:w-3 [&_svg]:h-3">
-                    {ROLE_ICONS[user.role]}
-                    {ROLE_PENDEK[user.role]}
-                  </span>
-                </div>
+              <div className={`flex-1 min-w-0 ${pudar}`}>
+                <p className="text-[13.5px] font-bold leading-tight truncate" title={user.nama}>{user.nama}</p>
+                <p className="flex items-center gap-1 mt-0.5 text-[11px] font-medium text-emerald-200/55 truncate [&_svg]:w-3 [&_svg]:h-3">
+                  {ROLE_ICONS[user.role]}
+                  <span className="truncate">{ROLE_PENDEK[user.role]}</span>
+                </p>
               </div>
-
-              <button
-                onClick={onLogout}
-                aria-label="Keluar akun"
-                title="Keluar akun"
-                className="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-rose-500/80 hover:border-rose-400/60 transition-colors cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
             </div>
+            <button
+              onClick={onLogout}
+              aria-label="Keluar akun"
+              title={ciut ? 'Keluar akun' : undefined}
+              className="group w-full flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] font-medium text-left whitespace-nowrap text-emerald-50/50 hover:text-rose-200 hover:bg-rose-500/15 cursor-pointer"
+            >
+              <LogOut className="w-[19px] h-[19px] shrink-0 text-emerald-100/40 group-hover:text-rose-300 transition-colors duration-300" />
+              <span className={pudar}>Keluar Akun</span>
+            </button>
           </div>
         </aside>
+
+        {/* Tombol ciutkan/lebarkan: bulatan di tepi kanan sidebar (desktop) */}
+        <button
+          onClick={() => setCiut(c => !c)}
+          aria-label={ciut ? 'Lebarkan menu' : 'Ciutkan menu'}
+          title={ciut ? 'Lebarkan menu' : 'Ciutkan menu'}
+          className={`hidden lg:flex absolute right-0 top-[50px] z-10 w-6 h-6 items-center justify-center rounded-full bg-white text-emerald-900 ring-1 ring-black/5 shadow-[0_2px_8px_-2px_rgb(17_24_39/0.35)] hover:scale-110 hover:bg-emerald-50 transition-[scale,background-color] duration-300 cursor-pointer`}
+        >
+          <ChevronLeft className={`w-3.5 h-3.5 transition-[rotate] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${ciut ? 'rotate-180' : ''}`} strokeWidth={2.5} />
+        </button>
       </div>
 
       {/* Main Container */}
@@ -235,6 +329,8 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
         {/* Content Body */}
         <main className="min-w-0 flex-1 overflow-x-hidden p-4 lg:p-6 w-full">
           {children}
+          {/* Wadah salinan animasi keluar (tanpa anak React) */}
+          <div ref={lapisanKeluar} className="contents" aria-hidden />
         </main>
       </div>
     </div>

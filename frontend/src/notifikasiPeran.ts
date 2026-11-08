@@ -1,7 +1,7 @@
 import type { Gedung, IzinRecord, ModeUji, PresensiRecord, Sesi } from './types'
 import type { Notifikasi } from './components/Notifikasi'
 import { formatRentangIzin } from './components/PresensiWidgets'
-import { addDays } from './logic'
+import { addDays, formatTanggal } from './logic'
 
 /**
  * Notifikasi turunan data yang sudah dimuat setiap halaman (tanpa backend baru).
@@ -49,7 +49,7 @@ export function notifikasiPenghuni(a: {
 
   for (const p of a.presensi) {
     if (p.nim !== a.nim || p.tanggal < batas) continue
-    const sesi = `Sesi ${p.sesi}, ${p.tanggal}`
+    const sesi = `Sesi ${p.sesi}, ${formatTanggal(p.tanggal)}`
     if (p.statusFoto === 'Diterima' && p.divalidasiPada) {
       out.push({ id: `foto-${p.id}-Diterima`, jenis: 'sukses', judul: 'Foto presensi diterima', pesan: sesi, waktu: p.divalidasiPada, tab: 'riwayat' })
     } else if (p.statusFoto === 'Ditolak') {
@@ -116,7 +116,7 @@ export function notifikasiFasil(a: {
       id: `foto-masuk-${p.id}`,
       jenis: 'permintaan',
       judul: `Foto presensi ${p.namaPenghuni} perlu divalidasi`,
-      pesan: `Sesi ${p.sesi}, ${p.tanggal} pukul ${p.waktu}`,
+      pesan: `Sesi ${p.sesi}, ${formatTanggal(p.tanggal)} pukul ${p.waktu}`,
       waktu: `${p.tanggal} ${p.waktu}`,
       tab: 'foto',
     })

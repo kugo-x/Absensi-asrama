@@ -22,7 +22,7 @@ import DateInput from '../components/DateInput'
 import TimeInput from '../components/TimeInput'
 import { notifikasiAdmin } from '../notifikasiPeran'
 import {
-  addDays, cariLibur, faseSesi, hitungStatus, hunianKamar, penghuniWajibAbsen, riwayatPenghuni, sesiAktif, statusSesi, todayLocal, type DataPresensi,
+  addDays, cariLibur, faseSesi, formatTanggal, hitungStatus, hunianKamar, penghuniWajibAbsen, riwayatPenghuni, sesiAktif, statusSesi, todayLocal, type DataPresensi,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -1321,7 +1321,7 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
 
       <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs">
         <div className="px-6 py-4 border-b border-emerald-100">
-          <SectionTitle subtitle="Koreksi presensi dilakukan oleh fasil gedung masing-masing">Rekap Presensi — {tanggal} · Sesi {sesi}</SectionTitle>
+          <SectionTitle subtitle="Koreksi presensi dilakukan oleh fasil gedung masing-masing">Rekap Presensi — {formatTanggal(tanggal)} · Sesi {sesi}</SectionTitle>
         </div>
         <RekapTable rows={rows} showGedung />
       </div>
@@ -1364,7 +1364,7 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
                   <td className="px-5 py-3.5 text-xs text-gray-700 whitespace-nowrap">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}</td>
                   <td className="px-5 py-3.5 text-xs text-gray-700 max-w-[240px]">{i.alasan}</td>
                   <td className="px-5 py-3.5"><Badge status={i.statusPersetujuan} /></td>
-                  <td className="px-5 py-3.5 text-xs text-gray-600">{i.namaApprover ? `${i.namaApprover} · ${i.tanggalApproval}` : '–'}</td>
+                  <td className="px-5 py-3.5 text-xs text-gray-600">{i.namaApprover ? `${i.namaApprover} · ${formatTanggal(i.tanggalApproval || '', 'tanpaHari')}` : '–'}</td>
                   <td className="px-5 py-3.5 text-xs text-gray-500 max-w-[200px]">{i.catatanApprover || '–'}</td>
                 </tr>
               ))}

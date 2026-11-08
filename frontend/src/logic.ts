@@ -21,6 +21,37 @@ export function addDays(tanggal: string, n: number): string {
   return toDateStr(new Date(y, m - 1, d + n))
 }
 
+// ---------- Format tampilan tanggal (hanya untuk ditampilkan; data tetap YYYY-MM-DD) ----------
+
+const BULAN_PENDEK = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+const HARI_PENDEK = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+
+function pecah(tanggal: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(tanggal || '')
+  if (!m) return null
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  return { y, mo, d, hari: new Date(y, mo - 1, d).getDay() }
+}
+
+/** "Min, 8 Nov 2026" (default) atau "8 Nov 2026" (tanpaHari). Nilai tak dikenal dikembalikan apa adanya. */
+export function formatTanggal(tanggal: string, gaya: 'lengkap' | 'tanpaHari' = 'lengkap'): string {
+  const t = pecah(tanggal)
+  if (!t) return tanggal
+  const isi = `${t.d} ${BULAN_PENDEK[t.mo - 1]} ${t.y}`
+  return gaya === 'lengkap' ? `${HARI_PENDEK[t.hari]}, ${isi}` : isi
+}
+
+/** Rentang ringkas: "8 Nov 2026", "10–12 Nov 2026", "28 Okt – 2 Nov 2026", "30 Des 2026 – 2 Jan 2027" */
+export function formatRentangTanggal(mulai: string, selesai?: string | null): string {
+  const a = pecah(mulai)
+  const b = selesai ? pecah(selesai) : null
+  if (!a) return mulai
+  if (!b || selesai === mulai) return formatTanggal(mulai, 'tanpaHari')
+  if (a.y === b.y && a.mo === b.mo) return `${a.d}–${b.d} ${BULAN_PENDEK[a.mo - 1]} ${a.y}`
+  if (a.y === b.y) return `${a.d} ${BULAN_PENDEK[a.mo - 1]} – ${b.d} ${BULAN_PENDEK[b.mo - 1]} ${a.y}`
+  return `${formatTanggal(mulai, 'tanpaHari')} – ${formatTanggal(selesai!, 'tanpaHari')}`
+}
+
 export function maxDate(a: string, b: string): string {
   return a > b ? a : b
 }

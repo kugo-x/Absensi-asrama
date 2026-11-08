@@ -36,12 +36,9 @@ body {
 .liquid main .bg-white:not([class*='hover:bg-']) {
   background-color: rgb(255 255 255 / 0.56);
 }
-/* Blur hanya untuk panel, bukan isian form: backdrop-filter membuat stacking context
-   sehingga input akan menutupi ikon absolut di dalamnya (mis. ikon kaca pembesar). */
-.liquid main .bg-white:not(input):not(select):not(textarea) {
-  -webkit-backdrop-filter: blur(22px) saturate(175%);
-  backdrop-filter: blur(22px) saturate(175%);
-}
+/* Catatan: kartu di dalam halaman sengaja TANPA backdrop-filter. Latar halaman polos,
+   jadi blur tidak terlihat, sedangkan biayanya besar saat kartu beranimasi (patah-patah).
+   Blur tetap dipakai pada header, modal, dan popup yang melayang di atas konten. */
 /* Elemen yang punya warna hover sendiri (hover:bg-* / hover:border-*) dibiarkan
    memakai warna Tailwind-nya, agar efek hover tidak tertimpa aturan kaca. */
 .liquid main .bg-white:not(input):not(select):not(textarea):not([class*='hover:border-']):not([class*='hover:bg-']) {
@@ -280,8 +277,14 @@ code, .mono {
    yang tertinggal setelah animasi (transform permanen akan merusak posisi
    elemen fixed seperti modal).
    ===================================================================== */
+/* Kurva gerak bersama: "smooth" untuk masuk/keluar, "spring" untuk benda yang bergeser */
+:root {
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 @keyframes lg-naik {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
   to { opacity: 1; transform: none; }
 }
 @keyframes lg-pudar {
@@ -289,72 +292,87 @@ code, .mono {
   to { opacity: 1; }
 }
 @keyframes lg-muncul {
-  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.965); }
   to { opacity: 1; transform: none; }
 }
 @keyframes lg-geser {
-  from { opacity: 0; transform: translateY(-8px); }
+  from { opacity: 0; transform: translate3d(0, -8px, 0); }
   to { opacity: 1; transform: none; }
 }
 @keyframes lg-geser-bawah {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translate3d(0, 12px, 0); }
   to { opacity: 1; transform: none; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Konten tab yang baru tampil: naik perlahan, blok-bloknya bergiliran */
-  .liquid main > *,
-  .liquid main > * > * {
-    animation: lg-naik 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  /* Konten tab yang baru tampil. Hanya SATU lapis yang bergerak (anak langsung kontainer
+     halaman); lapis lain cukup memudar agar gerakan tidak bertumpuk / patah-patah. */
+  .liquid main > * {
+    animation: lg-pudar 0.35s var(--ease-smooth) backwards;
   }
-  .liquid main > * > :nth-child(2) { animation-delay: 40ms; }
-  .liquid main > * > :nth-child(3) { animation-delay: 80ms; }
-  .liquid main > * > :nth-child(4) { animation-delay: 120ms; }
-  .liquid main > * > :nth-child(5) { animation-delay: 160ms; }
-  .liquid main > * > :nth-child(n + 6) { animation-delay: 200ms; }
+  .liquid main > * > * {
+    animation: lg-naik 0.55s var(--ease-smooth) backwards;
+  }
+  .liquid main > * > :nth-child(2) { animation-delay: 45ms; }
+  .liquid main > * > :nth-child(3) { animation-delay: 90ms; }
+  .liquid main > * > :nth-child(4) { animation-delay: 135ms; }
+  .liquid main > * > :nth-child(5) { animation-delay: 180ms; }
+  .liquid main > * > :nth-child(n + 6) { animation-delay: 220ms; }
 
-  /* Kartu statistik / kartu dalam grid: bergiliran */
-  .liquid main .grid > * { animation: lg-naik 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
-  .liquid main .grid > :nth-child(2) { animation-delay: 50ms; }
-  .liquid main .grid > :nth-child(3) { animation-delay: 100ms; }
-  .liquid main .grid > :nth-child(4) { animation-delay: 150ms; }
-  .liquid main .grid > :nth-child(n + 5) { animation-delay: 200ms; }
+  /* Kartu dalam grid (di dalam blok yang sudah bergerak): cukup memudar bergiliran */
+  .liquid main > * > * .grid > * { animation: lg-pudar 0.45s var(--ease-smooth) backwards; }
+  .liquid main > * > * .grid > :nth-child(2) { animation-delay: 60ms; }
+  .liquid main > * > * .grid > :nth-child(3) { animation-delay: 120ms; }
+  .liquid main > * > * .grid > :nth-child(4) { animation-delay: 180ms; }
+  .liquid main > * > * .grid > :nth-child(n + 5) { animation-delay: 220ms; }
 
   /* Modal & dialog: latar memudar, kotak dialog "pop" */
   .liquid main .fixed.inset-0,
   .liquid > .fixed.inset-0 {
-    animation: lg-pudar 0.2s ease-out backwards;
+    animation: lg-pudar 0.25s var(--ease-smooth) backwards;
   }
   .liquid main .fixed.inset-0 > * {
-    animation: lg-muncul 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+    animation: lg-muncul 0.4s var(--ease-smooth) backwards;
   }
 
   /* Notifikasi melayang (toast) */
   .liquid main > .fixed:not(.inset-0) {
-    animation: lg-geser 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+    animation: lg-geser 0.45s var(--ease-smooth) backwards;
   }
   @media (max-width: 639px) {
     .liquid main > .fixed:not(.inset-0) { animation-name: lg-geser-bawah; }
   }
 
   /* Sidebar: item menu muncul bergiliran saat aplikasi dibuka */
-  .liquid aside nav > button {
-    animation: lg-naik 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  .liquid aside nav button {
+    animation: lg-naik 0.5s var(--ease-smooth) backwards;
   }
-  .liquid aside nav > button:nth-of-type(2) { animation-delay: 30ms; }
-  .liquid aside nav > button:nth-of-type(3) { animation-delay: 60ms; }
-  .liquid aside nav > button:nth-of-type(4) { animation-delay: 90ms; }
-  .liquid aside nav > button:nth-of-type(5) { animation-delay: 120ms; }
-  .liquid aside nav > button:nth-of-type(n + 6) { animation-delay: 150ms; }
+  .liquid aside nav button:nth-of-type(2) { animation-delay: 35ms; }
+  .liquid aside nav button:nth-of-type(3) { animation-delay: 70ms; }
+  .liquid aside nav button:nth-of-type(4) { animation-delay: 105ms; }
+  .liquid aside nav button:nth-of-type(5) { animation-delay: 140ms; }
+  .liquid aside nav button:nth-of-type(n + 6) { animation-delay: 175ms; }
 
-  /* Umpan balik saat tombol ditekan */
+  /* Semua tombol & tautan: transisi warna/bayangan/tekan yang seragam dan halus */
+  .liquid :is(button, a[href]) {
+    transition-property: color, background-color, border-color, outline-color, box-shadow, opacity, scale, rotate;
+    transition-duration: 0.2s;
+    transition-timing-function: var(--ease-smooth);
+  }
   .liquid :is(button, a[href]):not(:disabled):active {
     scale: 0.97;
+    transition-duration: 0.08s;
   }
 
-  /* Kartu bergerak lembut saat bayangannya berubah */
+  /* Kartu bergerak lembut saat bayangannya / warnanya berubah */
   .liquid main :is(.rounded-xl, .rounded-2xl, .rounded-3xl).bg-white {
-    transition: box-shadow 0.25s ease, background-color 0.25s ease, border-color 0.25s ease;
+    transition: box-shadow 0.3s var(--ease-smooth), background-color 0.3s var(--ease-smooth), border-color 0.3s var(--ease-smooth);
+  }
+
+  /* Popup (kalender, jam, notifikasi) */
+  .dp-pop {
+    animation: lg-muncul 0.32s var(--ease-smooth) backwards !important;
+    transform-origin: top center;
   }
 }
 
@@ -405,7 +423,7 @@ code, .mono {
     margin-left: auto;
     background-color: #047857;
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
-    transition: rotate 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: rotate 0.3s var(--ease-smooth);
   }
   .liquid select:open::picker-icon {
     rotate: 180deg;
@@ -469,7 +487,7 @@ code, .mono {
 
   @media (prefers-reduced-motion: no-preference) {
     .liquid select::picker(select) {
-      transition: opacity 0.18s ease, translate 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), display 0.2s allow-discrete, overlay 0.2s allow-discrete;
+      transition: opacity 0.22s var(--ease-smooth), translate 0.3s var(--ease-smooth), display 0.3s allow-discrete, overlay 0.3s allow-discrete;
       opacity: 1;
       translate: 0 0;
     }
@@ -486,12 +504,6 @@ code, .mono {
   }
 }
 
-/* Kalender (DateInput) muncul halus */
-@media (prefers-reduced-motion: no-preference) {
-  .dp-pop {
-    animation: lg-muncul 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
-  }
-}
 
 /* Lonceng notifikasi bergoyang sekali bila ada yang belum dibaca */
 @keyframes notif-goyang {
@@ -506,4 +518,31 @@ code, .mono {
     transform-origin: 50% 10%;
     animation: notif-goyang 0.9s ease-in-out 0.4s 1;
   }
+}
+
+
+/* =====================================================================
+   ANIMASI KELUAR — salinan visual modal/toast/popup yang baru ditutup
+   (lihat AppLayout). !important agar mengalahkan animasi masuk.
+   ===================================================================== */
+@keyframes lg-keluar-latar {
+  to { opacity: 0; }
+}
+@keyframes lg-keluar-isi {
+  to { opacity: 0; transform: translate3d(0, 8px, 0) scale(0.97); }
+}
+@keyframes lg-keluar-pop {
+  to { opacity: 0; transform: translate3d(0, -4px, 0) scale(0.98); }
+}
+.modal-keluar {
+  animation: lg-keluar-latar 0.24s var(--ease-smooth) forwards !important;
+}
+.modal-keluar > * {
+  animation: lg-keluar-isi 0.24s var(--ease-smooth) forwards !important;
+}
+.toast-keluar {
+  animation: lg-keluar-pop 0.26s var(--ease-smooth) forwards !important;
+}
+.pop-keluar {
+  animation: lg-keluar-pop 0.18s var(--ease-smooth) forwards !important;
 }

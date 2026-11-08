@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Sun, Moon, CheckCircle2, XCircle, FileCheck, Clock, Pencil } from 'lucide-react'
 import type { Penghuni, Sesi, StatusFoto } from '../types'
 import type { StatusDetail } from '../logic'
-import { hitungStatus, jamPresensi, keteranganStatus } from '../logic'
+import { formatRentangTanggal, hitungStatus, jamPresensi, keteranganStatus } from '../logic'
 import { StatCard, Badge } from './AppLayout'
 import { fetchFotoWajah } from '../api'
 
@@ -125,7 +125,7 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
 }
 
 export function formatRentangIzin(tanggal: string, tanggalSelesai: string, sesi: string | null) {
-  const rentang = !tanggalSelesai || tanggalSelesai === tanggal ? tanggal : `${tanggal} s/d ${tanggalSelesai}`
+  const rentang = formatRentangTanggal(tanggal, tanggalSelesai)
   return `${rentang} · ${sesi ? `Sesi ${sesi}` : 'Seharian'}`
 }
 
