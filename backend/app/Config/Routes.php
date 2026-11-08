@@ -34,6 +34,7 @@ $routes->group('api', static function ($routes) {
     $routes->get('presensi', 'Api\DataController::getPresensi');
     $routes->post('presensi', 'Api\DataController::checkIn');
     $routes->post('presensi/koreksi', 'Api\DataController::koreksiPresensi');
+    $routes->post('presensi/validasi-foto', 'Api\DataController::validasiFoto');
     $routes->get('presensi/foto/(:segment)', 'Api\DataController::fotoWajah/$1');
 
     // Izin
@@ -49,6 +50,8 @@ $routes->group('api', static function ($routes) {
     $routes->post('libur/delete', 'Api\PengaturanController::deleteLibur');
     $routes->get('mode-uji', 'Api\PengaturanController::getModeUji');
     $routes->post('mode-uji', 'Api\PengaturanController::saveModeUji');
+    $routes->get('aturan-presensi', 'Api\PengaturanController::getAturanPresensi');
+    $routes->post('aturan-presensi', 'Api\PengaturanController::saveAturanPresensi');
 
     });
 

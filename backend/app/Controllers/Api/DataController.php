@@ -3,6 +3,7 @@
 namespace App\Controllers\Api;
 
 use App\Controllers\BaseController;
+use App\Libraries\PresensiService;
 use App\Models\PengaturanModel;
 use CodeIgniter\API\ResponseTrait;
 
@@ -11,10 +12,12 @@ class DataController extends BaseController
     use ResponseTrait;
 
     protected $db;
+    protected PresensiService $presensiService;
 
     public function __construct()
     {
         $this->db = \Config\Database::connect();
+        $this->presensiService = new PresensiService($this->db);
     }
 
     // ----------------------------------------------------
@@ -374,6 +377,26 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function getPresensi()
     {
+        // Lingkup data mengikuti peran: penghuni = miliknya sendiri, fasil = penghuni gedung yang ia pegang,
+        // admin = semua. Mencegah penghuni melihat presensi & nama berkas foto wajah penghuni lain.
+        $token = $this->tokenUser();
+        $binds = [];
+        switch ($token['role'] ?? '') {
+            case 'admin':
+                $where = '';
+                break;
+            case 'fasil':
+                $where   = 'WHERE g.NIM_Pj = ?';
+                $binds[] = $token['nim'];
+                break;
+            case 'penghuni':
+                $where   = 'WHERE p.NIM = ?';
+                $binds[] = $token['nim'];
+                break;
+            default:
+                return $this->failForbidden('Akses data presensi tidak diizinkan.');
+        }
+
         $query = $this->db->query("
             SELECT
                 p.Id_presensi as id,
@@ -386,43 +409,35 @@ class DataController extends BaseController
                 COALESCE(DATE_FORMAT(p.Waktu, '%H:%i'), '') as waktu,
                 p.Latitude as latitude,
                 p.Longitude as longitude,
+                p.Akurasi_meter as akurasiMeter,
                 p.Status as status,
                 COALESCE(p.Foto_wajah, '') as fotoWajah,
                 COALESCE(p.Keterangan, '') as keterangan,
-                p.Dikoreksi_oleh as dikoreksiOleh
+                p.Dikoreksi_oleh as dikoreksiOleh,
+                p.Status_foto as statusFoto,
+                COALESCE(p.Catatan_validasi, '') as catatanValidasi,
+                p.Divalidasi_oleh as divalidasiOleh,
+                validator.Nama as namaValidator,
+                COALESCE(DATE_FORMAT(p.Divalidasi_pada, '%Y-%m-%d %H:%i'), '') as divalidasiPada,
+                (p.Keterangan LIKE '" . PresensiService::KETERANGAN_OTOMATIS . "%' AND p.Dikoreksi_oleh IS NULL) as otomatis
             FROM presensi p
             LEFT JOIN user u ON u.NIM = p.NIM
+            LEFT JOIN user validator ON validator.NIM = p.Divalidasi_oleh
             LEFT JOIN kamar k ON k.Nomor_kamar = u.Nomor_kamar
             LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
+            {$where}
             ORDER BY p.Tanggal DESC, p.Id_presensi DESC
-        ");
+        ", $binds);
 
         $data = $query->getResultArray();
         foreach ($data as &$row) {
             $row['id']        = (int) $row['id'];
             $row['latitude']  = $row['latitude'] !== null ? (float) $row['latitude'] : null;
             $row['longitude'] = $row['longitude'] !== null ? (float) $row['longitude'] : null;
+            $row['otomatis']  = (bool) $row['otomatis'];
+            $row['akurasiMeter'] = $row['akurasiMeter'] !== null ? (float) $row['akurasiMeter'] : null;
         }
         return $this->respond($data);
-    }
-
-    private function cariLibur(string $tanggal): ?array
-    {
-        return $this->db->table('hari_libur')
-            ->where('Tanggal_mulai <=', $tanggal)
-            ->where('Tanggal_selesai >=', $tanggal)
-            ->get()->getRowArray();
-    }
-
-    private function cariIzinDisetujui(string $nim, string $tanggal, string $sesi): ?array
-    {
-        return $this->db->table('izin')
-            ->where('NIM', $nim)
-            ->where('Status_persetujuan', 'Disetujui')
-            ->where('Tanggal <=', $tanggal)
-            ->where('COALESCE(Tanggal_selesai, Tanggal) >= ' . $this->db->escape($tanggal), null, false)
-            ->groupStart()->where('Sesi', null)->orWhere('Sesi', $sesi)->groupEnd()
-            ->get()->getRowArray();
     }
 
     // ----------------------------------------------------
@@ -431,8 +446,13 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function checkIn()
     {
+        $token = $this->tokenUser();
+        if (($token['role'] ?? '') !== 'penghuni') {
+            return $this->failForbidden('Hanya penghuni yang dapat melakukan presensi.');
+        }
         $input = $this->request->getJSON(true) ?? $this->request->getPost();
-        $nim = $input['nim'] ?? '';
+        // NIM dari token login, bukan dari body, agar tidak bisa mengabsenkan orang lain
+        $nim = $token['nim'] ?? '';
         $sesi = $input['sesi'] ?? '';
         // Tanggal & jam selalu dari server agar tidak bisa dimanipulasi klien
         $tanggal = date('Y-m-d');
@@ -448,6 +468,12 @@ class DataController extends BaseController
         if (!is_numeric($latitude) || !is_numeric($longitude)) {
             return $this->fail('Lokasi GPS wajib dikirim untuk melakukan presensi.', 400);
         }
+        // Radius ketidakpastian lokasi dari perangkat (meter); null jika klien lama tidak mengirimnya
+        $akurasi = $input['akurasi'] ?? null;
+        if ($akurasi !== null && (!is_numeric($akurasi) || $akurasi < 0)) {
+            return $this->fail('Nilai akurasi GPS tidak valid.', 400);
+        }
+        $akurasi = $akurasi !== null ? round((float) $akurasi, 2) : null;
         $foto = $this->dekodeFotoWajah($input['fotoWajah'] ?? null);
         if ($foto === null) {
             return $this->fail('Foto wajah wajib diambil (format JPEG/PNG, maksimal 2 MB).', 400);
@@ -474,10 +500,10 @@ class DataController extends BaseController
                 $sesi, substr($dataSesi['Jam_mulai'], 0, 5), substr($dataSesi['Jam_selesai'], 0, 5)
             ), 403);
         }
-        if ($libur = $this->cariLibur($tanggal)) {
+        if ($libur = $this->presensiService->cariLibur($tanggal)) {
             return $this->fail('Hari ini libur (' . $libur['Keterangan'] . '), tidak ada kewajiban presensi.', 400);
         }
-        if ($this->cariIzinDisetujui($nim, $tanggal, $sesi)) {
+        if ($this->presensiService->cariIzinDisetujui($nim, $tanggal, $sesi)) {
             return $this->fail('Anda berstatus izin pada sesi ini.', 400);
         }
 
@@ -503,6 +529,21 @@ class DataController extends BaseController
         }
         if ($gedung['Latitude'] === null || $gedung['Longitude'] === null) {
             return $this->fail('Koordinat gedung ' . $gedung['Nama'] . ' belum diatur oleh admin.', 400);
+        }
+
+        // Lokasi yang terlalu tidak akurat tidak bisa membuktikan penghuni berada dalam radius gedung.
+        // Mode uji "abaikan radius" ikut melewati pemeriksaan ini karena keduanya soal validasi lokasi.
+        $akurasiMaks = (new PengaturanModel())->aturanPresensi()['gpsAkurasiMaks'];
+        if ($akurasiMaks > 0 && !$modeUji['abaikanRadius']) {
+            if ($akurasi === null) {
+                return $this->fail('Akurasi GPS tidak terbaca. Muat ulang halaman lalu coba lagi.', 400);
+            }
+            if ($akurasi > $akurasiMaks) {
+                return $this->fail(sprintf(
+                    'Akurasi GPS Anda ±%d m, melebihi batas %d m. Aktifkan GPS/mode akurasi tinggi, pindah ke area terbuka, lalu coba lagi.',
+                    round($akurasi), $akurasiMaks
+                ), 403);
+            }
         }
 
         $jarak  = $this->haversine((float) $latitude, (float) $longitude, (float) $gedung['Latitude'], (float) $gedung['Longitude']);
@@ -535,6 +576,7 @@ class DataController extends BaseController
             'Waktu'      => $waktu,
             'Latitude'   => $latitude,
             'Longitude'  => $longitude,
+            'Akurasi_meter' => $akurasi,
             'Status'     => 'Hadir',
             'Foto_wajah' => $namaFoto,
             'Keterangan' => $keterangan,
@@ -559,6 +601,20 @@ class DataController extends BaseController
         }
         $path = WRITEPATH . 'uploads/wajah/' . $nama;
         if (!is_file($path)) {
+            return $this->failNotFound('Foto tidak ditemukan.');
+        }
+
+        // Foto wajah adalah data pribadi: hanya pemilik, fasil PJ gedungnya, dan admin.
+        // Selain itu dijawab 404 agar keberadaan berkas tidak terungkap.
+        $token  = $this->tokenUser();
+        $pemilik = $this->db->table('presensi')->select('NIM')->where('Foto_wajah', $nama)->get()->getRowArray();
+        $boleh = $pemilik && match ($token['role'] ?? '') {
+            'admin'    => true,
+            'penghuni' => $pemilik['NIM'] === ($token['nim'] ?? ''),
+            'fasil'    => $this->adalahPjPenghuni($token['nim'] ?? '', $pemilik['NIM']),
+            default    => false,
+        };
+        if (!$boleh) {
             return $this->failNotFound('Foto tidak ditemukan.');
         }
 
@@ -623,13 +679,18 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function koreksiPresensi()
     {
+        $token = $this->tokenUser();
+        if (($token['role'] ?? '') !== 'fasil') {
+            return $this->failForbidden('Hanya fasil yang dapat mengoreksi presensi.');
+        }
         $input       = $this->request->getJSON(true) ?? $this->request->getPost();
         $nim         = $input['nim'] ?? '';
         $tanggal     = $input['tanggal'] ?? '';
         $sesi        = $input['sesi'] ?? '';
         $status      = $input['status'] ?? '';
         $keterangan  = trim($input['keterangan'] ?? '');
-        $korektorNim = $input['korektorNim'] ?? '';
+        // Korektor dari token login, bukan dari body
+        $korektorNim = $token['nim'] ?? '';
 
         if (!$nim || !$tanggal || !$sesi || !$korektorNim) {
             return $this->fail('Data koreksi tidak lengkap.', 400);
@@ -661,15 +722,83 @@ class DataController extends BaseController
             $this->db->table('presensi')->where('Id_presensi', $existing['Id_presensi'])->update($data);
         } else {
             $this->db->table('presensi')->insert($data + [
-                'NIM'        => $nim,
-                'Tanggal'    => $tanggal,
-                'Sesi'       => $sesi,
-                'Waktu'      => date('Y-m-d H:i:s'),
-                'created_at' => date('Y-m-d H:i:s'),
+                'NIM'         => $nim,
+                'Tanggal'     => $tanggal,
+                'Sesi'        => $sesi,
+                'Waktu'       => date('Y-m-d H:i:s'),
+                'Status_foto' => null, // koreksi manual tanpa foto
+                'created_at'  => date('Y-m-d H:i:s'),
             ]);
         }
 
         return $this->respond(['status' => 'success', 'message' => 'Presensi berhasil dikoreksi']);
+    }
+
+    // ----------------------------------------------------
+    // POST /api/presensi/validasi-foto
+    // Fasil PJ gedung memeriksa foto wajah presensi mandiri. Foto ditolak -> presensi menjadi Tidak Hadir.
+    // ----------------------------------------------------
+    public function validasiFoto()
+    {
+        $token = $this->tokenUser();
+        if (($token['role'] ?? '') !== 'fasil') {
+            return $this->failForbidden('Hanya fasil yang dapat memvalidasi foto presensi.');
+        }
+        $fasilNim = $token['nim'] ?? '';
+
+        $input   = $this->request->getJSON(true) ?? $this->request->getPost();
+        $id      = (int) ($input['id'] ?? 0);
+        $status  = $input['status'] ?? '';
+        $catatan = trim($input['catatan'] ?? '');
+
+        if (! $id || ! in_array($status, ['Diterima', 'Ditolak'], true)) {
+            return $this->fail('ID presensi dan status validasi (Diterima/Ditolak) wajib diisi.', 400);
+        }
+        if ($status === 'Ditolak' && $catatan === '') {
+            return $this->fail('Catatan wajib diisi saat menolak foto.', 400);
+        }
+
+        $presensi = $this->db->table('presensi')->where('Id_presensi', $id)->get()->getRowArray();
+        if (! $presensi) {
+            return $this->failNotFound('Presensi tidak ditemukan.');
+        }
+        if (empty($presensi['Foto_wajah']) || $presensi['Status_foto'] === null) {
+            return $this->fail('Presensi ini tidak memiliki foto untuk divalidasi.', 400);
+        }
+        if ($presensi['Status_foto'] !== 'Menunggu') {
+            return $this->fail('Foto presensi ini sudah divalidasi.', 409);
+        }
+        if (! $this->adalahPjPenghuni($fasilNim, $presensi['NIM'])) {
+            return $this->fail('Hanya fasil PJ gedung penghuni ini yang dapat memvalidasi foto.', 403);
+        }
+
+        $now  = date('Y-m-d H:i:s');
+        $data = [
+            'Status_foto'      => $status,
+            'Catatan_validasi' => $catatan !== '' ? $catatan : null,
+            'Divalidasi_oleh'  => $fasilNim,
+            'Divalidasi_pada'  => $now,
+            'updated_at'       => $now,
+        ];
+        if ($status === 'Ditolak') {
+            // Foto tidak sah = kehadiran tidak terbukti; dicatat sebagai koreksi fasil untuk audit
+            $data += [
+                'Status'         => 'Tidak Hadir',
+                'Keterangan'     => 'Foto ditolak: ' . $catatan,
+                'Dikoreksi_oleh' => $fasilNim,
+            ];
+        }
+
+        // Syarat Status_foto = 'Menunggu' di WHERE mencegah dua fasil memutuskan bersamaan
+        $this->db->table('presensi')->where('Id_presensi', $id)->where('Status_foto', 'Menunggu')->update($data);
+        if ($this->db->affectedRows() === 0) {
+            return $this->fail('Foto presensi ini sudah divalidasi.', 409);
+        }
+
+        return $this->respond([
+            'status'  => 'success',
+            'message' => $status === 'Diterima' ? 'Foto presensi diterima' : 'Foto ditolak, presensi dicatat Tidak Hadir',
+        ]);
     }
 
     // ----------------------------------------------------

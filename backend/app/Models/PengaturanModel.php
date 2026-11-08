@@ -27,6 +27,34 @@ class PengaturanModel extends Model
         ];
     }
 
+    /**
+     * Aturan presensi yang diatur admin (nilai bawaan dipakai bila kunci belum ada)
+     *
+     * @return array{gpsAkurasiMaks: int, batasTidakHadir: int, pengingatMenit: int}
+     */
+    public function aturanPresensi(): array
+    {
+        $rows  = $this->whereIn('Kunci', ['gps_akurasi_maks', 'batas_tidak_hadir', 'pengingat_menit'])->findAll();
+        $nilai = array_column($rows, 'Nilai', 'Kunci');
+
+        return [
+            'gpsAkurasiMaks'  => (int) ($nilai['gps_akurasi_maks'] ?? 100),
+            'batasTidakHadir' => (int) ($nilai['batas_tidak_hadir'] ?? 3),
+            'pengingatMenit'  => (int) ($nilai['pengingat_menit'] ?? 15),
+        ];
+    }
+
+    /**
+     * @param array{gpsAkurasiMaks: int, batasTidakHadir: int, pengingatMenit: int} $aturan
+     */
+    public function simpanAturanPresensi(array $aturan): void
+    {
+        $now = date('Y-m-d H:i:s');
+        $this->db->table($this->table)->replace(['Kunci' => 'gps_akurasi_maks', 'Nilai' => (string) $aturan['gpsAkurasiMaks'], 'updated_at' => $now]);
+        $this->db->table($this->table)->replace(['Kunci' => 'batas_tidak_hadir', 'Nilai' => (string) $aturan['batasTidakHadir'], 'updated_at' => $now]);
+        $this->db->table($this->table)->replace(['Kunci' => 'pengingat_menit', 'Nilai' => (string) $aturan['pengingatMenit'], 'updated_at' => $now]);
+    }
+
     public function simpanModeUji(bool $abaikanJam, bool $abaikanRadius): void
     {
         $now = date('Y-m-d H:i:s');

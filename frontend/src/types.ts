@@ -60,6 +60,8 @@ export interface Sesi {
   jamMulai: string // HH:MM
   jamSelesai: string // HH:MM
   aktif: boolean
+  // YYYY-MM-DD sesi dibuat; sebelum tanggal ini sesi belum menjadi kewajiban presensi
+  berlakuSejak?: string
 }
 
 export interface HariLibur {
@@ -75,6 +77,13 @@ export interface ModeUji {
   abaikanRadius: boolean
 }
 
+// Aturan presensi yang diatur admin (tabel pengaturan)
+export interface AturanPresensi {
+  gpsAkurasiMaks: number // meter, 0 = tidak diperiksa
+  batasTidakHadir: number // Tidak Hadir dalam 30 hari sebelum fasil diperingatkan
+  pengingatMenit: number // banner pengingat N menit sebelum sesi ditutup, 0 = mati
+}
+
 export interface PresensiRecord {
   id: number
   nim: string
@@ -86,11 +95,23 @@ export interface PresensiRecord {
   waktu: string
   latitude: number | null
   longitude: number | null
+  // Radius ketidakpastian lokasi yang dilaporkan perangkat saat presensi (meter)
+  akurasiMeter?: number | null
   status: PresensiStatus
   fotoWajah: string
   keterangan: string
   dikoreksiOleh?: string | null
+  // Validasi foto wajah oleh fasil; null = presensi tanpa foto (koreksi / otomatis)
+  statusFoto?: StatusFoto | null
+  catatanValidasi?: string
+  divalidasiOleh?: string | null
+  namaValidator?: string | null
+  divalidasiPada?: string
+  // true = dibuat command presensi:tandai-alpa dan belum dikoreksi fasil
+  otomatis?: boolean
 }
+
+export type StatusFoto = 'Menunggu' | 'Diterima' | 'Ditolak'
 
 export interface IzinRecord {
   id: number

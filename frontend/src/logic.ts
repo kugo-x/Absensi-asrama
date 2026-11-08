@@ -41,6 +41,8 @@ export function sesiAktif(list: Sesi[]): Sesi[] {
 export type FaseSesi = 'belum-dibuka' | 'dibuka' | 'ditutup'
 
 export function faseSesi(sesi: Sesi, tanggal: string, now: Date): FaseSesi {
+  // Sesi yang ditambahkan admin belakangan tidak berlaku surut (tidak menghasilkan Tidak Hadir di masa lalu)
+  if (sesi.berlakuSejak && tanggal < sesi.berlakuSejak) return 'belum-dibuka'
   const today = toDateStr(now)
   if (tanggal < today) return 'ditutup'
   if (tanggal > today) return 'belum-dibuka'
@@ -79,21 +81,32 @@ export interface StatusDetail {
 }
 
 /**
- * Urutan prioritas status satu penghuni pada satu sesi:
- * 1. Catatan presensi (absen mandiri / koreksi fasil)
+ * Urutan prioritas status satu penghuni pada satu sesi (selalu tepat satu status, tidak ada hitung ganda):
+ * 1. Catatan presensi dari absen mandiri / koreksi fasil
  * 2. Hari libur
  * 3. Izin yang disetujui
- * 4. Sesi sudah ditutup tanpa catatan -> Tidak Hadir, selain itu -> Belum
+ * 4. Baris otomatis dari server (command presensi:tandai-alpa) — kalah dari libur/izin yang
+ *    ditetapkan setelah command berjalan
+ * 5. Sesi sudah ditutup tanpa catatan -> Tidak Hadir (command belum berjalan), selain itu -> Belum
  */
 export function statusSesi(nim: string, tanggal: string, sesi: Sesi, data: DataPresensi, now: Date): StatusDetail {
   const fase = faseSesi(sesi, tanggal, now)
-  const presensi = data.presensi.find(p => p.nim === nim && p.tanggal === tanggal && p.sesi === sesi.nama)
-  if (presensi && presensi.status !== 'Belum') return { status: presensi.status, fase, presensi }
+  const presensi = data.presensi.find(p => p.nim === nim && p.tanggal === tanggal && p.sesi === sesi.nama && p.status !== 'Belum')
+  if (presensi && !presensi.otomatis) return { status: presensi.status, fase, presensi }
+  // Sebelum sesi berlaku tidak ada kewajiban sama sekali (izin/libur pun tidak dihitung)
+  if (sesi.berlakuSejak && tanggal < sesi.berlakuSejak) return { status: 'Belum', fase }
   const libur = cariLibur(tanggal, data.libur)
   if (libur) return { status: 'Libur', fase, libur }
   const izin = cariIzinDisetujui(data.izin, nim, tanggal, sesi.nama)
   if (izin) return { status: 'Izin', fase, izin }
+  if (presensi) return { status: presensi.status, fase, presensi }
   return { status: fase === 'ditutup' ? 'Tidak Hadir' : 'Belum', fase }
+}
+
+// Jam penghuni presensi untuk ditampilkan. Baris otomatis tidak punya jam absen:
+// kolom Waktu-nya berisi jam sesi ditutup (syarat NOT NULL), jadi tidak ditampilkan sebagai "jam masuk".
+export function jamPresensi(p?: PresensiRecord): string {
+  return p && !p.otomatis ? p.waktu : ''
 }
 
 export function keteranganStatus(d: StatusDetail): string {

@@ -1,9 +1,10 @@
+import { useEffect, useState } from 'react'
 import { Sun, Moon, CheckCircle2, XCircle, FileCheck, Clock, Pencil } from 'lucide-react'
-import type { Penghuni, Sesi } from '../types'
+import type { Penghuni, Sesi, StatusFoto } from '../types'
 import type { StatusDetail } from '../logic'
-import { hitungStatus, keteranganStatus } from '../logic'
+import { hitungStatus, jamPresensi, keteranganStatus } from '../logic'
 import { StatCard, Badge } from './AppLayout'
-import { fotoWajahUrl } from '../api'
+import { fetchFotoWajah } from '../api'
 
 export function SesiIcon({ nama, className = 'w-4 h-4' }: { nama: string; className?: string }) {
   return /subuh|pagi/i.test(nama) ? <Sun className={`${className} text-amber-500`} /> : <Moon className={`${className} text-blue-500`} />
@@ -78,20 +79,18 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
           )}
           {sorted.map(({ penghuni: p, detail }) => {
             const rec = detail.presensi
-            const foto = fotoWajahUrl(rec?.fotoWajah)
             return (
               <tr key={p.nim} className="hover:bg-emerald-50/30 transition-colors">
                 <td className="px-5 py-3.5 font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{p.nama}</td>
                 <td className="px-5 py-3.5 mono text-xs font-semibold text-gray-600">{p.nim}</td>
                 {showGedung && <td className="px-5 py-3.5 text-xs text-gray-600">{p.namaGedung}</td>}
                 <td className="px-5 py-3.5 mono text-xs font-bold text-emerald-800">{p.nomorKamar}</td>
-                <td className="px-5 py-3.5 mono text-xs font-medium text-gray-700">{rec?.waktu || '–'}</td>
+                <td className="px-5 py-3.5 mono text-xs font-medium text-gray-700">{jamPresensi(rec) || '–'}</td>
                 <td className="px-5 py-2">
-                  {foto ? (
-                    <a href={foto} target="_blank" rel="noreferrer" title="Lihat foto wajah">
-                      <img src={foto} alt={`Foto ${p.nama}`} className="w-10 h-10 rounded-lg object-cover border border-gray-200 hover:ring-2 hover:ring-emerald-500" />
-                    </a>
-                  ) : <span className="text-xs text-gray-300">–</span>}
+                  <div className="flex items-center gap-2">
+                    <FotoWajah foto={rec?.fotoWajah} alt={`Foto ${p.nama}`} className="w-10 h-10 rounded-lg hover:ring-2 hover:ring-emerald-500" />
+                    {rec?.statusFoto && <FotoBadge status={rec.statusFoto} />}
+                  </div>
                 </td>
                 <td className="px-5 py-3.5 mono text-[11px] text-gray-500">
                   {rec && rec.latitude !== null && rec.longitude !== null ? (
@@ -99,6 +98,7 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
                       {Number(rec.latitude).toFixed(5)}, {Number(rec.longitude).toFixed(5)}
                     </a>
                   ) : '–'}
+                  {rec?.akurasiMeter != null && <span className="block text-gray-400">±{Math.round(rec.akurasiMeter)} m</span>}
                 </td>
                 <td className="px-5 py-3.5"><Badge status={detail.status} /></td>
                 <td className="px-5 py-3.5 text-xs text-gray-500 font-medium max-w-[260px]">{keteranganStatus(detail) || '–'}</td>
@@ -127,4 +127,56 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
 export function formatRentangIzin(tanggal: string, tanggalSelesai: string, sesi: string | null) {
   const rentang = !tanggalSelesai || tanggalSelesai === tanggal ? tanggal : `${tanggal} s/d ${tanggalSelesai}`
   return `${rentang} · ${sesi ? `Sesi ${sesi}` : 'Seharian'}`
+}
+
+// Foto wajah presensi yang diambil dengan token login (lihat fetchFotoWajah)
+export function FotoWajah({ foto, alt, className = 'w-10 h-10 rounded-lg', link = true }: {
+  foto: string | null | undefined
+  alt: string
+  className?: string
+  link?: boolean
+}) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [gagal, setGagal] = useState(false)
+
+  useEffect(() => {
+    let aktif = true
+    let dibuat: string | null = null
+    setSrc(null)
+    setGagal(false)
+    if (!foto) return
+    fetchFotoWajah(foto).then(url => {
+      if (!aktif) {
+        if (url?.startsWith('blob:')) URL.revokeObjectURL(url)
+        return
+      }
+      dibuat = url
+      setSrc(url)
+      setGagal(!url)
+    })
+    return () => {
+      aktif = false
+      if (dibuat?.startsWith('blob:')) URL.revokeObjectURL(dibuat)
+    }
+  }, [foto])
+
+  if (!foto) return <span className="text-xs text-gray-300">–</span>
+  if (gagal) return <span className="text-[11px] text-gray-400">Foto tidak tersedia</span>
+  if (!src) return <div className={`${className} bg-gray-100 animate-pulse border border-gray-200`} />
+  const img = <img src={src} alt={alt} className={`${className} object-cover border border-gray-200`} />
+  return link ? <a href={src} target="_blank" rel="noreferrer" title="Lihat foto wajah">{img}</a> : img
+}
+
+export function FotoBadge({ status }: { status: StatusFoto }) {
+  const warna: Record<StatusFoto, string> = {
+    Menunggu: 'bg-orange-50 border-orange-300 text-orange-800',
+    Diterima: 'bg-emerald-50 border-emerald-300 text-emerald-800',
+    Ditolak: 'bg-red-50 border-red-300 text-red-800',
+  }
+  const label: Record<StatusFoto, string> = { Menunggu: 'Foto menunggu', Diterima: 'Foto diterima', Ditolak: 'Foto ditolak' }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border whitespace-nowrap ${warna[status]}`} style={{ fontFamily: 'Plus Jakarta Sans' }}>
+      {label[status]}
+    </span>
+  )
 }

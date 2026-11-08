@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, IzinRecord, Sesi, HariLibur, ModeUji } from '../types'
+import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import {
@@ -15,6 +15,7 @@ import {
   fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, updateGedungApi, setPjGedungApi,
   fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, type ApiResult, type UbahPenghuni,
   fetchModeUji, saveModeUjiApi, MODE_UJI_MATI, resetPasswordApi,
+  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT,
 } from '../api'
 import { getCurrentPosition } from '../geo'
 import {
@@ -113,6 +114,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
   const [sesiList, setSesiList] = useState<Sesi[]>(initialSesi)
   const [libur, setLibur] = useState<HariLibur[]>(initialLibur)
   const [modeUji, setModeUji] = useState<ModeUji>(MODE_UJI_MATI)
+  const [aturan, setAturan] = useState<AturanPresensi>(ATURAN_PRESENSI_DEFAULT)
   const [showAddModal, setShowAddModal] = useState(false)
   const [kelola, setKelola] = useState<Penghuni | null>(null)
   const [resetTarget, setResetTarget] = useState<Penghuni | null>(null)
@@ -128,6 +130,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     fetchSesi().then(setSesiList)
     fetchLibur().then(setLibur)
     fetchModeUji().then(setModeUji)
+    fetchAturanPresensi().then(setAturan)
   }, [])
 
   const data: DataPresensi = { presensi, izin, libur }
@@ -197,6 +200,12 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     return result
   }
 
+  const handleSaveAturan = async (next: AturanPresensi) => {
+    const result = await saveAturanPresensiApi(next)
+    if (result.ok || result.offline) setAturan(next)
+    return result
+  }
+
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}>
       {showDefaultNotice && defaultPasswordCount > 0 && <DefaultPasswordNotice count={defaultPasswordCount} onClose={() => setShowDefaultNotice(false)} />}
@@ -211,6 +220,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
       {activeTab === 'pengaturan' && (
         <div className="space-y-6">
           <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
+          <AturanPresensiCard aturan={aturan} onSave={handleSaveAturan} />
           <AdminPengaturan sesiList={sesiList} libur={libur} onSaveSesi={handleSaveSesi} onAddLibur={handleAddLibur} onDeleteLibur={handleDeleteLibur} />
         </div>
       )}
@@ -1124,6 +1134,67 @@ function ModeUjiCard({ modeUji, onSave }: { modeUji: ModeUji; onSave: (mode: Mod
         Alternatif tanpa mode uji: atur titik gedung ke lokasi Anda di menu <strong>Gedung &amp; Kamar</strong>, atau ubah jam sesi di bawah.
       </p>
       {msg && <p className={`text-xs font-semibold mt-2 ${msg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</p>}
+    </div>
+  )
+}
+
+// Aturan presensi: batas akurasi GPS, ambang peringatan Tidak Hadir untuk fasil, dan pengingat penghuni
+function AturanPresensiCard({ aturan, onSave }: { aturan: AturanPresensi; onSave: (a: AturanPresensi) => Promise<ApiResult> }) {
+  const [form, setForm] = useState<AturanPresensi>(aturan)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Sinkronkan form saat nilai dari server selesai dimuat
+  useEffect(() => setForm(aturan), [aturan])
+
+  const simpan = async () => {
+    setSaving(true)
+    const result = await onSave(form)
+    setMsg(result.ok || result.offline ? { type: 'success', text: 'Aturan presensi disimpan dan langsung berlaku.' } : { type: 'error', text: result.message })
+    setSaving(false)
+  }
+
+  const fields: { key: keyof AturanPresensi; label: string; satuan: string; desc: string; min: number; max: number }[] = [
+    { key: 'gpsAkurasiMaks', label: 'Batas akurasi GPS', satuan: 'meter', min: 0, max: 5000, desc: 'Presensi ditolak jika akurasi lokasi perangkat lebih buruk dari nilai ini. 0 = tidak diperiksa.' },
+    { key: 'batasTidakHadir', label: 'Ambang peringatan Tidak Hadir', satuan: 'sesi / 30 hari', min: 1, max: 100, desc: 'Fasil diperingatkan bila penghuni Tidak Hadir sebanyak ini atau lebih.' },
+    { key: 'pengingatMenit', label: 'Pengingat sebelum sesi ditutup', satuan: 'menit', min: 0, max: 180, desc: 'Banner pengingat untuk penghuni yang belum presensi. 0 = mati.' },
+  ]
+
+  return (
+    <div className="rounded-2xl p-6 border shadow-xs bg-white border-emerald-100/80">
+      <div className="mb-4">
+        <SectionTitle subtitle="Berlaku untuk semua gedung dan diperiksa juga oleh server.">Aturan Presensi</SectionTitle>
+      </div>
+      <div className="grid sm:grid-cols-3 gap-3">
+        {fields.map(f => (
+          <label key={f.key} className="p-3 rounded-xl border border-gray-200 block">
+            <span className="block text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{f.label}</span>
+            <span className="flex items-center gap-2 mt-2">
+              <input
+                type="number"
+                min={f.min}
+                max={f.max}
+                className="w-24 px-3 py-2 rounded-lg border border-gray-200 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10"
+                value={form[f.key]}
+                disabled={saving}
+                onChange={e => { setForm(prev => ({ ...prev, [f.key]: Number(e.target.value) })); setMsg(null) }}
+              />
+              <span className="text-xs text-gray-500">{f.satuan}</span>
+            </span>
+            <span className="block text-xs text-gray-500 mt-1.5">{f.desc}</span>
+          </label>
+        ))}
+      </div>
+      <div className="flex items-center gap-3 mt-4">
+        <button
+          onClick={simpan}
+          disabled={saving}
+          className="px-4 py-2 rounded-xl font-bold text-sm text-white bg-emerald-700 hover:bg-emerald-800 transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {saving ? 'Menyimpan...' : 'Simpan Aturan'}
+        </button>
+        {msg && <p className={`text-xs font-semibold ${msg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</p>}
+      </div>
     </div>
   )
 }

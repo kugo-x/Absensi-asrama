@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import type { CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi } from '../types'
+import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto } from '../types'
 import AppLayout, { SectionTitle, Badge } from '../components/AppLayout'
-import { RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
+import { FotoBadge, FotoWajah, RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import {
   presensiList as initialPresensi,
   izinList as initialIzin,
@@ -10,7 +10,7 @@ import {
   sesiList as initialSesi,
   liburList as initialLibur,
 } from '../data/mockData'
-import { fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur, updateIzinStatusApi, koreksiPresensiApi } from '../api'
+import { fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur, updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT } from '../api'
 import {
   cariLibur, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi,
 } from '../logic'
@@ -28,12 +28,15 @@ import {
   Pencil,
   Building2,
   Palmtree,
+  Camera,
+  MapPin,
 } from 'lucide-react'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard Fasil', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
   { id: 'monitor', label: 'Monitor Presensi', icon: <ClipboardCheck className="w-[18px] h-[18px]" /> },
   { id: 'izin', label: 'Manajemen Izin', icon: <FileCheck className="w-[18px] h-[18px]" /> },
+  { id: 'foto', label: 'Validasi Foto', icon: <Camera className="w-[18px] h-[18px]" /> },
   { id: 'rekap', label: 'Rekap Kehadiran', icon: <BarChart3 className="w-[18px] h-[18px]" /> },
 ]
 
@@ -54,9 +57,19 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const [selectedIzin, setSelectedIzin] = useState<IzinRecord | null>(null)
   const [koreksi, setKoreksi] = useState<KoreksiTarget | null>(null)
   const [now, setNow] = useState(new Date())
+  const [aturan, setAturan] = useState<AturanPresensi>(ATURAN_PRESENSI_DEFAULT)
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Presensi & izin diperbarui berkala agar pantauan sesi dan antrean validasi foto tetap terkini
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchPresensi().then(setPresensi)
+      fetchIzin().then(setIzinData)
+    }, 60000)
     return () => clearInterval(timer)
   }, [])
 
@@ -67,6 +80,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     fetchIzin().then(setIzinData)
     fetchSesi().then(setSesiList)
     fetchLibur().then(setLibur)
+    fetchAturanPresensi().then(setAturan)
   }, [])
 
   // Lingkup data fasil: hanya gedung tempat ia ditetapkan sebagai penanggung jawab (gedung.NIM_Pj)
@@ -77,6 +91,17 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const nimGedung = new Set(penghuni.filter(p => gedungSaya && p.namaGedung === gedungSaya.nama).map(p => p.nim))
   const izinGedung = izinData.filter(i => nimGedung.has(i.nim) || (gedungSaya && i.namaGedung === gedungSaya.nama))
   const data: DataPresensi = { presensi, izin: izinData, libur }
+  // Foto presensi mandiri penghuni gedung ini (penghuni yang pindah gedung divalidasi PJ gedung barunya)
+  const nimAnggota = new Set(anggota.map(p => p.nim))
+  const presensiBerfoto = presensi.filter(r => r.statusFoto && r.fotoWajah && nimAnggota.has(r.nim))
+  // Rekap 30 hari per penghuni; dipakai tab Rekap dan peringatan di dashboard
+  const rekapPenghuni = anggota.map(p => {
+    const riwayat = riwayatPenghuni(p.nim, periodeRekap(today, p.tanggalMasuk), today, sesiList, data, now)
+    return { penghuni: p, c: hitungStatus(riwayat.map(r => r.detail.status)) }
+  }).sort((a, b) => b.c['Tidak Hadir'] - a.c['Tidak Hadir'] || a.c.persen - b.c.persen)
+  const sering = rekapPenghuni.filter(r => r.c['Tidak Hadir'] >= aturan.batasTidakHadir)
+  const fotoMenunggu = presensiBerfoto.filter(r => r.statusFoto === 'Menunggu').length
+  const menu = navItems.map(n => n.id === 'foto' && fotoMenunggu > 0 ? { ...n, label: `${n.label} (${fotoMenunggu})` } : n)
 
   const rekapRows = (tanggal: string, sesiNama: string): RekapRow[] => {
     const sesi = sesiList.find(s => s.nama === sesiNama)
@@ -109,9 +134,25 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     await koreksiPresensiApi({ nim: p.nim, tanggal, sesi, status, keterangan, korektorNim: user.nim })
   }
 
+  // Mengembalikan pesan galat, atau null jika berhasil
+  const handleValidasiFoto = async (rec: PresensiRecord, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => {
+    const result = await validasiFotoApi(rec.id, status, catatan)
+    if (!result.ok && !result.offline) return result.message
+    setPresensi(prev => prev.map(r => r.id !== rec.id ? r : {
+      ...r,
+      statusFoto: status,
+      catatanValidasi: catatan,
+      divalidasiOleh: user.nim,
+      namaValidator: user.nama,
+      ...(status === 'Ditolak' ? { status: 'Tidak Hadir' as PresensiStatus, keterangan: `Foto ditolak: ${catatan}`, dikoreksiOleh: user.nim } : {}),
+    }))
+    if (result.ok) fetchPresensi().then(setPresensi)
+    return null
+  }
+
   if (!gedungSaya) {
     return (
-      <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}>
+      <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={setActiveTab}>
         <div className="bg-white rounded-2xl p-10 text-center border border-amber-200 max-w-xl mx-auto">
           <Building2 className="w-10 h-10 text-amber-600 mx-auto mb-3" />
           <h3 className="font-bold text-base text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Anda belum ditetapkan sebagai PJ gedung</h3>
@@ -122,7 +163,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   }
 
   return (
-    <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}>
+    <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={setActiveTab}>
       <div className="mb-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-emerald-100 text-xs font-semibold text-emerald-900">
         <Building2 className="w-4 h-4 text-emerald-700" />
         <span>Penanggung jawab {gedungSaya.nama} · {anggota.length} penghuni wajib absen</span>
@@ -138,6 +179,11 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
           pendingIzin={izinGedung.filter(i => i.statusPersetujuan === 'Pending')}
           onKoreksi={(row, sesi) => setKoreksi({ row, tanggal: today, sesi })}
           onOpenIzin={setSelectedIzin}
+          sering={sering}
+          batasTidakHadir={aturan.batasTidakHadir}
+          onLihatRekap={() => setActiveTab('rekap')}
+          fotoMenunggu={fotoMenunggu}
+          onLihatFoto={() => setActiveTab('foto')}
         />
       )}
       {activeTab === 'monitor' && (
@@ -149,7 +195,8 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
         />
       )}
       {activeTab === 'izin' && <FasilIzin izinData={izinGedung} onSelect={setSelectedIzin} />}
-      {activeTab === 'rekap' && <FasilRekap anggota={anggota} sesiList={sesiList} data={data} today={today} now={now} />}
+      {activeTab === 'foto' && <FasilValidasiFoto records={presensiBerfoto} onValidasi={handleValidasiFoto} />}
+      {activeTab === 'rekap' && <FasilRekap rows={rekapPenghuni} batas={aturan.batasTidakHadir} />}
 
       {selectedIzin && (
         <IzinModal izin={selectedIzin} onClose={() => setSelectedIzin(null)} onDecide={handleKeputusanIzin} />
@@ -161,7 +208,9 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   )
 }
 
-function FasilDashboard({ sesiList, rekapRows, today, now, liburHariIni, pendingIzin, onKoreksi, onOpenIzin }: {
+type RekapPenghuni = { penghuni: Penghuni; c: ReturnType<typeof hitungStatus> }
+
+function FasilDashboard({ sesiList, rekapRows, today, now, liburHariIni, pendingIzin, onKoreksi, onOpenIzin, sering, batasTidakHadir, onLihatRekap, fotoMenunggu, onLihatFoto }: {
   sesiList: Sesi[]
   rekapRows: (tanggal: string, sesi: string) => RekapRow[]
   today: string
@@ -170,11 +219,17 @@ function FasilDashboard({ sesiList, rekapRows, today, now, liburHariIni, pending
   pendingIzin: IzinRecord[]
   onKoreksi: (row: RekapRow, sesi: string) => void
   onOpenIzin: (i: IzinRecord) => void
+  sering: RekapPenghuni[]
+  batasTidakHadir: number
+  onLihatRekap: () => void
+  fotoMenunggu: number
+  onLihatFoto: () => void
 }) {
   // Default ke sesi yang sedang dibuka, atau sesi terakhir yang sudah dimulai
   const hm = toHM(now)
   const defaultSesi = [...sesiList].reverse().find(s => s.jamMulai <= hm)?.nama || sesiList[0]?.nama || ''
-  const [sesi, setSesi] = useState(defaultSesi)
+  const [pilihan, setSesi] = useState('')
+  const sesi = sesiList.some(x => x.nama === pilihan) ? pilihan : defaultSesi
   const rows = rekapRows(today, sesi)
   const s = sesiList.find(x => x.nama === sesi)
 
@@ -192,6 +247,35 @@ function FasilDashboard({ sesiList, rekapRows, today, now, liburHariIni, pending
         <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 text-sky-900 text-xs font-semibold flex items-center gap-2">
           <Palmtree className="w-4 h-4 text-sky-600" />
           <span>Hari ini libur ({liburHariIni.keterangan}). Tidak ada kewajiban presensi.</span>
+        </div>
+      )}
+
+      {fotoMenunggu > 0 && (
+        <div className="p-4 rounded-2xl bg-orange-50 border border-orange-200 flex flex-col sm:flex-row sm:items-center gap-3">
+          <Camera className="w-5 h-5 text-orange-600 shrink-0" />
+          <p className="flex-1 text-sm font-bold text-orange-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            {fotoMenunggu} foto presensi menunggu validasi Anda
+          </p>
+          <button onClick={onLihatFoto} className="shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold text-orange-800 bg-white hover:bg-orange-100 border border-orange-200 cursor-pointer">
+            Validasi Sekarang
+          </button>
+        </div>
+      )}
+
+      {sering.length > 0 && (
+        <div className="p-4 rounded-2xl bg-red-50 border border-red-200 flex flex-col sm:flex-row sm:items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-bold text-red-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              {sering.length} penghuni Tidak Hadir ≥ {batasTidakHadir} sesi dalam 30 hari terakhir
+            </p>
+            <p className="text-xs text-red-800 mt-0.5">
+              {sering.slice(0, 5).map(r => `${r.penghuni.nama} (${r.c['Tidak Hadir']}×)`).join(', ')}{sering.length > 5 ? `, dan ${sering.length - 5} lainnya` : ''}
+            </p>
+          </div>
+          <button onClick={onLihatRekap} className="shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold text-red-800 bg-white hover:bg-red-100 border border-red-200 cursor-pointer">
+            Lihat Rekap
+          </button>
         </div>
       )}
 
@@ -247,7 +331,8 @@ function FasilMonitor({ sesiList, rekapRows, today, onKoreksi }: {
   onKoreksi: (row: RekapRow, tanggal: string, sesi: string) => void
 }) {
   const [tanggal, setTanggal] = useState(today)
-  const [sesi, setSesi] = useState(sesiList[0]?.nama || '')
+  const [pilihan, setSesi] = useState('')
+  const sesi = sesiList.some(x => x.nama === pilihan) ? pilihan : sesiList[0]?.nama || ''
   const [filterStatus, setFilterStatus] = useState('')
   const rows = rekapRows(tanggal, sesi)
   const filtered = filterStatus ? rows.filter(r => r.detail.status === filterStatus) : rows
@@ -356,19 +441,135 @@ function FasilIzin({ izinData, onSelect }: { izinData: IzinRecord[]; onSelect: (
   )
 }
 
-// Rekap per penghuni 30 hari terakhir untuk tindak lanjut pelanggaran
-function FasilRekap({ anggota, sesiList, data, today, now }: {
-  anggota: Penghuni[]
-  sesiList: Sesi[]
-  data: DataPresensi
-  today: string
-  now: Date
+// Antrean validasi foto wajah presensi mandiri penghuni gedung
+function FasilValidasiFoto({ records, onValidasi }: {
+  records: PresensiRecord[]
+  onValidasi: (rec: PresensiRecord, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => Promise<string | null>
 }) {
-  const BATAS_ALPA = 3
-  const rows = anggota.map(p => {
-    const riwayat = riwayatPenghuni(p.nim, periodeRekap(today, p.tanggalMasuk), today, sesiList, data, now)
-    return { penghuni: p, c: hitungStatus(riwayat.map(r => r.detail.status)) }
-  }).sort((a, b) => b.c['Tidak Hadir'] - a.c['Tidak Hadir'] || a.c.persen - b.c.persen)
+  const [filter, setFilter] = useState<StatusFoto>('Menunggu')
+  const filtered = records.filter(r => r.statusFoto === filter)
+  const daftarFilter: StatusFoto[] = ['Menunggu', 'Diterima', 'Ditolak']
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-2xl bg-white border border-emerald-100/80 shadow-xs">
+        <SectionTitle subtitle="Periksa apakah foto wajah benar penghuni yang bersangkutan. Foto yang ditolak membuat presensi tercatat Tidak Hadir.">
+          Validasi Foto Presensi
+        </SectionTitle>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        {daftarFilter.map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+              filter === f ? 'bg-emerald-800 text-white shadow-xs' : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-500'
+            }`}
+            style={{ fontFamily: 'Plus Jakarta Sans' }}
+          >
+            {f} ({records.filter(r => r.statusFoto === f).length})
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-2xl p-10 text-center border border-emerald-100/80">
+          <p className="text-sm text-gray-400 font-medium">
+            {filter === 'Menunggu' ? 'Semua foto presensi sudah divalidasi' : 'Tidak ada foto dalam kategori ini'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {filtered.map(r => <KartuValidasiFoto key={r.id} rec={r} onValidasi={onValidasi} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function KartuValidasiFoto({ rec, onValidasi }: {
+  rec: PresensiRecord
+  onValidasi: (rec: PresensiRecord, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => Promise<string | null>
+}) {
+  const [catatan, setCatatan] = useState('')
+  const [error, setError] = useState('')
+  const [proses, setProses] = useState(false)
+  const menunggu = rec.statusFoto === 'Menunggu'
+
+  const putuskan = async (status: Exclude<StatusFoto, 'Menunggu'>) => {
+    if (status === 'Ditolak' && !catatan.trim()) {
+      setError('Catatan wajib diisi saat menolak foto agar penghuni mengetahui alasannya.')
+      return
+    }
+    setProses(true)
+    const gagal = await onValidasi(rec, status, catatan.trim())
+    setProses(false)
+    if (gagal) setError(gagal)
+  }
+
+  return (
+    <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs flex flex-col">
+      <FotoWajah foto={rec.fotoWajah} alt={`Foto ${rec.namaPenghuni}`} className="w-full aspect-[4/3]" />
+      <div className="p-4 space-y-3 flex-1 flex flex-col">
+        <div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-extrabold text-sm text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{rec.namaPenghuni}</span>
+            {rec.statusFoto && <FotoBadge status={rec.statusFoto} />}
+          </div>
+          <p className="mono text-xs text-gray-500">{rec.nim} · Kamar {rec.nomorKamar}</p>
+          <p className="text-xs text-gray-600 mt-1 font-medium">{rec.tanggal} · Sesi {rec.sesi} · {rec.waktu} WIB</p>
+          {rec.latitude !== null && rec.longitude !== null && (
+            <a href={`https://www.google.com/maps?q=${rec.latitude},${rec.longitude}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mt-1 text-xs text-blue-700 hover:underline">
+              <MapPin className="w-3 h-3" />
+              <span className="mono">{Number(rec.latitude).toFixed(5)}, {Number(rec.longitude).toFixed(5)}</span>
+              {rec.akurasiMeter != null && <span className="text-gray-500">· ±{Math.round(rec.akurasiMeter)} m</span>}
+            </a>
+          )}
+        </div>
+
+        {menunggu ? (
+          <div className="space-y-2 mt-auto">
+            <textarea
+              rows={2}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400"
+              placeholder="Catatan (wajib jika menolak), mis. wajah tidak terlihat"
+              value={catatan}
+              onChange={e => { setCatatan(e.target.value); setError('') }}
+            />
+            {error && <p className="text-xs text-red-700 font-semibold">{error}</p>}
+            <div className="flex gap-2">
+              <button
+                disabled={proses}
+                onClick={() => putuskan('Ditolak')}
+                className="flex-1 py-2 rounded-xl font-bold text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Tolak</span>
+              </button>
+              <button
+                disabled={proses}
+                onClick={() => putuskan('Diterima')}
+                className="flex-1 py-2 rounded-xl font-bold text-xs text-white bg-emerald-700 hover:bg-emerald-800 flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Terima</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-gray-600 p-2.5 rounded-xl bg-gray-50 border border-gray-100 mt-auto">
+            {rec.namaValidator ? `Divalidasi ${rec.namaValidator}` : 'Divalidasi'}{rec.divalidasiPada ? ` · ${rec.divalidasiPada}` : ''}
+            {rec.catatanValidasi && <p className="mt-1 font-medium text-gray-800">Catatan: {rec.catatanValidasi}</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Rekap per penghuni 30 hari terakhir untuk tindak lanjut pelanggaran
+// Ambang "perlu ditegur" diatur admin (pengaturan batas_tidak_hadir)
+function FasilRekap({ rows, batas: BATAS_ALPA }: { rows: RekapPenghuni[]; batas: number }) {
 
   return (
     <div className="space-y-4">

@@ -1,4 +1,4 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji } from './types'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi } from './types'
 import {
   DEMO_ACCOUNTS,
   gedungList as initialGedung,
@@ -129,7 +129,7 @@ export const MODE_UJI_MATI: ModeUji = { abaikanJam: false, abaikanRadius: false 
 
 export async function fetchModeUji(): Promise<ModeUji> {
   try {
-    const res = await fetch(`${API_BASE}/mode-uji`)
+    const res = await fetch(`${API_BASE}/mode-uji`, { headers: authHeaders() })
     if (!res.ok || !isJson(res)) return MODE_UJI_MATI
     return await res.json()
   } catch {
@@ -138,6 +138,20 @@ export async function fetchModeUji(): Promise<ModeUji> {
 }
 
 export const saveModeUjiApi = (mode: ModeUji) => postJson('mode-uji', mode)
+
+export const ATURAN_PRESENSI_DEFAULT: AturanPresensi = { gpsAkurasiMaks: 100, batasTidakHadir: 3, pengingatMenit: 15 }
+
+export async function fetchAturanPresensi(): Promise<AturanPresensi> {
+  try {
+    const res = await fetch(`${API_BASE}/aturan-presensi`, { headers: authHeaders() })
+    if (res.ok && isJson(res)) return { ...ATURAN_PRESENSI_DEFAULT, ...(await res.json()) }
+  } catch {
+    // backend tidak tersedia: pakai nilai bawaan
+  }
+  return ATURAN_PRESENSI_DEFAULT
+}
+
+export const saveAturanPresensiApi = (aturan: AturanPresensi) => postJson('aturan-presensi', aturan)
 
 // ---------- Penghuni ----------
 
@@ -168,7 +182,8 @@ export const updateProfileApi = (nim: string, data: { nama: string; email: strin
 
 export const fetchPresensi = () => getList<PresensiRecord>('presensi', initialPresensi)
 
-export const checkInApi = (data: { nim: string; sesi: string; tanggal: string; latitude: number; longitude: number; fotoWajah: string; keterangan?: string }) =>
+// `nim` hanya dipakai mode offline; server mengambil NIM dari token login
+export const checkInApi = (data: { nim: string; sesi: string; tanggal: string; latitude: number; longitude: number; akurasi?: number; fotoWajah: string; keterangan?: string }) =>
   postJson('presensi', data)
 
 // Alamat foto wajah presensi: data URL (mode offline) atau nama berkas yang disimpan backend
@@ -178,8 +193,26 @@ export function fotoWajahUrl(foto: string | null | undefined): string | null {
   return `${API_BASE}/presensi/foto/${encodeURIComponent(foto)}`
 }
 
+// Endpoint foto wajib token, sedangkan <img src> tidak mengirim header Authorization.
+// Ambil gambarnya lewat fetch lalu jadikan blob URL (pemanggil wajib revokeObjectURL).
+export async function fetchFotoWajah(foto: string | null | undefined): Promise<string | null> {
+  const url = fotoWajahUrl(foto)
+  if (!url || url.startsWith('data:')) return url
+  try {
+    const res = await fetch(url, { headers: authHeaders() })
+    if (!res.ok) return null
+    return URL.createObjectURL(await res.blob())
+  } catch {
+    return null
+  }
+}
+
+// `korektorNim` hanya dipakai mode offline; server mengambil korektor dari token login
 export const koreksiPresensiApi = (data: { nim: string; tanggal: string; sesi: string; status: PresensiStatus; keterangan: string; korektorNim: string }) =>
   postJson('presensi/koreksi', data)
+
+export const validasiFotoApi = (id: number, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) =>
+  postJson('presensi/validasi-foto', { id, status, catatan })
 
 // ---------- Izin ----------
 

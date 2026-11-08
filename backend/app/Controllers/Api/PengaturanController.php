@@ -31,7 +31,8 @@ class PengaturanController extends BaseController
                 Nama as nama,
                 TIME_FORMAT(Jam_mulai, '%H:%i') as jamMulai,
                 TIME_FORMAT(Jam_selesai, '%H:%i') as jamSelesai,
-                Aktif as aktif
+                Aktif as aktif,
+                COALESCE(DATE(created_at), '') as berlakuSejak
             FROM sesi
             ORDER BY Jam_mulai ASC
         ")->getResultArray();
@@ -120,6 +121,56 @@ class PengaturanController extends BaseController
         (new PengaturanModel())->simpanModeUji(! empty($input['abaikanJam']), ! empty($input['abaikanRadius']));
 
         return $this->respond(['status' => 'success', 'message' => 'Mode uji absensi berhasil disimpan']);
+    }
+
+    // ----------------------------------------------------
+    // GET /api/aturan-presensi
+    // Dibaca semua peran: penghuni (akurasi GPS, pengingat), fasil (ambang peringatan), admin
+    // ----------------------------------------------------
+    public function getAturanPresensi()
+    {
+        return $this->respond((new PengaturanModel())->aturanPresensi());
+    }
+
+    // ----------------------------------------------------
+    // POST /api/aturan-presensi (admin)
+    // ----------------------------------------------------
+    public function saveAturanPresensi()
+    {
+        if (($this->tokenUser()['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya admin yang dapat mengubah aturan presensi.');
+        }
+        $input = $this->request->getJSON(true) ?? $this->request->getPost();
+
+        $batas = [
+            'gpsAkurasiMaks'  => [0, 5000, 'Batas akurasi GPS harus 0–5000 meter (0 = tidak diperiksa).'],
+            'batasTidakHadir' => [1, 100, 'Ambang peringatan Tidak Hadir harus 1–100 sesi.'],
+            'pengingatMenit'  => [0, 180, 'Waktu pengingat harus 0–180 menit (0 = tidak ada pengingat).'],
+        ];
+        $aturan = [];
+        foreach ($batas as $kunci => [$min, $maks, $pesan]) {
+            $nilai = $input[$kunci] ?? null;
+            if (! is_numeric($nilai) || (int) $nilai != $nilai || $nilai < $min || $nilai > $maks) {
+                return $this->fail($pesan, 400);
+            }
+            $aturan[$kunci] = (int) $nilai;
+        }
+
+        (new PengaturanModel())->simpanAturanPresensi($aturan);
+
+        return $this->respond(['status' => 'success', 'message' => 'Aturan presensi berhasil disimpan']);
+    }
+
+    // Payload token login (sama dengan DataController::tokenUser); [] jika tidak valid
+    private function tokenUser(): array
+    {
+        $header = $this->request->getHeaderLine('Authorization');
+        $raw = preg_replace('/^Bearer\s+/i', '', $header);
+        [$encoded, $signature] = array_pad(explode('.', $raw, 2), 2, '');
+        $payload = base64_decode(strtr($encoded, '-_', '+/'));
+        $data = json_decode($payload ?: '', true);
+        $expected = hash_hmac('sha256', $encoded, env('encryption.key', 'sip-asrama-v1'));
+        return $data && hash_equals($expected, $signature) && ($data['exp'] ?? 0) >= time() ? $data : [];
     }
 
     // ----------------------------------------------------

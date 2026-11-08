@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import type { CurrentUser, Gedung, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
+import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
-import { SesiIcon, formatRentangIzin } from '../components/PresensiWidgets'
+import { FotoBadge, SesiIcon, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
 import {
   presensiList as initialPresensi,
@@ -10,11 +10,11 @@ import {
   sesiList as initialSesi,
   liburList as initialLibur,
 } from '../data/mockData'
-import { fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI, changePasswordApi, uploadProfilePhotoApi } from '../api'
+import { fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, changePasswordApi, uploadProfilePhotoApi } from '../api'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
-  addDays, cariLibur, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
-  sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi, type StatusDetail,
+  addDays, cariLibur, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
+  faseSesi, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi, type StatusDetail,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -80,6 +80,13 @@ function hasKoordinat(g: Gedung | null): g is Gedung & { latitude: number; longi
 }
 
 // Presensi hanya bisa dilakukan saat sesi dibuka dan belum ada status (bukan izin / libur / sudah hadir)
+// Sisa menit hingga jam HH:MM hari ini (dibulatkan ke atas)
+function sisaMenit(jam: string, now: Date): number {
+  const [h, m] = jam.split(':').map(Number)
+  const detik = (h * 60 + m) * 60 - (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds())
+  return Math.ceil(detik / 60)
+}
+
 function bisaPresensi(d: StatusDetail) {
   return d.status === 'Belum' && d.fase === 'dibuka'
 }
@@ -106,6 +113,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
   const [foto, setFoto] = useState<string | null>(null)
   const [sesiAwal, setSesiAwal] = useState('')
   const [modeUji, setModeUji] = useState<ModeUji>(MODE_UJI_MATI)
+  const [aturan, setAturan] = useState<AturanPresensi>(ATURAN_PRESENSI_DEFAULT)
   const [now, setNow] = useState(new Date())
 
   useEffect(() => {
@@ -120,6 +128,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     fetchSesi().then(setSesiList)
     fetchLibur().then(setLibur)
     fetchModeUji().then(setModeUji)
+    fetchAturanPresensi().then(setAturan)
     fetchGedung().then(list => {
       const g = findGedung(list, user)
       setGedung(g)
@@ -136,6 +145,15 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     return { sesi, detail: dibukaUji ? { ...detail, status: 'Belum' as const, fase: 'dibuka' as const } : detail }
   })
   const riwayat = riwayatPenghuni(user.nim, periodeRekap(today, user.tanggalMasuk), today, sesiList, data, now)
+  // Batas akurasi GPS yang berlaku (0 = tidak diperiksa); ikut dilonggarkan mode uji "abaikan radius"
+  const akurasiMaks = modeUji.abaikanRadius ? 0 : aturan.gpsAkurasiMaks
+  // Pengingat: sesi yang benar-benar sedang dibuka (bukan karena mode uji), belum presensi, dan hampir ditutup
+  const sesiHampirTutup = aturan.pengingatMenit > 0
+    ? sesiHariIni
+        .filter(({ sesi, detail }) => detail.status === 'Belum' && faseSesi(sesi, today, now) === 'dibuka')
+        .map(({ sesi }) => ({ sesi, sisa: sisaMenit(sesi.jamSelesai, now) }))
+        .filter(({ sisa }) => sisa <= aturan.pengingatMenit)
+    : []
 
   // Membaca lokasi GPS lalu menghitung jarak ke titik koordinat gedung
   const readLocation = async (target: Gedung | null = gedung): Promise<GpsState> => {
@@ -180,6 +198,14 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       setCheckingIn(false)
       return
     }
+    if (akurasiMaks > 0 && loc.position.accuracy > akurasiMaks) {
+      setNotice({
+        type: 'error',
+        text: `Akurasi GPS Anda ±${Math.round(loc.position.accuracy)} m, melebihi batas ${akurasiMaks} m. Aktifkan GPS/mode akurasi tinggi, pindah ke area terbuka, lalu coba lagi.`,
+      })
+      setCheckingIn(false)
+      return
+    }
     if (loc.distance > gedung.radiusMeter && !modeUji.abaikanRadius) {
       setNotice({
         type: 'error',
@@ -195,6 +221,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       tanggal: today,
       latitude: loc.position.latitude,
       longitude: loc.position.longitude,
+      akurasi: loc.position.accuracy,
       fotoWajah: foto,
       keterangan: 'Presensi mandiri web',
     })
@@ -202,8 +229,8 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       const record: PresensiRecord = {
         id: Date.now(), nim: user.nim, namaPenghuni: user.nama, nomorKamar: user.nomorKamar || '', namaGedung: user.namaGedung || '',
         tanggal: today, sesi: sesiNama, waktu: toHM(new Date()),
-        latitude: loc.position.latitude, longitude: loc.position.longitude,
-        status: 'Hadir', fotoWajah: foto, keterangan: 'Presensi mandiri web',
+        latitude: loc.position.latitude, longitude: loc.position.longitude, akurasiMeter: loc.position.accuracy,
+        status: 'Hadir', fotoWajah: foto, keterangan: 'Presensi mandiri web', statusFoto: 'Menunggu',
       }
       setPresensi(prev => [record, ...prev.filter(p => !(p.nim === user.nim && p.tanggal === today && p.sesi === sesiNama))])
       setFoto(null)
@@ -226,6 +253,25 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           </span>
         </div>
       )}
+      {sesiHampirTutup.map(({ sesi, sisa }) => (
+        <div key={sesi.id} className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs font-semibold flex flex-col sm:flex-row sm:items-center gap-2">
+          <span className="flex items-center gap-2 flex-1">
+            <Bell className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>
+              Sesi {sesi.nama} ditutup pukul {sesi.jamSelesai} WIB ({sisa <= 0 ? 'kurang dari 1 menit lagi' : `${sisa} menit lagi`}) dan Anda belum presensi.
+              Setelah ditutup, Anda tercatat Tidak Hadir.
+            </span>
+          </span>
+          {activeTab !== 'presensi' && (
+            <button
+              onClick={() => { setSesiAwal(sesi.nama); setNotice(null); setActiveTab('presensi') }}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer"
+            >
+              Presensi sekarang
+            </button>
+          )}
+        </div>
+      ))}
       {activeTab === 'dashboard' && (
         <PenghuniDashboard
           user={user}
@@ -249,6 +295,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           sesiHariIni={sesiHariIni}
           sesiAwal={sesiAwal}
           abaikanRadius={modeUji.abaikanRadius}
+          akurasiMaks={akurasiMaks}
           foto={foto}
           onFotoChange={setFoto}
           onCheckIn={handleCheckIn}
@@ -293,6 +340,10 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
   const rekap = hitungStatus(riwayat.map(r => r.detail.status))
   // Pemberitahuan keputusan izin dalam 7 hari terakhir
   const pemberitahuan = izinData.filter(i => i.statusPersetujuan !== 'Pending' && (i.tanggalApproval || '') >= addDays(today, -7))
+  // Foto presensi yang ditolak fasil dalam 7 hari terakhir (presensi menjadi Tidak Hadir)
+  const fotoDitolak = riwayat
+    .map(r => r.detail.presensi)
+    .filter((p): p is NonNullable<typeof p> => !!p && p.statusFoto === 'Ditolak' && (p.divalidasiPada || '') >= addDays(today, -7))
 
   return (
     <div className="space-y-6">
@@ -332,6 +383,25 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
       </div>
 
       {/* Pemberitahuan keputusan izin */}
+      {fotoDitolak.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-red-200 shadow-xs">
+          <div className="flex items-center gap-2 mb-3">
+            <Camera className="w-4 h-4 text-red-700" />
+            <h4 className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Foto Presensi Ditolak</h4>
+          </div>
+          <div className="space-y-2">
+            {fotoDitolak.map(p => (
+              <div key={p.id} className="p-3 rounded-lg border text-xs bg-red-50/60 border-red-100">
+                <p className="font-semibold text-gray-800">{p.tanggal} · Sesi {p.sesi} — tercatat Tidak Hadir</p>
+                <p className="text-gray-600 mt-0.5">
+                  Ditolak oleh {p.namaValidator || 'fasilitator'}{p.catatanValidasi ? `: ${p.catatanValidasi}` : ''}. Hubungi fasilitator gedung jika ini keliru.
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {pemberitahuan.length > 0 && (
         <div className="bg-white rounded-2xl p-5 border border-blue-100 shadow-xs">
           <div className="flex items-center gap-2 mb-3">
@@ -388,11 +458,19 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
                   <Badge status={detail.status} />
                 </div>
 
-                {detail.presensi?.waktu && (
+                {jamPresensi(detail.presensi) && detail.presensi?.statusFoto !== 'Ditolak' && (
                   <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold flex items-center gap-2 mb-3">
                     <Clock className="w-3.5 h-3.5" />
-                    <span>Tercatat pada pukul {detail.presensi.waktu} WIB</span>
+                    <span>Tercatat pada pukul {jamPresensi(detail.presensi)} WIB</span>
                   </div>
+                )}
+                {detail.presensi?.statusFoto === 'Ditolak' && (
+                  <p className="p-2.5 rounded-xl bg-red-50 text-red-800 text-xs font-semibold mb-3">
+                    Foto presensi pukul {detail.presensi.waktu} ditolak fasilitator{detail.presensi.catatanValidasi ? `: ${detail.presensi.catatanValidasi}` : ''}
+                  </p>
+                )}
+                {detail.presensi?.otomatis && (
+                  <p className="text-xs text-gray-500 mb-3">Tidak ada presensi hingga sesi ditutup</p>
                 )}
                 {!detail.presensi && keteranganStatus(detail) && (
                   <p className="text-xs text-gray-500 mb-3">{keteranganStatus(detail)}</p>
@@ -428,10 +506,11 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
   )
 }
 
-function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, foto, onFotoChange, onCheckIn, checkingIn, gedung, gps, notice, onRefreshLocation }: {
+function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, foto, onFotoChange, onCheckIn, checkingIn, gedung, gps, notice, onRefreshLocation }: {
   sesiHariIni: SesiHariIni[]
   sesiAwal: string
   abaikanRadius: boolean
+  akurasiMaks: number
   foto: string | null
   onFotoChange: (foto: string | null) => void
   onCheckIn: (sesi: string) => void
@@ -535,6 +614,11 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, foto, onFotoCh
                 <p className="mono text-xs text-gray-500 mt-2.5">
                   Posisi Anda: {gps.position.latitude.toFixed(6)}, {gps.position.longitude.toFixed(6)} · Akurasi ±{Math.round(gps.position.accuracy)} m
                 </p>
+                {akurasiMaks > 0 && gps.position.accuracy > akurasiMaks && (
+                  <p className="text-xs text-red-700 mt-1 font-semibold">
+                    Akurasi lokasi melebihi batas {akurasiMaks} m. Aktifkan GPS/mode akurasi tinggi atau pindah ke area terbuka, lalu klik perbarui lokasi.
+                  </p>
+                )}
                 {gps.distance !== undefined && (
                   <div className="mt-2.5 relative h-2 rounded-full bg-gray-200 overflow-hidden">
                     <div className={`h-full rounded-full ${inRadius ? 'bg-emerald-700' : 'bg-red-600'}`} style={{ width: `${barPct}%` }} />
@@ -645,7 +729,7 @@ function PenghuniRiwayat({ riwayat }: { riwayat: ReturnType<typeof riwayatPenghu
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                {['Tanggal', 'Sesi', 'Waktu Masuk', 'Lokasi Presensi', 'Status', 'Keterangan'].map(h => (
+                {['Tanggal', 'Sesi', 'Waktu Masuk', 'Lokasi Presensi', 'Status', 'Validasi Foto', 'Keterangan'].map(h => (
                   <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider" style={{ fontFamily: 'Plus Jakarta Sans' }}>{h}</th>
                 ))}
               </tr>
@@ -662,11 +746,19 @@ function PenghuniRiwayat({ riwayat }: { riwayat: ReturnType<typeof riwayatPenghu
                         <span>{sesi.nama}</span>
                       </span>
                     </td>
-                    <td className="px-5 py-3 mono text-xs text-gray-600">{rec?.waktu || '–'}</td>
+                    <td className="px-5 py-3 mono text-xs text-gray-600">{jamPresensi(rec) || '–'}</td>
                     <td className="px-5 py-3 mono text-[11px] text-gray-500">
                       {rec && rec.latitude !== null && rec.longitude !== null ? `${Number(rec.latitude).toFixed(5)}, ${Number(rec.longitude).toFixed(5)}` : '–'}
                     </td>
                     <td className="px-5 py-3"><Badge status={detail.status} /></td>
+                    <td className="px-5 py-3 text-xs">
+                      {rec?.statusFoto ? (
+                        <div className="space-y-1">
+                          <FotoBadge status={rec.statusFoto} />
+                          {rec.catatanValidasi && <p className="text-gray-600 max-w-[220px]">Catatan fasil: {rec.catatanValidasi}</p>}
+                        </div>
+                      ) : <span className="text-gray-300">–</span>}
+                    </td>
                     <td className="px-5 py-3 text-xs text-gray-500">{keteranganStatus(detail) || '–'}</td>
                   </tr>
                 )

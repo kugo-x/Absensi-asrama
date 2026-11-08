@@ -23,6 +23,11 @@ class PresensiModel extends Model
         'Foto_wajah',
         'Keterangan',
         'Dikoreksi_oleh',
+        'Status_foto',
+        'Catatan_validasi',
+        'Divalidasi_oleh',
+        'Divalidasi_pada',
+        'Akurasi_meter',
     ];
 
     // Dates
