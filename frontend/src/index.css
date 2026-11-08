@@ -17,9 +17,103 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background-color: #f5f7f5;
+  background-color: #eaf3ee;
   color: #1f2937;
   margin: 0;
+}
+
+/* =====================================================================
+   LIQUID GLASS — lapisan tampilan saja (tidak mengubah fungsi)
+   Aktif di dalam elemen ber-class .liquid (AppLayout & LoginPage).
+   CSS ini tidak berada di @layer sehingga mengalahkan utilitas Tailwind.
+   ===================================================================== */
+/* Latar netral polos (tanpa gradien/cahaya dekoratif) */
+.liquid {
+  background-color: #eceeed;
+}
+
+/* Permukaan putih (kartu, panel, chip, tombol sekunder) -> kaca */
+.liquid main .bg-white:not([class*='hover:bg-']) {
+  background-color: rgb(255 255 255 / 0.56);
+}
+/* Blur hanya untuk panel, bukan isian form: backdrop-filter membuat stacking context
+   sehingga input akan menutupi ikon absolut di dalamnya (mis. ikon kaca pembesar). */
+.liquid main .bg-white:not(input):not(select):not(textarea) {
+  -webkit-backdrop-filter: blur(22px) saturate(175%);
+  backdrop-filter: blur(22px) saturate(175%);
+}
+/* Elemen yang punya warna hover sendiri (hover:bg-* / hover:border-*) dibiarkan
+   memakai warna Tailwind-nya, agar efek hover tidak tertimpa aturan kaca. */
+.liquid main .bg-white:not(input):not(select):not(textarea):not([class*='hover:border-']):not([class*='hover:bg-']) {
+  border-color: rgb(255 255 255 / 0.75);
+}
+
+/* Kartu besar: kilau tepi atas (specular) + bayangan lembut */
+.liquid main :is(.rounded-xl, .rounded-2xl, .rounded-3xl).bg-white {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.95),
+    inset 0 -1px 0 rgb(255 255 255 / 0.3),
+    0 12px 32px -16px rgb(17 24 39 / 0.16),
+    0 1px 3px rgb(17 24 39 / 0.05);
+}
+
+/* Isian form di atas kaca tetap jelas */
+.liquid :is(input, select, textarea):not([type='checkbox']):not([type='radio']) {
+  background-color: rgb(255 255 255 / 0.6);
+}
+.liquid :is(input, select, textarea):focus {
+  background-color: rgb(255 255 255 / 0.85);
+}
+
+/* Modal, dialog & toast (elemen fixed): kaca lebih pekat agar mudah dibaca */
+.liquid main .fixed .bg-white:not([class*='hover:bg-']),
+.liquid main .fixed.bg-white:not([class*='hover:bg-']) {
+  background-color: rgb(255 255 255 / 0.82);
+}
+.liquid main .fixed .bg-white,
+.liquid main .fixed.bg-white {
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+.liquid main .fixed:is(.inset-0) {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* Permukaan pastel -> tembus pandang agar menyatu dengan kaca */
+.liquid main .bg-gray-50:not([class*='hover:bg-']) { background-color: rgb(249 250 251 / 0.55); }
+.liquid main .bg-gray-100:not([class*='hover:bg-']) { background-color: rgb(243 244 246 / 0.6); }
+.liquid main .bg-emerald-50:not([class*='hover:bg-']) { background-color: rgb(236 253 245 / 0.62); }
+.liquid main .bg-emerald-100:not([class*='hover:bg-']) { background-color: rgb(209 250 229 / 0.7); }
+.liquid main .bg-amber-50:not([class*='hover:bg-']) { background-color: rgb(255 251 235 / 0.66); }
+.liquid main .bg-amber-100:not([class*='hover:bg-']) { background-color: rgb(254 243 199 / 0.72); }
+.liquid main .bg-orange-50:not([class*='hover:bg-']) { background-color: rgb(255 247 237 / 0.66); }
+.liquid main .bg-red-50:not([class*='hover:bg-']) { background-color: rgb(254 242 242 / 0.66); }
+.liquid main .bg-rose-50:not([class*='hover:bg-']) { background-color: rgb(255 241 242 / 0.66); }
+.liquid main .bg-blue-50:not([class*='hover:bg-']) { background-color: rgb(239 246 255 / 0.66); }
+.liquid main .bg-sky-50:not([class*='hover:bg-']) { background-color: rgb(240 249 255 / 0.66); }
+.liquid main .bg-sky-100:not([class*='hover:bg-']) { background-color: rgb(224 242 254 / 0.72); }
+.liquid main .bg-teal-50:not([class*='hover:bg-']) { background-color: rgb(240 253 250 / 0.66); }
+
+/* Garis pemisah tabel lebih halus di atas kaca */
+.liquid main :is(.divide-gray-100, .divide-gray-200) > :not(:last-child) {
+  border-color: rgb(15 61 35 / 0.07);
+}
+
+/* Tombol utama hijau: kilau cair */
+.liquid :is(button, a):is(.bg-emerald-700, .bg-emerald-800, .bg-\[\#0e4b29\], .bg-emerald-600) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    inset 0 -2px 6px rgb(0 0 0 / 0.12),
+    0 4px 10px -4px rgb(17 24 39 / 0.25);
+}
+
+/* Aksesibilitas & browser tanpa backdrop-filter: kembali ke permukaan pekat */
+@media (prefers-reduced-transparency: reduce) {
+  .liquid main .bg-white { background-color: rgb(255 255 255 / 0.96); }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .liquid main .bg-white { background-color: rgb(255 255 255 / 0.94); }
 }
 
 h1, h2, h3, h4, h5 {
@@ -168,4 +262,248 @@ code, .mono {
   width: 100%;
   max-width: 480px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+
+/* =====================================================================
+   MOBILE — tabel tetap satu baris per sel di layar kecil (digeser ke samping
+   di dalam kontainer overflow-x-auto), agar baris tidak menjadi sangat tinggi.
+   ===================================================================== */
+@media (max-width: 640px) {
+  .liquid main table :is(th, td):not([class*='max-w']) {
+    white-space: nowrap;
+  }
+}
+
+/* =====================================================================
+   ANIMASI HALUS — hanya tampilan, otomatis mati bila pengguna memilih
+   "kurangi gerakan". Memakai fill-mode `backwards` agar tidak ada transform
+   yang tertinggal setelah animasi (transform permanen akan merusak posisi
+   elemen fixed seperti modal).
+   ===================================================================== */
+@keyframes lg-naik {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lg-pudar {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes lg-muncul {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lg-geser {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lg-geser-bawah {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Konten tab yang baru tampil: naik perlahan, blok-bloknya bergiliran */
+  .liquid main > *,
+  .liquid main > * > * {
+    animation: lg-naik 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  }
+  .liquid main > * > :nth-child(2) { animation-delay: 40ms; }
+  .liquid main > * > :nth-child(3) { animation-delay: 80ms; }
+  .liquid main > * > :nth-child(4) { animation-delay: 120ms; }
+  .liquid main > * > :nth-child(5) { animation-delay: 160ms; }
+  .liquid main > * > :nth-child(n + 6) { animation-delay: 200ms; }
+
+  /* Kartu statistik / kartu dalam grid: bergiliran */
+  .liquid main .grid > * { animation: lg-naik 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+  .liquid main .grid > :nth-child(2) { animation-delay: 50ms; }
+  .liquid main .grid > :nth-child(3) { animation-delay: 100ms; }
+  .liquid main .grid > :nth-child(4) { animation-delay: 150ms; }
+  .liquid main .grid > :nth-child(n + 5) { animation-delay: 200ms; }
+
+  /* Modal & dialog: latar memudar, kotak dialog "pop" */
+  .liquid main .fixed.inset-0,
+  .liquid > .fixed.inset-0 {
+    animation: lg-pudar 0.2s ease-out backwards;
+  }
+  .liquid main .fixed.inset-0 > * {
+    animation: lg-muncul 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  }
+
+  /* Notifikasi melayang (toast) */
+  .liquid main > .fixed:not(.inset-0) {
+    animation: lg-geser 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  }
+  @media (max-width: 639px) {
+    .liquid main > .fixed:not(.inset-0) { animation-name: lg-geser-bawah; }
+  }
+
+  /* Sidebar: item menu muncul bergiliran saat aplikasi dibuka */
+  .liquid aside nav > button {
+    animation: lg-naik 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  }
+  .liquid aside nav > button:nth-of-type(2) { animation-delay: 30ms; }
+  .liquid aside nav > button:nth-of-type(3) { animation-delay: 60ms; }
+  .liquid aside nav > button:nth-of-type(4) { animation-delay: 90ms; }
+  .liquid aside nav > button:nth-of-type(5) { animation-delay: 120ms; }
+  .liquid aside nav > button:nth-of-type(n + 6) { animation-delay: 150ms; }
+
+  /* Umpan balik saat tombol ditekan */
+  .liquid :is(button, a[href]):not(:disabled):active {
+    scale: 0.97;
+  }
+
+  /* Kartu bergerak lembut saat bayangannya berubah */
+  .liquid main :is(.rounded-xl, .rounded-2xl, .rounded-3xl).bg-white {
+    transition: box-shadow 0.25s ease, background-color 0.25s ease, border-color 0.25s ease;
+  }
+}
+
+/* =====================================================================
+   DROPDOWN (<select>) — hanya tampilan; elemen & nilai <select> tidak berubah.
+   1) Semua browser: panah kustom pengganti panah bawaan.
+   2) Browser yang mendukung `appearance: base-select` (Chrome/Edge 135+):
+      daftar pilihan ikut bergaya kaca. Browser lain memakai daftar bawaan OS.
+   ===================================================================== */
+.liquid select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2.5rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23047857' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  background-size: 1rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+.liquid select:hover {
+  border-color: rgb(16 185 129 / 0.45);
+}
+.liquid select:focus-visible {
+  outline: none;
+  border-color: rgb(5 150 105);
+  box-shadow: 0 0 0 3px rgb(16 185 129 / 0.15);
+}
+
+@supports (appearance: base-select) {
+  .liquid select,
+  .liquid select::picker(select) {
+    appearance: base-select;
+  }
+
+  .liquid select {
+    background-image: none;
+    padding-right: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  /* Panah: berputar saat daftar terbuka */
+  .liquid select::picker-icon {
+    content: '';
+    width: 1rem;
+    height: 1rem;
+    margin-left: auto;
+    background-color: #047857;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    transition: rotate 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .liquid select:open::picker-icon {
+    rotate: 180deg;
+  }
+  .liquid select:open {
+    border-color: rgb(5 150 105);
+    box-shadow: 0 0 0 3px rgb(16 185 129 / 0.15);
+  }
+
+  /* Panel daftar pilihan: kaca */
+  .liquid select::picker(select) {
+    margin-block: 6px;
+    padding: 6px;
+    min-width: anchor-size(width);
+    border: 1px solid rgb(255 255 255 / 0.85);
+    border-radius: 16px;
+    background: rgb(255 255 255 / 0.88);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.95),
+      0 18px 40px -16px rgb(17 24 39 / 0.3),
+      0 2px 8px rgb(17 24 39 / 0.06);
+  }
+
+  .liquid select option {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #1f2937;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .liquid select option:hover,
+  .liquid select option:focus-visible {
+    outline: none;
+    background-color: rgb(16 185 129 / 0.1);
+    color: #064e3b;
+  }
+  .liquid select option:checked {
+    background-color: rgb(16 185 129 / 0.14);
+    color: #065f46;
+    font-weight: 700;
+  }
+  .liquid select option:disabled {
+    color: #9ca3af;
+    cursor: not-allowed;
+  }
+  /* Tanda centang di kanan untuk pilihan aktif */
+  .liquid select option::checkmark {
+    order: 1;
+    margin-left: auto;
+    content: '✓';
+    color: #059669;
+    font-weight: 800;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .liquid select::picker(select) {
+      transition: opacity 0.18s ease, translate 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), display 0.2s allow-discrete, overlay 0.2s allow-discrete;
+      opacity: 1;
+      translate: 0 0;
+    }
+    @starting-style {
+      .liquid select:open::picker(select) {
+        opacity: 0;
+        translate: 0 -6px;
+      }
+    }
+    .liquid select:not(:open)::picker(select) {
+      opacity: 0;
+      translate: 0 -6px;
+    }
+  }
+}
+
+/* Kalender (DateInput) muncul halus */
+@media (prefers-reduced-motion: no-preference) {
+  .dp-pop {
+    animation: lg-muncul 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  }
+}
+
+/* Lonceng notifikasi bergoyang sekali bila ada yang belum dibaca */
+@keyframes notif-goyang {
+  0%, 100% { rotate: 0deg; }
+  20% { rotate: 14deg; }
+  40% { rotate: -10deg; }
+  60% { rotate: 6deg; }
+  80% { rotate: -3deg; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .notif-goyang {
+    transform-origin: 50% 10%;
+    animation: notif-goyang 0.9s ease-in-out 0.4s 1;
+  }
 }

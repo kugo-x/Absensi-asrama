@@ -69,9 +69,43 @@ async function postJson(path: string, body: unknown): Promise<ApiResult> {
       clearAuthToken()
       window.dispatchEvent(new Event('auth-expired'))
     }
-    return { ok: res.ok, message: json.message || json.messages?.error || json.error || (res.ok ? 'Berhasil' : 'Permintaan gagal diproses.') }
+    const message = json.message || json.messages?.error || json.error || (res.ok ? 'Berhasil' : 'Permintaan gagal diproses.')
+    if (res.ok) catatAktivitas(path, message)
+    return { ok: res.ok, message }
   } catch (e) {
     return { ok: false, offline: true, message: 'Server tidak dapat dihubungi.' }
+  }
+}
+
+// Judul notifikasi untuk setiap aksi yang berhasil (lihat components/Notifikasi.tsx)
+const JUDUL_AKTIVITAS: Record<string, string> = {
+  'presensi': 'Presensi berhasil',
+  'presensi/koreksi': 'Koreksi presensi disimpan',
+  'presensi/validasi-foto': 'Validasi foto disimpan',
+  'izin': 'Pengajuan izin terkirim',
+  'izin/status': 'Keputusan izin disimpan',
+  'penghuni': 'Penghuni ditambahkan',
+  'penghuni/update': 'Data penghuni diperbarui',
+  'penghuni/toggle-status': 'Status penghuni diubah',
+  'penghuni/reset-password': 'Password direset',
+  'gedung/update': 'Lokasi gedung diperbarui',
+  'gedung/pj': 'PJ gedung diperbarui',
+  'sesi': 'Jadwal sesi disimpan',
+  'libur': 'Hari libur ditambahkan',
+  'libur/delete': 'Hari libur dihapus',
+  'mode-uji': 'Mode uji diperbarui',
+  'aturan-presensi': 'Aturan presensi disimpan',
+  'auth/change-password': 'Password diubah',
+  'auth/profile': 'Profil diperbarui',
+  'auth/profile-photo': 'Foto profil diperbarui',
+}
+
+// Hanya tampilan: memberi tahu pusat notifikasi bahwa sebuah aksi berhasil
+function catatAktivitas(path: string, pesan: string) {
+  try {
+    window.dispatchEvent(new CustomEvent('sip-aktivitas', { detail: { judul: JUDUL_AKTIVITAS[path] ?? 'Berhasil', pesan } }))
+  } catch {
+    // abaikan: notifikasi bukan bagian penting dari aksi
   }
 }
 

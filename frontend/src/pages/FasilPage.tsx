@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto } from '../types'
 import AppLayout, { SectionTitle, Badge } from '../components/AppLayout'
 import { FotoBadge, FotoWajah, RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
+import DateInput from '../components/DateInput'
+import { notifikasiFasil } from '../notifikasiPeran'
 import {
   presensiList as initialPresensi,
   izinList as initialIzin,
@@ -163,7 +165,8 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   }
 
   return (
-    <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={setActiveTab}>
+    <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={setActiveTab}
+      notifikasi={notifikasiFasil({ izinGedung, presensiBerfoto, sering, batasTidakHadir: aturan.batasTidakHadir })}>
       <div className="mb-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-emerald-100 text-xs font-semibold text-emerald-900">
         <Building2 className="w-4 h-4 text-emerald-700" />
         <span>Penanggung jawab {gedungSaya.nama} · {anggota.length} penghuni wajib absen</span>
@@ -394,8 +397,7 @@ function FasilMonitor({ sesiList, rekapRows, today, onKoreksi }: {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center">
-        <input
-          type="date"
+        <DateInput
           max={today}
           className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all font-medium text-gray-700"
           value={tanggal}

@@ -18,6 +18,9 @@ import {
   fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT,
 } from '../api'
 import { getCurrentPosition } from '../geo'
+import DateInput from '../components/DateInput'
+import TimeInput from '../components/TimeInput'
+import { notifikasiAdmin } from '../notifikasiPeran'
 import {
   addDays, cariLibur, faseSesi, hitungStatus, hunianKamar, penghuniWajibAbsen, riwayatPenghuni, sesiAktif, statusSesi, todayLocal, type DataPresensi,
 } from '../logic'
@@ -211,7 +214,8 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
   }
 
   return (
-    <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}>
+    <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}
+      notifikasi={notifikasiAdmin({ passwordDefault: defaultPasswordCount, modeUji, gedung: gedungList, sesi: sesiList, izin, presensi })}>
       {showDefaultNotice && defaultPasswordCount > 0 && <DefaultPasswordNotice count={defaultPasswordCount} onClose={() => setShowDefaultNotice(false)} />}
       {activeTab === 'dashboard' && (
         <AdminDashboard
@@ -273,7 +277,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
 
 function DefaultPasswordNotice({ count, onClose }: { count: number; onClose: () => void }) {
   return (
-    <div className="fixed right-5 top-20 z-40 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-amber-200 bg-white p-4 shadow-xl">
+    <div className="fixed left-4 right-4 bottom-4 sm:left-auto sm:right-5 sm:bottom-auto sm:top-20 z-40 sm:w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-amber-200 bg-white p-4 shadow-xl">
       <div className="flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">!</div>
         <div className="min-w-0 flex-1">
@@ -761,7 +765,7 @@ function AdminPenghuni({ penghuni, onAddClick, onKelola, onResetPassword }: {
             </tbody>
           </table>
         </div>
-        <div className="px-5 py-3 text-xs text-gray-500 border-t border-gray-100 font-medium bg-gray-50/50 flex items-center justify-between">
+        <div className="px-5 py-3 text-xs text-gray-500 border-t border-gray-100 font-medium bg-gray-50/50 flex flex-wrap gap-2 items-center justify-between">
           <span>Menampilkan {rows.length} dari {filtered.length} data</span>
           <div className="flex items-center gap-2">
             <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="px-2 py-1 rounded border disabled:opacity-40">Sebelumnya</button>
@@ -1305,7 +1309,7 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-3 items-center">
-        <input type="date" max={today} className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700" value={tanggal} onChange={e => setTanggal(e.target.value)} />
+        <DateInput max={today} className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700" value={tanggal} onChange={e => setTanggal(e.target.value)} />
         <SesiToggle sesiList={aktif} value={sesi} onChange={setSesi} />
         <select className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700" value={gedung} onChange={e => setGedung(e.target.value)}>
           <option value="">Seluruh Gedung</option>
@@ -1594,18 +1598,18 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
         <div className="space-y-2.5">
           {draft.map(s => (
             <div key={s.id} className={`p-3 rounded-xl border transition-colors ${s.aktif ? 'border-emerald-200 bg-emerald-50/20' : 'border-gray-200 bg-gray-50/60 opacity-75'}`}>
-              <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
-                <div>
+              <div className="grid grid-cols-2 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
+                <div className="col-span-2 sm:col-span-1">
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Nama Sesi</label>
                   <input className={`${fieldCls} w-full font-semibold text-gray-800`} value={s.nama} onChange={e => updateDraft(s.id, { nama: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Mulai</label>
-                  <input type="time" className={fieldCls} value={s.jamMulai} onChange={e => updateDraft(s.id, { jamMulai: e.target.value })} />
+                  <TimeInput className={fieldCls} value={s.jamMulai} onChange={e => updateDraft(s.id, { jamMulai: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Selesai</label>
-                  <input type="time" className={fieldCls} value={s.jamSelesai} onChange={e => updateDraft(s.id, { jamSelesai: e.target.value })} />
+                  <TimeInput className={fieldCls} value={s.jamSelesai} onChange={e => updateDraft(s.id, { jamSelesai: e.target.value })} />
                 </div>
               </div>
               <div className="mt-2.5 pt-2 border-t border-gray-200/60 flex items-center justify-between">
@@ -1661,11 +1665,11 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Mulai</label>
-              <input type="date" className={`${fieldCls} w-full`} value={liburForm.tanggalMulai} onChange={e => setLiburForm(f => ({ ...f, tanggalMulai: e.target.value }))} />
+              <DateInput className={`${fieldCls} w-full`} value={liburForm.tanggalMulai} onChange={e => setLiburForm(f => ({ ...f, tanggalMulai: e.target.value }))} />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Selesai</label>
-              <input type="date" min={liburForm.tanggalMulai} className={`${fieldCls} w-full`} value={liburForm.tanggalSelesai} onChange={e => setLiburForm(f => ({ ...f, tanggalSelesai: e.target.value }))} />
+              <DateInput clearable min={liburForm.tanggalMulai} className={`${fieldCls} w-full`} value={liburForm.tanggalSelesai} onChange={e => setLiburForm(f => ({ ...f, tanggalSelesai: e.target.value }))} />
             </div>
           </div>
           <input className={`${fieldCls} w-full`} placeholder="Keterangan libur (cth: Libur Semester Ganjil)" value={liburForm.keterangan} onChange={e => setLiburForm(f => ({ ...f, keterangan: e.target.value }))} />

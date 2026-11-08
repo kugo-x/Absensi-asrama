@@ -47,11 +47,11 @@ export default function LoginPage({ onLogin }: Props) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-[#f5f7f5] text-gray-800">
+    <div className="liquid min-h-screen flex flex-col lg:flex-row text-gray-800">
       {/* Sisi Kiri: Profil & Informasi Kampus */}
-      <div className="lg:w-[48%] bg-[#0e4b29] text-white flex flex-col justify-between p-8 lg:p-14 xl:p-16 border-r border-[#0a381e]">
+      <div className="relative overflow-hidden lg:w-[48%] text-white flex flex-col justify-between p-8 lg:p-14 xl:p-16 lg:m-3 lg:rounded-3xl lg:border lg:border-white/15 lg:border-white/10" style={{ background: 'rgb(12 44 29)', boxShadow: 'inset 0 1px 0 rgb(255 255 255 / 0.08), 0 10px 30px -12px rgb(17 24 39 / 0.35)' }}>
         {/* Logo & Identitas Kampus */}
-        <div className="flex items-center gap-3.5">
+        <div className="relative flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-emerald-300 shrink-0">
             <Building2 className="w-7 h-7" />
           </div>
@@ -66,7 +66,7 @@ export default function LoginPage({ onLogin }: Props) {
         </div>
 
         {/* Judul Sistem - Vertically Centered & Prominent */}
-        <div className="my-auto py-10 max-w-xl">
+        <div className="relative my-auto py-10 max-w-xl">
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white leading-[1.15] tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
             Sistem Informasi Presensi Asrama
           </h1>
@@ -80,7 +80,7 @@ export default function LoginPage({ onLogin }: Props) {
         </div>
 
         {/* Footer Kampus */}
-        <div className="pt-4 border-t border-white/10 text-xs text-emerald-200/70">
+        <div className="relative pt-4 border-t border-white/10 text-xs text-emerald-200/70">
           <p className="font-medium">© 2026 UPT Asrama Mahasiswa Universitas Andalas</p>
           <p className="text-[11px] text-emerald-200/50 mt-0.5">Kampus Limau Manis, Padang, Sumatera Barat 25163</p>
         </div>
@@ -88,7 +88,7 @@ export default function LoginPage({ onLogin }: Props) {
 
       {/* Sisi Kanan: Form Login Bersih */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
-        <div className="w-full max-w-sm bg-white rounded-xl border border-gray-200 p-7 shadow-xs">
+        <div className="w-full max-w-sm rounded-3xl border border-white/75 p-7 bg-white/55 backdrop-blur-2xl backdrop-saturate-150 shadow-[inset_0_1px_0_rgb(255_255_255/0.95),0_16px_40px_-20px_rgb(17_24_39/0.25)]">
           <div className="mb-6">
             <h3 className="text-xl font-bold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
               Masuk Akun
@@ -172,7 +172,7 @@ export default function LoginPage({ onLogin }: Props) {
           </form>
 
           {/* Akun Demo Cepat */}
-          <div className="mt-6 pt-5 border-t border-gray-200">
+          <div className="mt-6 pt-5 border-t border-white/70">
             <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-2.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
               Pilihan Akun Demo (Klik untuk Isi):
             </p>
@@ -180,7 +180,7 @@ export default function LoginPage({ onLogin }: Props) {
               <button
                 type="button"
                 onClick={() => fillDemo('admin', 'admin123')}
-                className="w-full text-left p-2.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-emerald-50 hover:border-emerald-400 transition-colors flex items-center justify-between cursor-pointer"
+                className="w-full text-left p-2.5 rounded-lg border border-white/70 bg-white/40 hover:bg-emerald-50 hover:border-emerald-400 transition-colors flex items-center justify-between cursor-pointer"
               >
                 <div className="flex items-center gap-2.5">
                   <Shield className="w-4 h-4 text-emerald-700" />
@@ -189,13 +189,13 @@ export default function LoginPage({ onLogin }: Props) {
                     <p className="text-[11px] text-gray-500 mono">admin / admin123</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-600">Pilih</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white/70 border border-white/80 text-gray-600">Pilih</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => fillDemo('2310936001', 'fasil123')}
-                className="w-full text-left p-2.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-400 transition-colors flex items-center justify-between cursor-pointer"
+                className="w-full text-left p-2.5 rounded-lg border border-white/70 bg-white/40 hover:bg-blue-50 hover:border-blue-400 transition-colors flex items-center justify-between cursor-pointer"
               >
                 <div className="flex items-center gap-2.5">
                   <UserCheck className="w-4 h-4 text-blue-700" />
@@ -204,13 +204,13 @@ export default function LoginPage({ onLogin }: Props) {
                     <p className="text-[11px] text-gray-500 mono">2310936001 / fasil123</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-600">Pilih</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white/70 border border-white/80 text-gray-600">Pilih</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => fillDemo('2310933001', 'penghuni123')}
-                className="w-full text-left p-2.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-amber-50 hover:border-amber-400 transition-colors flex items-center justify-between cursor-pointer"
+                className="w-full text-left p-2.5 rounded-lg border border-white/70 bg-white/40 hover:bg-amber-50 hover:border-amber-400 transition-colors flex items-center justify-between cursor-pointer"
               >
                 <div className="flex items-center gap-2.5">
                   <GraduationCap className="w-4 h-4 text-amber-700" />
@@ -219,7 +219,7 @@ export default function LoginPage({ onLogin }: Props) {
                     <p className="text-[11px] text-gray-500 mono">2310933001 / penghuni123</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-600">Pilih</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white/70 border border-white/80 text-gray-600">Pilih</span>
               </button>
             </div>
           </div>

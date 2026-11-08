@@ -3,6 +3,8 @@ import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, ModeUj
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { FotoBadge, SesiIcon, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
+import { notifikasiPenghuni } from '../notifikasiPeran'
+import DateInput from '../components/DateInput'
 import {
   presensiList as initialPresensi,
   izinList as initialIzin,
@@ -244,7 +246,8 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
   }
 
   return (
-    <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}>
+    <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}
+      notifikasi={notifikasiPenghuni({ nim: user.nim, presensi, izin: izinData, sesiHampirTutup, today })}>
       {(modeUji.abaikanJam || modeUji.abaikanRadius) && (
         <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -1012,11 +1015,11 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tgl Mulai</label>
-                  <input type="date" min={today} className={inputCls} value={form.tanggal} onChange={e => setForm(p => ({ ...p, tanggal: e.target.value }))} />
+                  <DateInput min={today} className={inputCls} value={form.tanggal} onChange={e => setForm(p => ({ ...p, tanggal: e.target.value }))} />
                 </div>
                 <div>
                   <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tgl Selesai</label>
-                  <input type="date" min={form.tanggal || today} className={inputCls} value={form.tanggalSelesai} onChange={e => setForm(p => ({ ...p, tanggalSelesai: e.target.value }))} />
+                  <DateInput clearable min={form.tanggal || today} className={inputCls} value={form.tanggalSelesai} onChange={e => setForm(p => ({ ...p, tanggalSelesai: e.target.value }))} />
                 </div>
               </div>
               <p className="text-[10px] text-gray-400 -mt-1">Kosongkan jika izin hanya satu hari.</p>
