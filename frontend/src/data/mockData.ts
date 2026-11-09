@@ -7,7 +7,9 @@ const hari = (n: number) => addDays(TODAY, n)
 
 export const sesiList: Sesi[] = [
   { id: 1, nama: 'Subuh', jamMulai: '04:00', jamSelesai: '06:00', aktif: true },
-  { id: 2, nama: 'Malam', jamMulai: '18:00', jamSelesai: '20:30', aktif: true },
+  { id: 1000001, nama: 'Malam', jamMulai: '18:00', jamSelesai: '20:30', aktif: true, idGedung: 1, namaGedung: 'Asrama Putra A', diaturOleh: '2310936001', namaPengatur: 'Fitra Rahmad' },
+  { id: 1000002, nama: 'Malam', jamMulai: '18:30', jamSelesai: '21:00', aktif: true, idGedung: 2, namaGedung: 'Asrama Putra B', diaturOleh: '2310936002', namaPengatur: 'Dimas Arjuna' },
+  { id: 1000003, nama: 'Malam', jamMulai: '19:00', jamSelesai: '21:30', aktif: true, idGedung: 3, namaGedung: 'Asrama Putri A', diaturOleh: '2310936003', namaPengatur: 'Sari Dewi Putri' },
 ]
 
 export const liburList: HariLibur[] = [

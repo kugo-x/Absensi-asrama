@@ -62,6 +62,12 @@ export interface Sesi {
   aktif: boolean
   // YYYY-MM-DD sesi dibuat; sebelum tanggal ini sesi belum menjadi kewajiban presensi
   berlakuSejak?: string
+  // null/undefined = sesi global (diatur admin, semua gedung).
+  // Terisi = sesi khusus satu gedung (mis. absen Malam yang diatur fasil PJ gedung).
+  idGedung?: number | null
+  namaGedung?: string | null
+  diaturOleh?: string | null
+  namaPengatur?: string | null
 }
 
 export interface HariLibur {

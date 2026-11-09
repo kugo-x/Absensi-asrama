@@ -45,6 +45,7 @@ $routes->group('api', static function ($routes) {
     // Pengaturan sesi & hari libur
     $routes->get('sesi', 'Api\PengaturanController::getSesi');
     $routes->post('sesi', 'Api\PengaturanController::saveSesi');
+    $routes->post('sesi-gedung', 'Api\PengaturanController::saveSesiGedung');
     $routes->get('libur', 'Api\PengaturanController::getLibur');
     $routes->post('libur', 'Api\PengaturanController::addLibur');
     $routes->post('libur/delete', 'Api\PengaturanController::deleteLibur');

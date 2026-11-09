@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CurrentUser } from '../types'
 import NotifikasiBell, { type Notifikasi } from './Notifikasi'
+import BannerKoneksi from './BannerKoneksi'
 import { Building2, LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar, ChevronLeft } from 'lucide-react'
 
 interface NavItem { id: string; label: string; icon: React.ReactNode }
@@ -328,6 +329,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
 
         {/* Content Body */}
         <main className="min-w-0 flex-1 overflow-x-hidden p-4 lg:p-6 w-full">
+          <BannerKoneksi />
           {children}
           {/* Wadah salinan animasi keluar (tanpa anak React) */}
           <div ref={lapisanKeluar} className="contents" aria-hidden />

@@ -15,6 +15,7 @@ class AsramaSeeder extends Seeder
         $db->table('izin')->truncate();
         $db->table('hari_libur')->truncate();
         $db->table('sesi')->truncate();
+        $db->table('sesi_gedung')->truncate();
         $db->table('presensi')->truncate();
         $db->table('gedung')->truncate();
         $db->table('kamar')->truncate();
@@ -362,7 +363,15 @@ class AsramaSeeder extends Seeder
         // 7. Insert Sesi (jam presensi)
         $db->table('sesi')->insertBatch([
             ['Nama' => 'Subuh', 'Jam_mulai' => '04:00:00', 'Jam_selesai' => '06:00:00', 'Aktif' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-            ['Nama' => 'Malam', 'Jam_mulai' => '18:00:00', 'Jam_selesai' => '20:30:00', 'Aktif' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+        ]);
+
+        // Absen malam per gedung, diatur fasil PJ masing-masing (Asrama Putri B sengaja belum diatur:
+        // penghuninya tidak punya absen malam sampai fasilnya mengatur)
+        $now = date('Y-m-d H:i:s');
+        $db->table('sesi_gedung')->insertBatch([
+            ['Id_Gedung' => 1, 'Nama' => 'Malam', 'Jam_mulai' => '18:00:00', 'Jam_selesai' => '20:30:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936001', 'created_at' => $now, 'updated_at' => $now],
+            ['Id_Gedung' => 2, 'Nama' => 'Malam', 'Jam_mulai' => '18:30:00', 'Jam_selesai' => '21:00:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936002', 'created_at' => $now, 'updated_at' => $now],
+            ['Id_Gedung' => 3, 'Nama' => 'Malam', 'Jam_mulai' => '19:00:00', 'Jam_selesai' => '21:30:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936003', 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         // 8. Insert Hari Libur

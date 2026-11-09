@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
@@ -15,14 +15,15 @@ import {
   fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, updateGedungApi, setPjGedungApi,
   fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, type ApiResult, type UbahPenghuni,
   fetchModeUji, saveModeUjiApi, MODE_UJI_MATI, resetPasswordApi,
-  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT,
+  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT, awalDemo,
 } from '../api'
 import { getCurrentPosition } from '../geo'
 import DateInput from '../components/DateInput'
 import TimeInput from '../components/TimeInput'
 import { notifikasiAdmin } from '../notifikasiPeran'
+import { JadwalMalamAdmin } from '../components/JadwalMalam'
 import {
-  addDays, cariLibur, faseSesi, formatTanggal, hitungStatus, hunianKamar, penghuniWajibAbsen, riwayatPenghuni, sesiAktif, statusSesi, todayLocal, type DataPresensi,
+  addDays, cariLibur, faseSesi, formatTanggal, hitungStatus, hunianKamar, penghuniWajibAbsen, namaSesiAktif, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, todayLocal, type DataPresensi,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -116,10 +117,10 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
   const [penghuni, setPenghuni] = useState<Penghuni[]>(initialPenghuni)
   const [gedungList, setGedungList] = useState<Gedung[]>(initialGedung)
   const [kamarList, setKamarList] = useState<Kamar[]>(initialKamar)
-  const [presensi, setPresensi] = useState<PresensiRecord[]>(initialPresensi)
+  const [presensi, setPresensi] = useState<PresensiRecord[]>(awalDemo(initialPresensi))
   const [izin, setIzin] = useState<IzinRecord[]>(initialIzin)
-  const [sesiList, setSesiList] = useState<Sesi[]>(initialSesi)
-  const [libur, setLibur] = useState<HariLibur[]>(initialLibur)
+  const [sesiList, setSesiList] = useState<Sesi[]>(awalDemo(initialSesi))
+  const [libur, setLibur] = useState<HariLibur[]>(awalDemo(initialLibur))
   const [modeUji, setModeUji] = useState<ModeUji>(MODE_UJI_MATI)
   const [aturan, setAturan] = useState<AturanPresensi>(ATURAN_PRESENSI_DEFAULT)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -186,19 +187,27 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     return setPjGedungApi(id, nimPj)
   }
 
+  // Sesi & libur: tunggu server dulu, lalu ambil ulang dari DB (id asli, nilai tersimpan).
+  // Perubahan lokal tanpa server hanya di mode demo (result.offline).
   const handleSaveSesi = async (list: Sesi[]) => {
-    setSesiList(list)
-    return saveSesiApi(list)
+    const result = await saveSesiApi(list)
+    if (result.ok) fetchSesi().then(setSesiList)
+    else if (result.offline) setSesiList(prev => [...list, ...prev.filter(s => s.idGedung != null)])
+    return result
   }
 
   const handleAddLibur = async (l: Omit<HariLibur, 'id'>) => {
-    setLibur(prev => [...prev, { ...l, id: Date.now() }].sort((a, b) => b.tanggalMulai.localeCompare(a.tanggalMulai)))
-    return addLiburApi(l)
+    const result = await addLiburApi(l)
+    if (result.ok) fetchLibur().then(setLibur)
+    else if (result.offline) setLibur(prev => [...prev, { ...l, id: Date.now() }].sort((a, b) => b.tanggalMulai.localeCompare(a.tanggalMulai)))
+    return result
   }
 
   const handleDeleteLibur = async (id: number) => {
-    setLibur(prev => prev.filter(l => l.id !== id))
-    await deleteLiburApi(id)
+    const result = await deleteLiburApi(id)
+    if (result.ok) fetchLibur().then(setLibur)
+    else if (result.offline) setLibur(prev => prev.filter(l => l.id !== id))
+    return result
   }
 
   const handleSaveModeUji = async (mode: ModeUji) => {
@@ -246,7 +255,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
               <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
             </div>
           </div>
-          <AdminPengaturan sesiList={sesiList} libur={libur} onSaveSesi={handleSaveSesi} onAddLibur={handleAddLibur} onDeleteLibur={handleDeleteLibur} />
+          <AdminPengaturan sesiList={sesiList} gedungList={gedungList} libur={libur} onSaveSesi={handleSaveSesi} onAddLibur={handleAddLibur} onDeleteLibur={handleDeleteLibur} />
         </div>
       )}
       {activeTab === 'laporan' && <AdminLaporan penghuni={penghuni} gedungList={gedungList} sesiList={sesiList} data={data} now={now} />}
@@ -323,12 +332,13 @@ function AdminDashboard({
   const persenHunian = kapasitas > 0 ? Math.round((terisi / kapasitas) * 100) : 0
   const tanpaPj = gedungList.filter(g => !g.nimPj)
   const tanpaKoordinat = gedungList.filter(g => g.latitude === null || g.longitude === null)
-  const sesiHariIni = sesiAktif(sesiList)
+  // Sesi global + absen malam tiap gedung (jam malam berbeda per gedung)
+  const sesiHariIni = sesiList.filter(s => s.aktif).sort((a, b) => a.jamMulai.localeCompare(b.jamMulai))
   const liburHariIni = cariLibur(today, data.libur)
 
   // Hitung total akumulasi kehadiran hari ini dari seluruh sesi aktif
-  const totalStatusList = sesiHariIni.flatMap(s =>
-    wajib.map(p => statusSesi(p.nim, today, s, data, now).status)
+  const totalStatusList = wajib.flatMap(p =>
+    sesiAktif(sesiList, p.namaGedung).map(s => statusSesi(p.nim, today, s, data, now).status)
   )
   const totalRekap = hitungStatus(totalStatusList)
   const sesiBerjalan = sesiHariIni.find(s => faseSesi(s, today, now) === 'dibuka')
@@ -383,7 +393,7 @@ function AdminDashboard({
             ) : sesiBerjalan ? (
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Sesi {sesiBerjalan.nama} ({sesiBerjalan.jamMulai}–{sesiBerjalan.jamSelesai})
+                Sesi {sesiBerjalan.nama}{sesiBerjalan.namaGedung ? ` · ${sesiBerjalan.namaGedung}` : ''} ({sesiBerjalan.jamMulai}–{sesiBerjalan.jamSelesai})
               </span>
             ) : (
               <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500">
@@ -451,7 +461,8 @@ function AdminDashboard({
           <div className="space-y-2.5">
             {gedungList.map(g => {
               const anggota = penghuniWajibAbsen(penghuni, g.nama)
-              const bldgStatusList = sesiHariIni.flatMap(s =>
+              const sesiGedung = sesiAktif(sesiList, g.nama)
+              const bldgStatusList = sesiGedung.flatMap(s =>
                 anggota.map(p => statusSesi(p.nim, today, s, data, now).status)
               )
               const bldgRekap = hitungStatus(bldgStatusList)
@@ -491,9 +502,9 @@ function AdminDashboard({
                   </div>
 
                   {/* Sesi breakdown pills */}
-                  {sesiHariIni.length > 0 ? (
+                  {sesiGedung.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
-                      {sesiHariIni.map(s => {
+                      {sesiGedung.map(s => {
                         const c = hitungStatus(anggota.map(p => statusSesi(p.nim, today, s, data, now).status))
                         const fase = faseSesi(s, today, now)
                         return (
@@ -1291,16 +1302,18 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
   now: Date
 }) {
   const today = todayLocal()
-  const aktif = sesiAktif(sesiList)
+  // Nama sesi unik lintas gedung (absen Malam punya jam berbeda tiap gedung)
+  const aktif = namaSesiAktif(sesiList)
   const [tanggal, setTanggal] = useState(today)
   const [sesi, setSesi] = useState(aktif[0]?.nama || '')
   const [gedung, setGedung] = useState('')
   const [filterIzin, setFilterIzin] = useState('Semua')
 
-  const s = sesiList.find(x => x.nama === sesi)
-  const rows: RekapRow[] = s
-    ? penghuniWajibAbsen(penghuni, gedung || undefined).map(p => ({ penghuni: p, detail: statusSesi(p.nim, tanggal, s, data, now) }))
-    : []
+  // Tiap penghuni dinilai dengan jadwal sesi gedungnya; gedung yang belum mengatur absen malam tidak ikut
+  const rows: RekapRow[] = penghuniWajibAbsen(penghuni, gedung || undefined).flatMap(p => {
+    const s = sesiUntuk(sesiList, sesi, p.namaGedung)
+    return s ? [{ penghuni: p, detail: statusSesi(p.nim, tanggal, s, data, now) }] : []
+  })
   const izinRows = data.izin
     .filter(i => !gedung || i.namaGedung === gedung)
     .filter(i => filterIzin === 'Semua' || i.statusPersetujuan === filterIzin)
@@ -1525,19 +1538,22 @@ function AturanPresensiCard({ aturan, onSave }: { aturan: AturanPresensi; onSave
   )
 }
 
-function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibur }: {
+function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, onDeleteLibur }: {
   sesiList: Sesi[]
+  gedungList: Gedung[]
   libur: HariLibur[]
   onSaveSesi: (list: Sesi[]) => Promise<ApiResult>
   onAddLibur: (l: Omit<HariLibur, 'id'>) => Promise<ApiResult>
-  onDeleteLibur: (id: number) => void
+  onDeleteLibur: (id: number) => Promise<ApiResult>
 }) {
-  const [draft, setDraft] = useState<Sesi[]>(sesiList)
+  // Admin hanya mengatur sesi global (mis. Subuh); absen malam diatur fasil per gedung
+  const sesiGlobal = useMemo(() => sesiList.filter(s => s.idGedung == null), [sesiList])
+  const [draft, setDraft] = useState<Sesi[]>(sesiGlobal)
   const [sesiMsg, setSesiMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [liburForm, setLiburForm] = useState({ tanggalMulai: '', tanggalSelesai: '', keterangan: '' })
   const [liburMsg, setLiburMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  useEffect(() => setDraft(sesiList), [sesiList])
+  useEffect(() => setDraft(sesiGlobal), [sesiGlobal])
 
   const updateDraft = (id: number, changes: Partial<Sesi>) => setDraft(prev => prev.map(s => s.id === id ? { ...s, ...changes } : s))
 
@@ -1545,6 +1561,10 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
     const nama = draft.map(s => s.nama.trim().toLowerCase())
     if (draft.some(s => !s.nama.trim() || !s.jamMulai || !s.jamSelesai)) {
       setSesiMsg({ type: 'error', text: 'Nama dan jam setiap sesi wajib diisi.' })
+      return
+    }
+    if (nama.includes('malam')) {
+      setSesiMsg({ type: 'error', text: 'Absen malam diatur oleh fasil masing-masing gedung, bukan oleh admin.' })
       return
     }
     if (new Set(nama).size !== nama.length) {
@@ -1575,20 +1595,23 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
       return
     }
     const result = await onAddLibur({ tanggalMulai: liburForm.tanggalMulai, tanggalSelesai: selesai, keterangan: liburForm.keterangan.trim() })
-    setLiburMsg(result.ok || result.offline ? { type: 'success', text: 'Hari libur ditambahkan.' } : { type: 'error', text: result.message })
-    setLiburForm({ tanggalMulai: '', tanggalSelesai: '', keterangan: '' })
+    const berhasil = result.ok || result.offline
+    setLiburMsg(berhasil ? { type: 'success', text: 'Hari libur ditambahkan.' } : { type: 'error', text: result.message })
+    // Form hanya dikosongkan bila tersimpan, agar isian tidak hilang saat gagal
+    if (berhasil) setLiburForm({ tanggalMulai: '', tanggalSelesai: '', keterangan: '' })
   }
 
   const fieldCls = 'px-3 py-1.5 rounded-lg border border-gray-300 text-xs outline-none focus:border-emerald-700 bg-white'
 
   return (
     <div className="grid lg:grid-cols-2 gap-5 items-start">
+      <div className="space-y-5">
       {/* Jadwal Sesi */}
       <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-gray-100">
           <div>
             <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Jadwal Sesi Presensi</h4>
-            <p className="text-[11px] text-gray-400">Atur jam operasional presensi harian</p>
+            <p className="text-[11px] text-gray-400">Berlaku untuk semua gedung (mis. absen subuh)</p>
           </div>
           <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
             {draft.filter(s => s.aktif).length} sesi aktif
@@ -1648,6 +1671,8 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
         </div>
         {sesiMsg && <p className={`text-xs font-semibold ${sesiMsg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{sesiMsg.text}</p>}
       </div>
+      <JadwalMalamAdmin sesiList={sesiList} gedungList={gedungList} />
+      </div>
 
       {/* Hari Libur & Kalender */}
       <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs space-y-4">
@@ -1701,7 +1726,7 @@ function AdminPengaturan({ sesiList, libur, onSaveSesi, onAddLibur, onDeleteLibu
                   <p className="text-[11px] text-gray-500 mono">{l.tanggalMulai === l.tanggalSelesai ? l.tanggalMulai : `${l.tanggalMulai} s/d ${l.tanggalSelesai}`}</p>
                 </div>
               </div>
-              <button onClick={() => onDeleteLibur(l.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0" title="Hapus">
+              <button onClick={async () => { const r = await onDeleteLibur(l.id); if (!r.ok && !r.offline) setLiburMsg({ type: 'error', text: r.message }) }} className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0" title="Hapus">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -1790,7 +1815,7 @@ function AdminLaporan({ penghuni, gedungList, sesiList, data, now }: {
   const statusPerGedung = gedungList.map(g => ({
     gedung: g,
     statuses: penghuniWajibAbsen(penghuni, g.nama).flatMap(p =>
-      riwayatPenghuni(p.nim, p.tanggalMasuk > awalBulan ? p.tanggalMasuk : awalBulan, today, sesiList, data, now).map(r => r.detail.status)
+      riwayatPenghuni(p.nim, p.tanggalMasuk > awalBulan ? p.tanggalMasuk : awalBulan, today, sesiList, data, now, p.namaGedung).map(r => r.detail.status)
     ),
   }))
   const perGedung = statusPerGedung.map(({ gedung, statuses }) => ({ gedung, c: hitungStatus(statuses) }))
@@ -1822,7 +1847,7 @@ function AdminLaporan({ penghuni, gedungList, sesiList, data, now }: {
     } else {
       headers = ['NIM', 'Nama', 'Hadir', 'Tidak Hadir', 'Izin', 'Belum', 'Total Wajib', 'Persentase Hadir']
       rows = penghuniWajibAbsen(penghuni).map(p => {
-        const stats = hitungStatus(riwayatPenghuni(p.nim, p.tanggalMasuk > awalBulan ? p.tanggalMasuk : awalBulan, today, sesiList, data, now).map(r => r.detail.status))
+        const stats = hitungStatus(riwayatPenghuni(p.nim, p.tanggalMasuk > awalBulan ? p.tanggalMasuk : awalBulan, today, sesiList, data, now, p.namaGedung).map(r => r.detail.status))
         return [p.nim, p.nama, stats.Hadir, stats['Tidak Hadir'], stats.Izin, stats.Belum, stats.wajib, `${stats.persen}%`]
       })
     }

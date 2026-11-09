@@ -490,9 +490,12 @@ class DataController extends BaseController
             $keterangan .= ' [Mode Uji]';
         }
 
-        $dataSesi = $this->db->table('sesi')->where('Nama', $sesi)->where('Aktif', 1)->get()->getRowArray();
+        // Sesi global (admin) atau sesi gedung penghuni (fasil, mis. Malam)
+        $dataSesi = $this->presensiService->cariSesiAktif($nim, $sesi);
         if (!$dataSesi) {
-            return $this->fail('Sesi ' . $sesi . ' tidak tersedia.', 400);
+            return $this->fail(strcasecmp($sesi, PresensiService::SESI_PER_GEDUNG) === 0
+                ? 'Absen ' . strtolower($sesi) . ' belum diatur atau sedang dinonaktifkan oleh fasil gedung Anda.'
+                : 'Sesi ' . $sesi . ' tidak tersedia.', 400);
         }
         if (!$modeUji['abaikanJam'] && ($jam < $dataSesi['Jam_mulai'] || $jam > $dataSesi['Jam_selesai'])) {
             return $this->fail(sprintf(
@@ -579,6 +582,7 @@ class DataController extends BaseController
             'Akurasi_meter' => $akurasi,
             'Status'     => 'Hadir',
             'Foto_wajah' => $namaFoto,
+            'Status_foto' => 'Menunggu', // menunggu validasi fasil PJ gedung
             'Keterangan' => $keterangan,
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
@@ -860,7 +864,7 @@ class DataController extends BaseController
         if ($tanggalSelesai < $tanggal) {
             return $this->fail('Tanggal selesai tidak boleh sebelum tanggal mulai.', 400);
         }
-        if ($sesi !== null && !$this->db->table('sesi')->where('Nama', $sesi)->countAllResults()) {
+        if ($sesi !== null && !$this->presensiService->namaSesiDikenal($sesi)) {
             return $this->fail('Sesi tidak dikenal.', 400);
         }
 

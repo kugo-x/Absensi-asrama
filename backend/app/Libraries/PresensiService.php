@@ -14,6 +14,9 @@ class PresensiService
     // Penanda baris yang dibuat command presensi:tandai-alpa (bukan absen mandiri / koreksi fasil)
     public const KETERANGAN_OTOMATIS = 'Otomatis oleh sistem';
 
+    // Sesi yang jadwalnya diatur fasil PJ per gedung (tabel sesi_gedung), bukan oleh admin
+    public const SESI_PER_GEDUNG = 'Malam';
+
     protected BaseConnection $db;
 
     public function __construct(?BaseConnection $db = null)
@@ -27,6 +30,35 @@ class PresensiService
             ->where('Tanggal_mulai <=', $tanggal)
             ->where('Tanggal_selesai >=', $tanggal)
             ->get()->getRowArray();
+    }
+
+    /**
+     * Sesi aktif yang berlaku untuk seorang penghuni: sesi global (tabel `sesi`),
+     * atau sesi khusus gedung tempat kamarnya berada (tabel `sesi_gedung`).
+     * Kunci kembalian sama: Nama, Jam_mulai, Jam_selesai, Aktif, created_at (+ Id_Gedung untuk sesi gedung).
+     */
+    public function cariSesiAktif(string $nim, string $nama): ?array
+    {
+        $global = $this->db->table('sesi')->where('Nama', $nama)->where('Aktif', 1)->get()->getRowArray();
+        if ($global) {
+            return $global;
+        }
+
+        return $this->db->table('sesi_gedung sg')
+            ->select('sg.Nama, sg.Jam_mulai, sg.Jam_selesai, sg.Aktif, sg.created_at, sg.Id_Gedung')
+            ->join('kamar k', 'k.Id_Gedung = sg.Id_Gedung')
+            ->join('user u', 'u.Nomor_kamar = k.Nomor_kamar')
+            ->where('u.NIM', $nim)
+            ->where('sg.Nama', $nama)
+            ->where('sg.Aktif', 1)
+            ->get()->getRowArray();
+    }
+
+    /** Nama sesi dikenal di sistem (global maupun per gedung), mis. untuk validasi pengajuan izin */
+    public function namaSesiDikenal(string $nama): bool
+    {
+        return $this->db->table('sesi')->where('Nama', $nama)->countAllResults() > 0
+            || $this->db->table('sesi_gedung')->where('Nama', $nama)->countAllResults() > 0;
     }
 
     public function cariIzinDisetujui(string $nim, string $tanggal, string $sesi): ?array
@@ -117,18 +149,28 @@ class PresensiService
 
         // Hanya sesi yang aktif saat ini. Sesi yang dinonaktifkan di tengah hari tidak diproses,
         // konsisten dengan klien yang juga hanya menampilkan sesi aktif.
+        // - Sesi global (admin) berlaku untuk penghuni semua gedung.
+        // - Sesi gedung (fasil, mis. Malam) hanya untuk penghuni gedung itu; gedung yang belum
+        //   mengatur tidak punya sesi tersebut.
         $daftarSesi = $this->db->table('sesi')->where('Aktif', 1)->orderBy('Jam_mulai', 'ASC')->get()->getResultArray();
+        $sesiGedung = $this->db->table('sesi_gedung sg')
+            ->select('sg.Nama, sg.Jam_mulai, sg.Jam_selesai, sg.created_at, sg.Id_Gedung, g.Nama AS Nama_gedung')
+            ->join('gedung g', 'g.Id_Gedung = sg.Id_Gedung')
+            ->where('sg.Aktif', 1)
+            ->orderBy('sg.Jam_mulai', 'ASC')->orderBy('g.Nama', 'ASC')
+            ->get()->getResultArray();
+        foreach ($sesiGedung as $sg) {
+            $daftarSesi[] = $sg;
+        }
 
         // Penghuni wajib absen saat ini; yang baru masuk setelah $tanggal tidak ditandai (backfill aman)
-        $penghuni = $this->db->table('user')
-            ->select('NIM')
-            ->where('Role', 'Mahasiswa')
-            ->where('Status_aktif', 'Aktif')
-            ->where('Nomor_kamar IS NOT NULL', null, false)
-            ->where('Nomor_kamar !=', '')
-            ->groupStart()->where('created_at', null)->orWhere('DATE(created_at) <= ' . $this->db->escape($tanggal), null, false)->groupEnd()
+        $penghuni = $this->db->table('user u')
+            ->select('u.NIM, k.Id_Gedung')
+            ->join('kamar k', 'k.Nomor_kamar = u.Nomor_kamar')
+            ->where('u.Role', 'Mahasiswa')
+            ->where('u.Status_aktif', 'Aktif')
+            ->groupStart()->where('u.created_at', null)->orWhere('DATE(u.created_at) <= ' . $this->db->escape($tanggal), null, false)->groupEnd()
             ->get()->getResultArray();
-        $nimList = array_column($penghuni, 'NIM');
 
         $izinPerNim = $this->izinDisetujuiPadaTanggal($tanggal);
         $now = date('Y-m-d H:i:s');
@@ -136,8 +178,13 @@ class PresensiService
         $this->db->transStart();
 
         foreach ($daftarSesi as $s) {
+            $perGedung = isset($s['Id_Gedung']);
+            // Sesi gedung: hanya penghuni gedung tersebut
+            $nimList = array_column($perGedung
+                ? array_filter($penghuni, static fn ($p) => (int) $p['Id_Gedung'] === (int) $s['Id_Gedung'])
+                : $penghuni, 'NIM');
             $info = [
-                'sesi'         => $s['Nama'],
+                'sesi'         => $perGedung ? $s['Nama'] . ' · ' . $s['Nama_gedung'] : $s['Nama'],
                 'status'       => 'diproses',
                 'tidakHadir'   => 0,
                 'izin'         => 0,

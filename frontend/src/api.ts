@@ -12,6 +12,40 @@ import {
 
 const API_BASE = '/api'
 
+/**
+ * Mode demo tanpa backend. Data contoh (mockData) HANYA dipakai bila
+ * VITE_OFFLINE_DEMO=true (lihat frontend/.env.example). Default: data selalu dari server;
+ * bila server tidak bisa dihubungi, aplikasi menampilkan peringatan — bukan data palsu.
+ */
+export const OFFLINE_DEMO = import.meta.env.VITE_OFFLINE_DEMO === 'true'
+
+/** Isi awal state halaman: data contoh hanya di mode demo, selain itu kosong */
+export function awalDemo<T>(contoh: T[]): T[] {
+  return OFFLINE_DEMO ? contoh : []
+}
+
+// ---------- Status koneksi ke server (untuk banner di AppLayout) ----------
+
+export const EVENT_KONEKSI = 'sip-koneksi'
+let koneksiTerakhir: boolean | null = null
+
+/** Kabari aplikasi saat status koneksi ke server berubah */
+function laporKoneksi(ok: boolean) {
+  if (koneksiTerakhir === ok) return
+  koneksiTerakhir = ok
+  try { window.dispatchEvent(new CustomEvent(EVENT_KONEKSI, { detail: { ok } })) } catch { /* abaikan */ }
+}
+
+export function statusKoneksiTerakhir(): boolean | null {
+  return koneksiTerakhir
+}
+
+// Token tidak berlaku lagi: hapus dan minta App kembali ke halaman login
+function tokenKedaluwarsa() {
+  clearAuthToken()
+  window.dispatchEvent(new Event('auth-expired'))
+}
+
 const TOKEN_KEY = 'sip-asrama-token'
 
 export function getAuthToken(): string | null {
@@ -31,27 +65,41 @@ function isJson(res: Response) {
   return (res.headers.get('content-type') || '').includes('application/json')
 }
 
-// GET daftar data; jatuh ke data lokal jika backend tidak tersedia
-async function getList<T>(path: string, fallback: T[]): Promise<T[]> {
+/**
+ * GET daftar data dari server.
+ * - Berhasil: data apa adanya dari DB (termasuk daftar kosong).
+ * - 401: token dihapus + event 'auth-expired' (sama dengan postJson).
+ * - Server tidak bisa dihubungi: lapor ke banner koneksi lalu kembalikan [] —
+ *   data contoh hanya bila OFFLINE_DEMO.
+ */
+async function getList<T>(path: string, contoh: T[]): Promise<T[]> {
   try {
     const res = await fetch(`${API_BASE}/${path}`, { headers: authHeaders() })
+    if (res.status === 401) {
+      tokenKedaluwarsa()
+      return []
+    }
     if (res.ok && isJson(res)) {
       const data = await res.json()
       if (Array.isArray(data)) {
-        if (data.length === 0 && (path === 'sesi' || path === 'gedung')) return fallback
+        laporKoneksi(true)
         return data
       }
     }
-  } catch (e) {
-    console.warn(`Falling back to local ${path} data`)
+    // Respons non-JSON / 5xx = backend mati atau galat server (mis. proxy Vite gagal terhubung)
+    if (!isJson(res) || res.status >= 500) laporKoneksi(false)
+    else laporKoneksi(true)
+  } catch {
+    laporKoneksi(false)
   }
-  return fallback
+  return OFFLINE_DEMO ? contoh : []
 }
 
 export interface ApiResult {
   ok: boolean
   message: string
-  // true jika backend tidak bisa dihubungi (mode demo / offline)
+  // true HANYA di mode demo (OFFLINE_DEMO) saat backend tidak bisa dihubungi:
+  // halaman boleh menganggap aksi tersimpan secara lokal. Di luar mode demo selalu false.
   offline?: boolean
 }
 
@@ -63,17 +111,19 @@ async function postJson(path: string, body: unknown): Promise<ApiResult> {
       body: JSON.stringify(body)
     })
     // Respons non-JSON berarti API backend tidak tersedia (misal dev server tanpa backend)
-    if (!isJson(res)) return { ok: false, offline: true, message: 'Server tidak dapat dihubungi.' }
-    const json = await res.json()
-    if (res.status === 401) {
-      clearAuthToken()
-      window.dispatchEvent(new Event('auth-expired'))
+    if (!isJson(res)) {
+      laporKoneksi(false)
+      return { ok: false, offline: OFFLINE_DEMO, message: 'Server tidak dapat dihubungi.' }
     }
+    laporKoneksi(true)
+    const json = await res.json()
+    if (res.status === 401) tokenKedaluwarsa()
     const message = json.message || json.messages?.error || json.error || (res.ok ? 'Berhasil' : 'Permintaan gagal diproses.')
     if (res.ok) catatAktivitas(path, message)
     return { ok: res.ok, message }
-  } catch (e) {
-    return { ok: false, offline: true, message: 'Server tidak dapat dihubungi.' }
+  } catch {
+    laporKoneksi(false)
+    return { ok: false, offline: OFFLINE_DEMO, message: 'Server tidak dapat dihubungi.' }
   }
 }
 
@@ -91,6 +141,7 @@ const JUDUL_AKTIVITAS: Record<string, string> = {
   'gedung/update': 'Lokasi gedung diperbarui',
   'gedung/pj': 'PJ gedung diperbarui',
   'sesi': 'Jadwal sesi disimpan',
+  'sesi-gedung': 'Jadwal absen malam disimpan',
   'libur': 'Hari libur ditambahkan',
   'libur/delete': 'Hari libur dihapus',
   'mode-uji': 'Mode uji diperbarui',
@@ -156,7 +207,11 @@ export const updateGedungApi = (id: number, data: { latitude: number | null; lon
 export const setPjGedungApi = (id: number, nimPj: string | null) =>
   postJson('gedung/pj', { id, nimPj })
 
-export const saveSesiApi = (sesi: Sesi[]) => postJson('sesi', { sesi })
+// Admin: hanya sesi global (sesi per gedung diatur fasil lewat saveSesiGedungApi)
+export const saveSesiApi = (sesi: Sesi[]) => postJson('sesi', { sesi: sesi.filter(s => s.idGedung == null) })
+
+// Fasil PJ: atur absen malam gedung yang dipegang
+export const saveSesiGedungApi = (data: { jamMulai: string; jamSelesai: string; aktif: boolean }) => postJson('sesi-gedung', data)
 
 export const addLiburApi = (data: Omit<HariLibur, 'id'>) => postJson('libur', data)
 

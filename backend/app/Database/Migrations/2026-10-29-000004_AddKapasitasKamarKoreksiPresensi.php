@@ -34,7 +34,9 @@ class AddKapasitasKamarKoreksiPresensi extends Migration
 
     public function down()
     {
-        $this->db->query('ALTER TABLE presensi DROP INDEX uq_presensi_nim_tanggal_sesi');
+        // MySQL memakai unique index (NIM, Tanggal, Sesi) untuk FK presensi.NIM -> user.NIM,
+        // sehingga index itu tidak bisa dihapus sendirian. Sediakan index NIM biasa dulu.
+        $this->db->query('ALTER TABLE presensi ADD INDEX idx_presensi_nim (NIM), DROP INDEX uq_presensi_nim_tanggal_sesi');
         $this->db->query('ALTER TABLE presensi DROP FOREIGN KEY fk_presensi_dikoreksi_oleh');
         $this->forge->dropColumn('presensi', 'Dikoreksi_oleh');
         $this->forge->dropColumn('kamar', 'Kapasitas');

@@ -12,7 +12,7 @@ import {
   sesiList as initialSesi,
   liburList as initialLibur,
 } from '../data/mockData'
-import { fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, changePasswordApi, uploadProfilePhotoApi } from '../api'
+import { awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, changePasswordApi, uploadProfilePhotoApi } from '../api'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
   addDays, cariLibur, formatTanggal, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
@@ -105,10 +105,10 @@ function alasanTidakBisaPresensi(d: StatusDetail, sesi: Sesi): string {
 
 export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState('dashboard')
-  const [presensi, setPresensi] = useState<PresensiRecord[]>(initialPresensi)
+  const [presensi, setPresensi] = useState<PresensiRecord[]>(awalDemo(initialPresensi))
   const [izinData, setIzinData] = useState<IzinRecord[]>(initialIzin.filter(i => i.nim === user.nim))
-  const [sesiList, setSesiList] = useState<Sesi[]>(initialSesi)
-  const [libur, setLibur] = useState<HariLibur[]>(initialLibur)
+  const [sesiList, setSesiList] = useState<Sesi[]>(awalDemo(initialSesi))
+  const [libur, setLibur] = useState<HariLibur[]>(awalDemo(initialLibur))
   const [gedung, setGedung] = useState<Gedung | null>(findGedung(initialGedung, user))
   const [gps, setGps] = useState<GpsState>({ status: 'idle' })
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -141,13 +141,13 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
 
   const today = todayLocal()
   const data: DataPresensi = { presensi, izin: izinData, libur }
-  const sesiHariIni: SesiHariIni[] = sesiAktif(sesiList).map(sesi => {
+  const sesiHariIni: SesiHariIni[] = sesiAktif(sesiList, user.namaGedung).map(sesi => {
     const detail = statusSesi(user.nim, today, sesi, data, now)
     // Mode uji: jam sesi diabaikan, sesi yang belum punya catatan dianggap sedang dibuka
     const dibukaUji = modeUji.abaikanJam && !detail.presensi && !detail.izin && !detail.libur
     return { sesi, detail: dibukaUji ? { ...detail, status: 'Belum' as const, fase: 'dibuka' as const } : detail }
   })
-  const riwayat = riwayatPenghuni(user.nim, periodeRekap(today, user.tanggalMasuk), today, sesiList, data, now)
+  const riwayat = riwayatPenghuni(user.nim, periodeRekap(today, user.tanggalMasuk), today, sesiList, data, now, user.namaGedung)
   // Batas akurasi GPS yang berlaku (0 = tidak diperiksa); ikut dilonggarkan mode uji "abaikan radius"
   const akurasiMaks = modeUji.abaikanRadius ? 0 : aturan.gpsAkurasiMaks
   // Pengingat: sesi yang benar-benar sedang dibuka (bukan karena mode uji), belum presensi, dan hampir ditutup
@@ -312,7 +312,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
         />
       )}
       {activeTab === 'riwayat' && <PenghuniRiwayat riwayat={riwayat} />}
-      {activeTab === 'izin' && <PenghuniIzin izinData={izinData} setIzinData={setIzinData} user={user} sesiList={sesiAktif(sesiList)} today={today} />}
+      {activeTab === 'izin' && <PenghuniIzin izinData={izinData} setIzinData={setIzinData} user={user} sesiList={sesiAktif(sesiList, user.namaGedung)} today={today} />}
       {activeTab === 'profil' && <PenghuniProfil user={user} onLogout={onLogout} />}
     </AppLayout>
   )

@@ -65,8 +65,32 @@ export function dateRangeDesc(mulai: string, sampai: string): string[] {
 
 // ---------- Sesi, libur, izin ----------
 
-export function sesiAktif(list: Sesi[]): Sesi[] {
-  return list.filter(s => s.aktif).sort((a, b) => a.jamMulai.localeCompare(b.jamMulai))
+/** Sesi berlaku untuk sebuah gedung: sesi global + sesi khusus gedung itu (dicocokkan lewat nama gedung) */
+function berlakuDiGedung(s: Sesi, gedung?: string | null): boolean {
+  return s.idGedung == null || (!!gedung && s.namaGedung === gedung)
+}
+
+/**
+ * Sesi aktif yang wajib diikuti penghuni sebuah gedung, urut jam mulai.
+ * Tanpa `gedung`, hanya sesi global yang dikembalikan (sesi per gedung seperti absen Malam
+ * berbeda-beda jamnya, jadi selalu harus dikaitkan ke gedung penghuni).
+ */
+export function sesiAktif(list: Sesi[], gedung?: string | null): Sesi[] {
+  return list.filter(s => s.aktif && berlakuDiGedung(s, gedung)).sort((a, b) => a.jamMulai.localeCompare(b.jamMulai))
+}
+
+/** Sesi aktif bernama `nama` yang berlaku di gedung tertentu (mis. "Malam" milik Asrama Putra A) */
+export function sesiUntuk(list: Sesi[], nama: string, gedung?: string | null): Sesi | undefined {
+  return sesiAktif(list, gedung).find(s => s.nama === nama)
+}
+
+/** Daftar nama sesi aktif yang unik (untuk pilihan sesi lintas gedung, mis. di halaman admin) */
+export function namaSesiAktif(list: Sesi[]): Sesi[] {
+  const unik = new Map<string, Sesi>()
+  for (const s of list.filter(x => x.aktif).sort((a, b) => a.jamMulai.localeCompare(b.jamMulai))) {
+    if (!unik.has(s.nama)) unik.set(s.nama, s)
+  }
+  return [...unik.values()]
 }
 
 export type FaseSesi = 'belum-dibuka' | 'dibuka' | 'ditutup'
@@ -134,10 +158,14 @@ export function statusSesi(nim: string, tanggal: string, sesi: Sesi, data: DataP
   return { status: fase === 'ditutup' ? 'Tidak Hadir' : 'Belum', fase }
 }
 
-// Jam penghuni presensi untuk ditampilkan. Baris otomatis tidak punya jam absen:
-// kolom Waktu-nya berisi jam sesi ditutup (syarat NOT NULL), jadi tidak ditampilkan sebagai "jam masuk".
+// Jam penghuni presensi untuk ditampilkan. Dua jenis baris tidak punya jam absen sungguhan
+// (kolom Waktu NOT NULL diisi nilai lain), jadi tidak ditampilkan sebagai "jam masuk":
+// - baris otomatis: Waktu = jam sesi ditutup
+// - baris yang dibuat murni oleh koreksi fasil (tanpa foto & lokasi): Waktu = saat koreksi
 export function jamPresensi(p?: PresensiRecord): string {
-  return p && !p.otomatis ? p.waktu : ''
+  if (!p || p.otomatis) return ''
+  const hanyaKoreksi = !!p.dikoreksiOleh && !p.fotoWajah && p.latitude === null
+  return hanyaKoreksi ? '' : p.waktu
 }
 
 export function keteranganStatus(d: StatusDetail): string {
@@ -157,10 +185,10 @@ export interface RiwayatRow {
 }
 
 // Riwayat seluruh sesi wajib seorang penghuni; sesi yang belum berlangsung tidak ditampilkan
-export function riwayatPenghuni(nim: string, mulai: string, sampai: string, sesiList: Sesi[], data: DataPresensi, now: Date): RiwayatRow[] {
+export function riwayatPenghuni(nim: string, mulai: string, sampai: string, sesiList: Sesi[], data: DataPresensi, now: Date, gedung?: string | null): RiwayatRow[] {
   const rows: RiwayatRow[] = []
   for (const tanggal of dateRangeDesc(mulai, sampai)) {
-    for (const sesi of [...sesiAktif(sesiList)].reverse()) {
+    for (const sesi of [...sesiAktif(sesiList, gedung)].reverse()) {
       const detail = statusSesi(nim, tanggal, sesi, data, now)
       if (detail.status === 'Belum' && detail.fase === 'belum-dibuka') continue
       rows.push({ tanggal, sesi, detail })

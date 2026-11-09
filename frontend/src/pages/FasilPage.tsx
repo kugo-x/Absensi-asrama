@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto } from '../types'
 import AppLayout, { SectionTitle, Badge } from '../components/AppLayout'
+import { JadwalMalamFasil } from '../components/JadwalMalam'
 import { FotoBadge, FotoWajah, RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import DateInput from '../components/DateInput'
 import { notifikasiFasil } from '../notifikasiPeran'
@@ -12,9 +13,9 @@ import {
   sesiList as initialSesi,
   liburList as initialLibur,
 } from '../data/mockData'
-import { fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur, updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT } from '../api'
+import { awalDemo, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur, updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT } from '../api'
 import {
-  cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi,
+  cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, toHM, todayLocal, type DataPresensi,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -52,10 +53,10 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const [activeTab, setActiveTab] = useState('dashboard')
   const [penghuni, setPenghuni] = useState<Penghuni[]>(initialPenghuni)
   const [gedungList, setGedungList] = useState<Gedung[]>(initialGedung)
-  const [presensi, setPresensi] = useState<PresensiRecord[]>(initialPresensi)
+  const [presensi, setPresensi] = useState<PresensiRecord[]>(awalDemo(initialPresensi))
   const [izinData, setIzinData] = useState<IzinRecord[]>(initialIzin)
-  const [sesiList, setSesiList] = useState<Sesi[]>(initialSesi)
-  const [libur, setLibur] = useState<HariLibur[]>(initialLibur)
+  const [sesiList, setSesiList] = useState<Sesi[]>(awalDemo(initialSesi))
+  const [libur, setLibur] = useState<HariLibur[]>(awalDemo(initialLibur))
   const [selectedIzin, setSelectedIzin] = useState<IzinRecord | null>(null)
   const [koreksi, setKoreksi] = useState<KoreksiTarget | null>(null)
   const [now, setNow] = useState(new Date())
@@ -88,7 +89,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   // Lingkup data fasil: hanya gedung tempat ia ditetapkan sebagai penanggung jawab (gedung.NIM_Pj)
   const gedungSaya = gedungList.find(g => g.nimPj === user.nim) || null
   const today = todayLocal()
-  const sesiAktifList = sesiAktif(sesiList)
+  const sesiAktifList = sesiAktif(sesiList, gedungSaya?.nama)
   const anggota = gedungSaya ? penghuniWajibAbsen(penghuni, gedungSaya.nama) : []
   const nimGedung = new Set(penghuni.filter(p => gedungSaya && p.namaGedung === gedungSaya.nama).map(p => p.nim))
   const izinGedung = izinData.filter(i => nimGedung.has(i.nim) || (gedungSaya && i.namaGedung === gedungSaya.nama))
@@ -98,7 +99,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const presensiBerfoto = presensi.filter(r => r.statusFoto && r.fotoWajah && nimAnggota.has(r.nim))
   // Rekap 30 hari per penghuni; dipakai tab Rekap dan peringatan di dashboard
   const rekapPenghuni = anggota.map(p => {
-    const riwayat = riwayatPenghuni(p.nim, periodeRekap(today, p.tanggalMasuk), today, sesiList, data, now)
+    const riwayat = riwayatPenghuni(p.nim, periodeRekap(today, p.tanggalMasuk), today, sesiList, data, now, p.namaGedung)
     return { penghuni: p, c: hitungStatus(riwayat.map(r => r.detail.status)) }
   }).sort((a, b) => b.c['Tidak Hadir'] - a.c['Tidak Hadir'] || a.c.persen - b.c.persen)
   const sering = rekapPenghuni.filter(r => r.c['Tidak Hadir'] >= aturan.batasTidakHadir)
@@ -106,7 +107,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const menu = navItems.map(n => n.id === 'foto' && fotoMenunggu > 0 ? { ...n, label: `${n.label} (${fotoMenunggu})` } : n)
 
   const rekapRows = (tanggal: string, sesiNama: string): RekapRow[] => {
-    const sesi = sesiList.find(s => s.nama === sesiNama)
+    const sesi = sesiUntuk(sesiList, sesiNama, gedungSaya?.nama)
     if (!sesi) return []
     return anggota.map(p => ({ penghuni: p, detail: statusSesi(p.nim, tanggal, sesi, data, now) }))
   }
@@ -120,10 +121,20 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     await updateIzinStatusApi(id, status, user.nim, catatan)
   }
 
-  const handleKoreksi = async (status: PresensiStatus, keterangan: string) => {
-    if (!koreksi) return
+  // Koreksi: tunggu server, tampilkan galat di modal bila gagal; berhasil -> ambil ulang dari DB.
+  // Mengembalikan pesan galat, atau null jika berhasil.
+  const handleKoreksi = async (status: PresensiStatus, keterangan: string): Promise<string | null> => {
+    if (!koreksi) return null
     const { row, tanggal, sesi } = koreksi
     const p = row.penghuni
+    const result = await koreksiPresensiApi({ nim: p.nim, tanggal, sesi, status, keterangan, korektorNim: user.nim })
+    if (!result.ok && !result.offline) return result.message
+    setKoreksi(null)
+    if (result.ok) {
+      fetchPresensi().then(setPresensi)
+      return null
+    }
+    // Mode demo: simpan lokal
     const record: PresensiRecord = {
       id: row.detail.presensi?.id ?? Date.now(),
       nim: p.nim, namaPenghuni: p.nama, nomorKamar: p.nomorKamar, namaGedung: p.namaGedung,
@@ -132,8 +143,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
       status, fotoWajah: '', keterangan, dikoreksiOleh: user.nim,
     }
     setPresensi(prev => [record, ...prev.filter(r => !(r.nim === p.nim && r.tanggal === tanggal && r.sesi === sesi))])
-    setKoreksi(null)
-    await koreksiPresensiApi({ nim: p.nim, tanggal, sesi, status, keterangan, korektorNim: user.nim })
+    return null
   }
 
   // Mengembalikan pesan galat, atau null jika berhasil
@@ -172,6 +182,9 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
         <span>Penanggung jawab {gedungSaya.nama} · {anggota.length} penghuni wajib absen</span>
       </div>
 
+      {activeTab === 'dashboard' && (
+        <JadwalMalamFasil gedung={gedungSaya} sesiList={sesiList} onTersimpan={() => fetchSesi().then(setSesiList)} />
+      )}
       {activeTab === 'dashboard' && (
         <FasilDashboard
           sesiList={sesiAktifList}
@@ -794,19 +807,23 @@ function IzinModal({ izin, onClose, onDecide }: {
 function KoreksiModal({ target, onClose, onSave }: {
   target: KoreksiTarget
   onClose: () => void
-  onSave: (status: PresensiStatus, keterangan: string) => void
+  onSave: (status: PresensiStatus, keterangan: string) => Promise<string | null>
 }) {
   const current = target.row.detail.status
   const [status, setStatus] = useState<PresensiStatus>(current === 'Hadir' ? 'Hadir' : current === 'Izin' ? 'Izin' : 'Hadir')
   const [keterangan, setKeterangan] = useState('')
   const [error, setError] = useState('')
 
-  const simpan = () => {
+  const [menyimpan, setMenyimpan] = useState(false)
+  const simpan = async () => {
     if (!keterangan.trim()) {
       setError('Keterangan koreksi wajib diisi sebagai catatan audit.')
       return
     }
-    onSave(status, keterangan.trim())
+    setMenyimpan(true)
+    const galat = await onSave(status, keterangan.trim())
+    setMenyimpan(false)
+    if (galat) setError(galat)
   }
 
   return (
@@ -861,7 +878,7 @@ function KoreksiModal({ target, onClose, onSave }: {
           </div>
           <div className="flex gap-3">
             <button className="flex-1 py-2.5 rounded-xl font-bold text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer" onClick={onClose}>Batal</button>
-            <button className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white bg-emerald-700 hover:bg-emerald-800 transition-colors cursor-pointer" onClick={simpan}>Simpan Koreksi</button>
+            <button className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white bg-emerald-700 hover:bg-emerald-800 transition-colors cursor-pointer" onClick={simpan} disabled={menyimpan}>{menyimpan ? 'Menyimpan…' : 'Simpan Koreksi'}</button>
           </div>
         </div>
       </div>
