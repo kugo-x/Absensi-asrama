@@ -1144,11 +1144,12 @@ async function getCroppedPhoto(imageSrc: string, crop: Area): Promise<string> {
     element.src = imageSrc
   })
   const canvas = document.createElement('canvas')
-  canvas.width = crop.width
-  canvas.height = crop.height
+  const scale = Math.min(1, 640 / crop.width, 640 / crop.height)
+  canvas.width = Math.round(crop.width * scale)
+  canvas.height = Math.round(crop.height * scale)
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Canvas foto tidak tersedia.')
-  context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height)
+  context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height)
   return canvas.toDataURL('image/jpeg', 0.9)
 }
 
@@ -1164,6 +1165,7 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
   const [passwordChanged, setPasswordChanged] = useState(false)
   const [confirmPasswordChange, setConfirmPasswordChange] = useState(false)
+  const [savingFoto, setSavingFoto] = useState(false)
   const [showPassword, setShowPassword] = useState<number | null>(null)
   const [notice, setNotice] = useState('')
 
@@ -1212,15 +1214,22 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
   const konfirmasiFoto = async () => {
     if (!pendingFoto) return
     const foto = pendingFoto
-    const result = await uploadProfilePhotoApi(user.nim, foto)
-    if (result.ok || result.offline) {
-      setFotoProfil(foto)
-      setPendingFoto(null)
-      const saved = JSON.parse(localStorage.getItem('sip-asrama-user') || '{}')
-      localStorage.setItem('sip-asrama-user', JSON.stringify({ ...saved, fotoProfil: foto }))
-      window.dispatchEvent(new Event('profile-updated'))
+    setSavingFoto(true)
+    try {
+      const result = await uploadProfilePhotoApi(user.nim, foto)
+      if (result.ok || result.offline) {
+        setFotoProfil(foto)
+        setPendingFoto(null)
+        const saved = JSON.parse(localStorage.getItem('sip-asrama-user') || '{}')
+        localStorage.setItem('sip-asrama-user', JSON.stringify({ ...saved, fotoProfil: foto }))
+        window.dispatchEvent(new Event('profile-updated'))
+      }
+      setNotice(result.message)
+    } catch {
+      setNotice('Foto profil gagal disimpan. Coba lagi.')
+    } finally {
+      setSavingFoto(false)
     }
-    setNotice(result.message)
   }
 
   return (
@@ -1236,6 +1245,7 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
 
             <div className="relative inline-block mx-auto mb-3">
               <label
+                htmlFor="profile-photo-input"
                 className="relative w-20 h-20 rounded-2xl flex items-center justify-center text-3xl font-bold bg-white/10 backdrop-blur-md text-white border-2 border-white/30 shadow-md overflow-hidden cursor-pointer group transition-transform hover:scale-105"
                 title="Klik untuk ganti foto profil"
               >
@@ -1244,7 +1254,7 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
                 ) : (
                   user.nama.charAt(0).toUpperCase()
                 )}
-                <input type="file" accept="image/*" className="hidden" onChange={e => pilihFoto(e.target.files?.[0])} />
+                <input id="profile-photo-input" type="file" accept="image/*" className="hidden" onChange={e => pilihFoto(e.target.files?.[0])} />
                 <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <Camera className="w-5 h-5 text-white" />
                   <span className="text-[10px] text-white font-medium mt-0.5">Ubah</span>
@@ -1443,7 +1453,7 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
               crop={crop}
               zoom={zoom}
               aspect={1}
-              cropShape="round"
+              cropShape="rect"
               showGrid
               onCropChange={setCrop}
               onZoomChange={setZoom}
@@ -1463,6 +1473,7 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
           confirmLabel="Simpan Foto"
           onCancel={() => setPendingFoto(null)}
           onConfirm={konfirmasiFoto}
+          loading={savingFoto}
         >
           <img src={pendingFoto} alt="Pratinjau foto profil" className="mx-auto h-40 w-40 rounded-xl object-cover border border-emerald-100" />
         </ConfirmDialog>
