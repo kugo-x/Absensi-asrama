@@ -35,6 +35,7 @@ $routes->group('api', static function ($routes) {
     $routes->post('presensi', 'Api\DataController::checkIn');
     $routes->post('presensi/koreksi', 'Api\DataController::koreksiPresensi');
     $routes->post('presensi/validasi-foto', 'Api\DataController::validasiFoto');
+    $routes->post('presensi/validasi-foto-massal', 'Api\DataController::validasiFotoMassal');
     $routes->get('presensi/foto/(:segment)', 'Api\DataController::fotoWajah/$1');
 
     // Izin

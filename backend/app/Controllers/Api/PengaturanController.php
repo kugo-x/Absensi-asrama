@@ -19,6 +19,8 @@ class PengaturanController extends BaseController
     // id sesi gedung di respons = offset + Id_sesi_gedung (agar tidak bentrok dengan Id_sesi global)
     private const OFFSET_ID_SESI_GEDUNG = 1000000;
 
+    private const NAMA_HARI = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat', 6 => 'Sabtu', 7 => 'Minggu'];
+
     public function __construct()
     {
         $this->db = \Config\Database::connect();
@@ -72,7 +74,24 @@ class PengaturanController extends BaseController
             default:
                 $builder->where('1 = 0', null, false);
         }
-        foreach ($builder->get()->getResultArray() as $sg) {
+        $daftar = $builder->get()->getResultArray();
+        // Pengecualian per hari, dikelompokkan per sesi gedung
+        $perHari = [];
+        if ($daftar !== []) {
+            $rows = $this->db->table('sesi_gedung_hari')
+                ->select("Id_sesi_gedung, Hari, TIME_FORMAT(Jam_mulai, '%H:%i') AS jamMulai, TIME_FORMAT(Jam_selesai, '%H:%i') AS jamSelesai, Aktif", false)
+                ->whereIn('Id_sesi_gedung', array_column($daftar, 'Id_sesi_gedung'))
+                ->orderBy('Hari', 'ASC')->get()->getResultArray();
+            foreach ($rows as $h) {
+                $perHari[$h['Id_sesi_gedung']][] = [
+                    'hari'       => (int) $h['Hari'],
+                    'jamMulai'   => $h['jamMulai'],
+                    'jamSelesai' => $h['jamSelesai'],
+                    'aktif'      => (bool) $h['Aktif'],
+                ];
+            }
+        }
+        foreach ($daftar as $sg) {
             $data[] = [
                 // id dibedakan dari id sesi global agar unik di klien
                 'id'           => self::OFFSET_ID_SESI_GEDUNG + (int) $sg['Id_sesi_gedung'],
@@ -85,6 +104,8 @@ class PengaturanController extends BaseController
                 'namaGedung'   => $sg['namaGedung'],
                 'diaturOleh'   => $sg['Diatur_oleh'],
                 'namaPengatur' => $sg['namaPengatur'],
+                // Hari tanpa entri memakai jamMulai/jamSelesai di atas
+                'jadwalHari'   => $perHari[$sg['Id_sesi_gedung']] ?? [],
             ];
         }
 
@@ -138,6 +159,13 @@ class PengaturanController extends BaseController
         // Sesi global tidak boleh bertabrakan dengan absen malam yang sudah diatur fasil
         $sesiGedung = $this->db->table('sesi_gedung sg')->select('sg.Nama, sg.Jam_mulai, sg.Jam_selesai, g.Nama AS gedung')
             ->join('gedung g', 'g.Id_Gedung = sg.Id_Gedung')->where('sg.Aktif', 1)->get()->getResultArray();
+        // Jam khusus per hari pada absen malam yang aktif juga ikut diperiksa
+        $khusus = $this->db->table('sesi_gedung_hari h')->select('sg.Nama, h.Hari, h.Jam_mulai, h.Jam_selesai, g.Nama AS gedung')
+            ->join('sesi_gedung sg', 'sg.Id_sesi_gedung = h.Id_sesi_gedung')->join('gedung g', 'g.Id_Gedung = sg.Id_Gedung')
+            ->where('sg.Aktif', 1)->where('h.Aktif', 1)->get()->getResultArray();
+        foreach ($khusus as $k) {
+            $sesiGedung[] = ['Nama' => $k['Nama'] . ' (' . self::NAMA_HARI[(int) $k['Hari']] . ')', 'Jam_mulai' => $k['Jam_mulai'], 'Jam_selesai' => $k['Jam_selesai'], 'gedung' => $k['gedung']];
+        }
         foreach ($aktif as $s) {
             foreach ($sesiGedung as $sg) {
                 if ($this->bertumpuk($s['jamMulai'], $s['jamSelesai'], $sg['Jam_mulai'], $sg['Jam_selesai'])) {
@@ -196,11 +224,46 @@ class PengaturanController extends BaseController
         if ($selesai <= $mulai) {
             return $this->fail('Jam selesai harus setelah jam mulai.', 400);
         }
-        // Tidak boleh bertabrakan dengan sesi global (mis. Subuh) yang aktif
+        // Pengecualian per hari (opsional). Bila dikirim, menggantikan seluruh pengecualian lama.
+        // Tiap entri: { hari: 1..7 (Senin..Minggu), aktif: bool, jamMulai?, jamSelesai? }
+        $kirimHari = is_array($input) && array_key_exists('hari', $input);
+        $hariList  = $kirimHari ? $input['hari'] : [];
+        if (! is_array($hariList)) {
+            return $this->fail('Format jadwal per hari tidak valid.', 400);
+        }
+        $hariBersih = [];
+        foreach ($hariList as $h) {
+            $no = (int) ($h['hari'] ?? 0);
+            if ($no < 1 || $no > 7 || isset($hariBersih[$no])) {
+                return $this->fail('Hari pada jadwal per hari tidak valid atau ganda.', 400);
+            }
+            $hAktif = ! empty($h['aktif']);
+            $hMulai = (string) ($h['jamMulai'] ?? '');
+            $hSelesai = (string) ($h['jamSelesai'] ?? '');
+            if ($hAktif) {
+                if (! preg_match($polaJam, $hMulai) || ! preg_match($polaJam, $hSelesai)) {
+                    return $this->fail('Jam khusus hari ' . self::NAMA_HARI[$no] . ' wajib diisi (format JJ:MM).', 400);
+                }
+                if ($hSelesai <= $hMulai) {
+                    return $this->fail('Jam selesai hari ' . self::NAMA_HARI[$no] . ' harus setelah jam mulai.', 400);
+                }
+            }
+            $hariBersih[$no] = ['aktif' => $hAktif, 'mulai' => $hAktif ? $hMulai : null, 'selesai' => $hAktif ? $hSelesai : null];
+        }
+
+        // Tidak boleh bertabrakan dengan sesi global (mis. Subuh) yang aktif — jam utama & jam khusus
         if ($aktif) {
+            $rentang = [['Jam utama', $mulai, $selesai]];
+            foreach ($hariBersih as $no => $h) {
+                if ($h['aktif']) {
+                    $rentang[] = ['Hari ' . self::NAMA_HARI[$no], $h['mulai'], $h['selesai']];
+                }
+            }
             foreach ($this->db->table('sesi')->where('Aktif', 1)->get()->getResultArray() as $s) {
-                if ($this->bertumpuk($mulai, $selesai, $s['Jam_mulai'], $s['Jam_selesai'])) {
-                    return $this->fail(sprintf('Jam bertabrakan dengan sesi %s (%s–%s).', $s['Nama'], substr($s['Jam_mulai'], 0, 5), substr($s['Jam_selesai'], 0, 5)), 400);
+                foreach ($rentang as [$label, $m, $sl]) {
+                    if ($this->bertumpuk($m, $sl, $s['Jam_mulai'], $s['Jam_selesai'])) {
+                        return $this->fail(sprintf('%s bertabrakan dengan sesi %s (%s–%s).', $label, $s['Nama'], substr($s['Jam_mulai'], 0, 5), substr($s['Jam_selesai'], 0, 5)), 400);
+                    }
                 }
             }
         }
@@ -209,10 +272,32 @@ class PengaturanController extends BaseController
         $nama = PresensiService::SESI_PER_GEDUNG;
         $data = ['Jam_mulai' => $mulai . ':00', 'Jam_selesai' => $selesai . ':00', 'Aktif' => $aktif ? 1 : 0, 'Diatur_oleh' => $token['nim'], 'updated_at' => $now];
         $ada  = $this->db->table('sesi_gedung')->where('Id_Gedung', $gedung['Id_Gedung'])->where('Nama', $nama)->get()->getRowArray();
+
+        $this->db->transStart();
         if ($ada) {
             $this->db->table('sesi_gedung')->where('Id_sesi_gedung', $ada['Id_sesi_gedung'])->update($data);
+            $idSesi = (int) $ada['Id_sesi_gedung'];
         } else {
             $this->db->table('sesi_gedung')->insert($data + ['Id_Gedung' => $gedung['Id_Gedung'], 'Nama' => $nama, 'created_at' => $now]);
+            $idSesi = (int) $this->db->insertID();
+        }
+        if ($kirimHari) {
+            $this->db->table('sesi_gedung_hari')->where('Id_sesi_gedung', $idSesi)->delete();
+            foreach ($hariBersih as $no => $h) {
+                $this->db->table('sesi_gedung_hari')->insert([
+                    'Id_sesi_gedung' => $idSesi,
+                    'Hari'           => $no,
+                    'Jam_mulai'      => $h['mulai'] !== null ? $h['mulai'] . ':00' : null,
+                    'Jam_selesai'    => $h['selesai'] !== null ? $h['selesai'] . ':00' : null,
+                    'Aktif'          => $h['aktif'] ? 1 : 0,
+                    'created_at'     => $now,
+                    'updated_at'     => $now,
+                ]);
+            }
+        }
+        $this->db->transComplete();
+        if (! $this->db->transStatus()) {
+            return $this->fail('Jadwal absen malam gagal disimpan.', 500);
         }
 
         return $this->respond([

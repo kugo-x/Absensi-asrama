@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Sun, Moon, CheckCircle2, XCircle, FileCheck, Clock, Pencil } from 'lucide-react'
-import type { Penghuni, Sesi, StatusFoto } from '../types'
+import type { HariIso, Penghuni, Sesi, StatusFoto } from '../types'
 import type { StatusDetail } from '../logic'
-import { formatRentangTanggal, hitungStatus, jamPresensi, keteranganStatus } from '../logic'
+import { formatRentangTanggal, teksHariBerulang, hitungStatus, jamPresensi, keteranganStatus } from '../logic'
 import { StatCard, Badge } from './AppLayout'
 import { fetchFotoWajah } from '../api'
 
@@ -124,9 +124,10 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
   )
 }
 
-export function formatRentangIzin(tanggal: string, tanggalSelesai: string, sesi: string | null) {
+export function formatRentangIzin(tanggal: string, tanggalSelesai: string, sesi: string | null, hariBerulang?: HariIso[] | null) {
   const rentang = formatRentangTanggal(tanggal, tanggalSelesai)
-  return `${rentang} · ${sesi ? `Sesi ${sesi}` : 'Seharian'}`
+  const rutin = teksHariBerulang(hariBerulang)
+  return `${rentang}${rutin ? ` · ${rutin}` : ''} · ${sesi ? `Sesi ${sesi}` : 'Seharian'}`
 }
 
 // Foto wajah presensi yang diambil dengan token login (lihat fetchFotoWajah)

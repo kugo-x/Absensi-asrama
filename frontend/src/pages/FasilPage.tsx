@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto } from '../types'
 import AppLayout, { SectionTitle, Badge } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
+import { downloadReport, type ExportFormat } from '../ekspor'
 import { FotoBadge, FotoWajah, RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import DateInput from '../components/DateInput'
 import { notifikasiFasil } from '../notifikasiPeran'
@@ -13,7 +14,7 @@ import {
   sesiList as initialSesi,
   liburList as initialLibur,
 } from '../data/mockData'
-import { awalDemo, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur, updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT } from '../api'
+import { awalDemo, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur, updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT } from '../api'
 import {
   cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, toHM, todayLocal, type DataPresensi,
 } from '../logic'
@@ -27,6 +28,7 @@ import {
   Paperclip,
   User,
   Check,
+  Download,
   X,
   Pencil,
   Building2,
@@ -89,7 +91,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   // Lingkup data fasil: hanya gedung tempat ia ditetapkan sebagai penanggung jawab (gedung.NIM_Pj)
   const gedungSaya = gedungList.find(g => g.nimPj === user.nim) || null
   const today = todayLocal()
-  const sesiAktifList = sesiAktif(sesiList, gedungSaya?.nama)
+  const sesiAktifList = sesiAktif(sesiList, gedungSaya?.nama, today)
   const anggota = gedungSaya ? penghuniWajibAbsen(penghuni, gedungSaya.nama) : []
   const nimGedung = new Set(penghuni.filter(p => gedungSaya && p.namaGedung === gedungSaya.nama).map(p => p.nim))
   const izinGedung = izinData.filter(i => nimGedung.has(i.nim) || (gedungSaya && i.namaGedung === gedungSaya.nama))
@@ -107,7 +109,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const menu = navItems.map(n => n.id === 'foto' && fotoMenunggu > 0 ? { ...n, label: `${n.label} (${fotoMenunggu})` } : n)
 
   const rekapRows = (tanggal: string, sesiNama: string): RekapRow[] => {
-    const sesi = sesiUntuk(sesiList, sesiNama, gedungSaya?.nama)
+    const sesi = sesiUntuk(sesiList, sesiNama, gedungSaya?.nama, tanggal)
     if (!sesi) return []
     return anggota.map(p => ({ penghuni: p, detail: statusSesi(p.nim, tanggal, sesi, data, now) }))
   }
@@ -144,6 +146,18 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     }
     setPresensi(prev => [record, ...prev.filter(r => !(r.nim === p.nim && r.tanggal === tanggal && r.sesi === sesi))])
     return null
+  }
+
+  // Terima banyak foto sekaligus; mengembalikan { ok, pesan }
+  const handleTerimaMassal = async (ids: number[]) => {
+    const result = await validasiFotoMassalApi(ids)
+    if (!result.ok && !result.offline) return { ok: false, pesan: result.message }
+    const terpilih = new Set(ids)
+    setPresensi(prev => prev.map(r => terpilih.has(r.id) && r.statusFoto === 'Menunggu'
+      ? { ...r, statusFoto: 'Diterima' as StatusFoto, catatanValidasi: '', divalidasiOleh: user.nim, namaValidator: user.nama }
+      : r))
+    if (result.ok) fetchPresensi().then(setPresensi)
+    return { ok: true, pesan: result.offline ? `${ids.length} foto diterima (mode demo).` : result.message }
   }
 
   // Mengembalikan pesan galat, atau null jika berhasil
@@ -204,15 +218,15 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
       )}
       {activeTab === 'monitor' && (
         <FasilMonitor
-          sesiList={sesiAktifList}
+          sesiList={sesiAktif(sesiList, gedungSaya.nama)}
           rekapRows={rekapRows}
           today={today}
           onKoreksi={(row, tanggal, sesi) => setKoreksi({ row, tanggal, sesi })}
         />
       )}
       {activeTab === 'izin' && <FasilIzin izinData={izinGedung} onSelect={setSelectedIzin} />}
-      {activeTab === 'foto' && <FasilValidasiFoto records={presensiBerfoto} onValidasi={handleValidasiFoto} />}
-      {activeTab === 'rekap' && <FasilRekap rows={rekapPenghuni} batas={aturan.batasTidakHadir} />}
+      {activeTab === 'foto' && <FasilValidasiFoto records={presensiBerfoto} onValidasi={handleValidasiFoto} onTerimaMassal={handleTerimaMassal} />}
+      {activeTab === 'rekap' && <FasilRekap rows={rekapPenghuni} batas={aturan.batasTidakHadir} namaGedung={gedungSaya.nama} />}
 
       {selectedIzin && (
         <IzinModal izin={selectedIzin} onClose={() => setSelectedIzin(null)} onDecide={handleKeputusanIzin} />
@@ -476,7 +490,7 @@ function FasilIzin({ izinData, onSelect }: { izinData: IzinRecord[]; onSelect: (
                 <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500 font-medium">
                   <span className="flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                    <span>{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}</span>
+                    <span>{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}</span>
                   </span>
                   {i.fileBukti && (
                     <span className="flex items-center gap-1.5 text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
@@ -511,13 +525,35 @@ function FasilIzin({ izinData, onSelect }: { izinData: IzinRecord[]; onSelect: (
 }
 
 // Antrean validasi foto wajah presensi mandiri penghuni gedung
-function FasilValidasiFoto({ records, onValidasi }: {
+function FasilValidasiFoto({ records, onValidasi, onTerimaMassal }: {
   records: PresensiRecord[]
   onValidasi: (rec: PresensiRecord, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => Promise<string | null>
+  onTerimaMassal: (ids: number[]) => Promise<{ ok: boolean; pesan: string }>
 }) {
   const [filter, setFilter] = useState<StatusFoto>('Menunggu')
   const filtered = records.filter(r => r.statusFoto === filter)
   const daftarFilter: StatusFoto[] = ['Menunggu', 'Diterima', 'Ditolak']
+  // Pilihan untuk terima sekaligus (hanya foto yang masih Menunggu)
+  const [pilih, setPilih] = useState<Set<number>>(new Set())
+  const [prosesMassal, setProsesMassal] = useState(false)
+  const [pesanMassal, setPesanMassal] = useState<{ ok: boolean; teks: string } | null>(null)
+  const menunggu = records.filter(r => r.statusFoto === 'Menunggu')
+  const terpilih = menunggu.filter(r => pilih.has(r.id)).map(r => r.id)
+  const semuaTerpilih = menunggu.length > 0 && terpilih.length === menunggu.length
+  const togglePilih = (id: number) => setPilih(prev => {
+    const baru = new Set(prev)
+    if (baru.has(id)) baru.delete(id)
+    else baru.add(id)
+    return baru
+  })
+  const terimaTerpilih = async () => {
+    if (terpilih.length === 0) return
+    setProsesMassal(true)
+    const hasil = await onTerimaMassal(terpilih)
+    setProsesMassal(false)
+    setPesanMassal({ ok: hasil.ok, teks: hasil.pesan })
+    if (hasil.ok) setPilih(new Set())
+  }
 
   return (
     <div className="space-y-4">
@@ -541,6 +577,31 @@ function FasilValidasiFoto({ records, onValidasi }: {
         ))}
       </div>
 
+      {filter === 'Menunggu' && menunggu.length > 0 && (
+        <div className="sticky top-2 z-10 flex flex-wrap items-center gap-3 px-4 py-3 rounded-2xl bg-white/95 backdrop-blur border border-emerald-100 shadow-xs">
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="w-4 h-4 accent-emerald-700 cursor-pointer"
+              checked={semuaTerpilih}
+              onChange={() => setPilih(semuaTerpilih ? new Set() : new Set(menunggu.map(r => r.id)))}
+            />
+            Pilih semua ({menunggu.length})
+          </label>
+          <span className="text-xs text-gray-500">{terpilih.length} dipilih</span>
+          <button
+            onClick={terimaTerpilih}
+            disabled={terpilih.length === 0 || prosesMassal}
+            className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Check className="w-3.5 h-3.5" />
+            {prosesMassal ? 'Menyimpan…' : `Terima ${terpilih.length || ''} foto terpilih`}
+          </button>
+          <p className="basis-full text-[11px] text-gray-400">Foto yang bermasalah tolak satu per satu karena wajib disertai catatan.</p>
+        </div>
+      )}
+      {pesanMassal && <p className={`text-xs font-semibold ${pesanMassal.ok ? 'text-emerald-700' : 'text-red-700'}`}>{pesanMassal.teks}</p>}
+
       {filtered.length === 0 ? (
         <div className="bg-white rounded-2xl p-10 text-center border border-emerald-100/80">
           <p className="text-sm text-gray-400 font-medium">
@@ -549,16 +610,18 @@ function FasilValidasiFoto({ records, onValidasi }: {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map(r => <KartuValidasiFoto key={r.id} rec={r} onValidasi={onValidasi} />)}
+          {filtered.map(r => <KartuValidasiFoto key={r.id} rec={r} onValidasi={onValidasi} dipilih={pilih.has(r.id)} onPilih={() => togglePilih(r.id)} />)}
         </div>
       )}
     </div>
   )
 }
 
-function KartuValidasiFoto({ rec, onValidasi }: {
+function KartuValidasiFoto({ rec, onValidasi, dipilih, onPilih }: {
   rec: PresensiRecord
   onValidasi: (rec: PresensiRecord, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => Promise<string | null>
+  dipilih: boolean
+  onPilih: () => void
 }) {
   const [catatan, setCatatan] = useState('')
   const [error, setError] = useState('')
@@ -577,8 +640,16 @@ function KartuValidasiFoto({ rec, onValidasi }: {
   }
 
   return (
-    <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs flex flex-col">
-      <FotoWajah foto={rec.fotoWajah} alt={`Foto ${rec.namaPenghuni}`} className="w-full aspect-[4/3]" />
+    <div className={`bg-white rounded-2xl overflow-hidden border shadow-xs flex flex-col ${dipilih ? 'border-emerald-500 ring-2 ring-emerald-500/30' : 'border-emerald-100/80'}`}>
+      <div className="relative">
+        <FotoWajah foto={rec.fotoWajah} alt={`Foto ${rec.namaPenghuni}`} className="w-full aspect-[4/3]" />
+        {menunggu && (
+          <label className="absolute top-2 left-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/90 backdrop-blur text-[11px] font-bold text-gray-700 shadow-xs cursor-pointer select-none">
+            <input type="checkbox" className="w-3.5 h-3.5 accent-emerald-700 cursor-pointer" checked={dipilih} onChange={onPilih} aria-label={`Pilih foto ${rec.namaPenghuni}`} />
+            Pilih
+          </label>
+        )}
+      </div>
       <div className="p-4 space-y-3 flex-1 flex flex-col">
         <div>
           <div className="flex items-center justify-between gap-2">
@@ -638,14 +709,41 @@ function KartuValidasiFoto({ rec, onValidasi }: {
 
 // Rekap per penghuni 30 hari terakhir untuk tindak lanjut pelanggaran
 // Ambang "perlu ditegur" diatur admin (pengaturan batas_tidak_hadir)
-function FasilRekap({ rows, batas: BATAS_ALPA }: { rows: RekapPenghuni[]; batas: number }) {
+function FasilRekap({ rows, batas: BATAS_ALPA, namaGedung }: { rows: RekapPenghuni[]; batas: number; namaGedung: string }) {
+  const unduh = (format: ExportFormat) => {
+    const today = todayLocal()
+    const judul = `Rekap Kehadiran ${namaGedung} (30 hari s/d ${formatTanggal(today, 'tanpaHari')})`
+    const headers = ['NIM', 'Nama', 'Kamar', 'Hadir', 'Izin', 'Tidak Hadir', 'Sesi Wajib', 'Kehadiran', 'Catatan']
+    const data = rows.map(({ penghuni: p, c }) => [
+      p.nim, p.nama, p.nomorKamar, c.Hadir, c.Izin, c['Tidak Hadir'], c.wajib, `${c.persen}%`,
+      c['Tidak Hadir'] >= BATAS_ALPA ? 'Perlu ditegur' : '',
+    ])
+    const slug = namaGedung.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    downloadReport(`rekap-kehadiran-${slug}-${today}.${format}`, headers, data, format, judul)
+  }
 
   return (
     <div className="space-y-4">
-      <div className="p-4 rounded-2xl bg-white border border-emerald-100/80 shadow-xs">
-        <SectionTitle subtitle={`Rekap 30 hari terakhir. Penghuni dengan Tidak Hadir ≥ ${BATAS_ALPA} sesi ditandai untuk ditindaklanjuti.`}>
-          Rekap Kehadiran Penghuni
-        </SectionTitle>
+      <div className="p-4 rounded-2xl bg-white border border-emerald-100/80 shadow-xs flex flex-col sm:flex-row sm:items-start gap-3">
+        <div className="flex-1">
+          <SectionTitle subtitle={`Rekap 30 hari terakhir. Penghuni dengan Tidak Hadir ≥ ${BATAS_ALPA} sesi ditandai untuk ditindaklanjuti.`}>
+            Rekap Kehadiran Penghuni
+          </SectionTitle>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          {([['xlsx', 'Excel'], ['pdf', 'PDF']] as const).map(([format, label]) => (
+            <button
+              key={format}
+              onClick={() => unduh(format)}
+              disabled={rows.length === 0}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-700 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+              title={`Unduh rekap sebagai ${label}`}
+            >
+              <Download className="w-3.5 h-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs overflow-x-auto">
         <table className="w-full text-sm">
@@ -730,7 +828,7 @@ function IzinModal({ izin, onClose, onDecide }: {
               ['Mahasiswa', izin.namaPenghuni],
               ['NIM', izin.nim],
               ['Kamar', izin.nomorKamar],
-              ['Berlaku', formatRentangIzin(izin.tanggal, izin.tanggalSelesai, izin.sesi)],
+              ['Berlaku', formatRentangIzin(izin.tanggal, izin.tanggalSelesai, izin.sesi, izin.hariBerulang)],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between items-center gap-3">
                 <span className="text-gray-500 font-medium">{k}</span>

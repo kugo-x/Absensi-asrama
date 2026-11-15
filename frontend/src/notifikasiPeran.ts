@@ -41,7 +41,7 @@ export function notifikasiPenghuni(a: {
       id: `izin-${i.id}-${i.statusPersetujuan}`,
       jenis: setuju ? 'sukses' : 'peringatan',
       judul: setuju ? 'Izin Anda disetujui' : 'Izin Anda ditolak',
-      pesan: `${formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)} — ${i.alasan}${i.catatanApprover ? `. Catatan: ${i.catatanApprover}` : ''}`,
+      pesan: `${formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)} — ${i.alasan}${i.catatanApprover ? `. Catatan: ${i.catatanApprover}` : ''}`,
       waktu: i.tanggalApproval,
       tab: 'izin',
     })
@@ -100,7 +100,7 @@ export function notifikasiFasil(a: {
       id: `izin-masuk-${i.id}`,
       jenis: 'permintaan',
       judul: `Permohonan izin dari ${i.namaPenghuni}`,
-      pesan: `${formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)} — ${i.alasan}`,
+      pesan: `${formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)} — ${i.alasan}`,
       labelWaktu: 'Menunggu',
       tab: 'izin',
     })

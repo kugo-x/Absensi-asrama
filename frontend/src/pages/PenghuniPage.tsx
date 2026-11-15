@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
+import type { AturanPresensi, CurrentUser, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { FotoBadge, SesiIcon, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
@@ -13,10 +13,12 @@ import {
   liburList as initialLibur,
 } from '../data/mockData'
 import { awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, changePasswordApi, uploadProfilePhotoApi } from '../api'
+import KalenderKehadiran from '../components/KalenderKehadiran'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
   addDays, cariLibur, formatTanggal, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
   faseSesi, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi, type StatusDetail,
+  NAMA_HARI, SEMUA_HARI, adaHariDalamRentang, hariIso,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -141,7 +143,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
 
   const today = todayLocal()
   const data: DataPresensi = { presensi, izin: izinData, libur }
-  const sesiHariIni: SesiHariIni[] = sesiAktif(sesiList, user.namaGedung).map(sesi => {
+  const sesiHariIni: SesiHariIni[] = sesiAktif(sesiList, user.namaGedung, today).map(sesi => {
     const detail = statusSesi(user.nim, today, sesi, data, now)
     // Mode uji: jam sesi diabaikan, sesi yang belum punya catatan dianggap sedang dibuka
     const dibukaUji = modeUji.abaikanJam && !detail.presensi && !detail.izin && !detail.libur
@@ -311,7 +313,11 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           onRefreshLocation={() => readLocation()}
         />
       )}
-      {activeTab === 'riwayat' && <PenghuniRiwayat riwayat={riwayat} />}
+      {activeTab === 'riwayat' && (
+        <PenghuniRiwayat riwayat={riwayat}>
+          <KalenderKehadiran nim={user.nim} sesiList={sesiList} data={data} now={now} gedung={user.namaGedung} tanggalMasuk={user.tanggalMasuk} />
+        </PenghuniRiwayat>
+      )}
       {activeTab === 'izin' && <PenghuniIzin izinData={izinData} setIzinData={setIzinData} user={user} sesiList={sesiAktif(sesiList, user.namaGedung)} today={today} />}
       {activeTab === 'profil' && <PenghuniProfil user={user} onLogout={onLogout} />}
     </AppLayout>
@@ -421,7 +427,7 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
               <div key={i.id} className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 ${i.statusPersetujuan === 'Disetujui' ? 'bg-blue-50/60 border-blue-100' : 'bg-red-50/60 border-red-100'}`}>
                 <div className="flex items-center gap-2">
                   <Badge status={i.statusPersetujuan} />
-                  <span className="font-medium text-gray-800">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)} — {i.alasan}</span>
+                  <span className="font-medium text-gray-800">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)} — {i.alasan}</span>
                 </div>
               </div>
             ))}
@@ -646,7 +652,7 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
                   <div key={i.id} className="p-2.5 rounded-xl border border-gray-100 bg-gray-50/70 text-xs">
                     <div className="flex items-center justify-between gap-1 mb-1">
                       <span className="font-bold text-gray-800 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                        {formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}
+                        {formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}
                       </span>
                       <Badge status={i.statusPersetujuan} />
                     </div>
@@ -866,7 +872,7 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
   )
 }
 
-function PenghuniRiwayat({ riwayat }: { riwayat: ReturnType<typeof riwayatPenghuni> }) {
+function PenghuniRiwayat({ riwayat, children }: { riwayat: ReturnType<typeof riwayatPenghuni>; children?: React.ReactNode }) {
   const c = hitungStatus(riwayat.map(r => r.detail.status))
 
   return (
@@ -889,6 +895,8 @@ function PenghuniRiwayat({ riwayat }: { riwayat: ReturnType<typeof riwayatPenghu
           <div className="h-full rounded-full bg-emerald-700 transition-all duration-300" style={{ width: `${c.persen}%` }} />
         </div>
       </div>
+
+      {children}
 
       <div className="bg-white rounded-xl overflow-hidden border border-gray-200 shadow-2xs">
         <div className="px-5 py-4 border-b border-gray-200">
@@ -947,7 +955,7 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
   sesiList: Sesi[]
   today: string
 }) {
-  const kosong = { alasan: '', tanggal: '', tanggalSelesai: '', sesi: '', fileBukti: '' }
+  const kosong = { alasan: '', tanggal: '', tanggalSelesai: '', sesi: '', fileBukti: '', rutin: false, hari: [] as HariIso[] }
   const [form, setForm] = useState(kosong)
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -968,21 +976,41 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
       setNotice({ type: 'error', text: 'Tanggal selesai tidak boleh sebelum tanggal mulai.' })
       return
     }
+    // Izin rutin: hari terpilih (7 hari = sama dengan izin biasa)
+    const hariBerulang: HariIso[] | null = form.rutin && form.hari.length < 7 ? [...form.hari].sort() : null
+    if (form.rutin) {
+      if (form.hari.length === 0) {
+        setNotice({ type: 'error', text: 'Pilih minimal satu hari untuk izin rutin.' })
+        return
+      }
+      if (tanggalSelesai === form.tanggal) {
+        setNotice({ type: 'error', text: 'Izin rutin membutuhkan tanggal selesai setelah tanggal mulai.' })
+        return
+      }
+      if (!adaHariDalamRentang(form.tanggal, tanggalSelesai, form.hari)) {
+        setNotice({ type: 'error', text: 'Tidak ada hari terpilih di dalam rentang tanggal izin.' })
+        return
+      }
+    }
     // Cegah pengajuan ganda pada tanggal/sesi yang sudah diajukan atau disetujui
-    const bentrok = izinData.find(i => i.statusPersetujuan !== 'Ditolak' &&
-      i.tanggal <= tanggalSelesai && form.tanggal <= (i.tanggalSelesai || i.tanggal) &&
-      (!i.sesi || !sesi || i.sesi === sesi))
+    const bentrok = izinData.find(i => {
+      if (i.statusPersetujuan === 'Ditolak' || (i.sesi && sesi && i.sesi !== sesi)) return false
+      const dari = form.tanggal > i.tanggal ? form.tanggal : i.tanggal
+      const sampai = tanggalSelesai < (i.tanggalSelesai || i.tanggal) ? tanggalSelesai : (i.tanggalSelesai || i.tanggal)
+      const irisan = (hariBerulang ?? SEMUA_HARI).filter(h => !i.hariBerulang?.length || i.hariBerulang.includes(h))
+      return dari <= sampai && irisan.length > 0 && adaHariDalamRentang(dari, sampai, irisan)
+    })
     if (bentrok) {
-      setNotice({ type: 'error', text: `Sudah ada izin ${bentrok.statusPersetujuan.toLowerCase()} pada ${formatRentangIzin(bentrok.tanggal, bentrok.tanggalSelesai, bentrok.sesi)}.` })
+      setNotice({ type: 'error', text: `Sudah ada izin ${bentrok.statusPersetujuan.toLowerCase()} pada ${formatRentangIzin(bentrok.tanggal, bentrok.tanggalSelesai, bentrok.sesi, bentrok.hariBerulang)}.` })
       return
     }
 
     setSubmitting(true)
     const newIzin: IzinRecord = {
       id: Date.now(), nim: user.nim, namaPenghuni: user.nama, nomorKamar: user.nomorKamar || '', namaGedung: user.namaGedung || '',
-      alasan: form.alasan, tanggal: form.tanggal, tanggalSelesai, sesi, fileBukti: form.fileBukti, statusPersetujuan: 'Pending',
+      alasan: form.alasan, tanggal: form.tanggal, tanggalSelesai, sesi, fileBukti: form.fileBukti, statusPersetujuan: 'Pending', hariBerulang,
     }
-    const result = await submitIzinApi({ nim: user.nim, alasan: form.alasan, tanggal: form.tanggal, tanggalSelesai, sesi, fileBukti: form.fileBukti })
+    const result = await submitIzinApi({ nim: user.nim, alasan: form.alasan, tanggal: form.tanggal, tanggalSelesai, sesi, fileBukti: form.fileBukti, hariBerulang })
     if (result.ok || result.offline) {
       setIzinData(prev => [newIzin, ...prev])
       setForm(kosong)
@@ -1023,6 +1051,34 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
                 </div>
               </div>
               <p className="text-[10px] text-gray-400 -mt-1">Kosongkan jika izin hanya satu hari.</p>
+
+              <div className="rounded-lg border border-gray-200 p-2.5 space-y-2">
+                <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                  <input type="checkbox" className="accent-emerald-700" checked={form.rutin} onChange={e => setForm(p => ({ ...p, rutin: e.target.checked }))} />
+                  Izin rutin (berulang tiap minggu)
+                </label>
+                {form.rutin && (
+                  <>
+                    <div className="flex flex-wrap gap-1">
+                      {SEMUA_HARI.map(h => {
+                        const pilih = form.hari.includes(h)
+                        return (
+                          <button
+                            key={h}
+                            type="button"
+                            aria-pressed={pilih}
+                            onClick={() => setForm(p => ({ ...p, hari: pilih ? p.hari.filter(x => x !== h) : [...p.hari, h] }))}
+                            className={`px-2 py-1 rounded-md text-[11px] font-bold border cursor-pointer transition-colors ${pilih ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
+                          >
+                            {NAMA_HARI[h].slice(0, 3)}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="text-[10px] text-gray-400">Contoh: kuliah malam tiap Selasa &amp; Kamis selama satu semester. Cukup sekali diajukan dan disetujui.</p>
+                  </>
+                )}
+              </div>
 
               <div>
                 <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi</label>
@@ -1086,11 +1142,11 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <div className="flex items-center gap-2">
                       <Badge status={i.statusPersetujuan} />
-                      {i.statusPersetujuan === 'Disetujui' && i.tanggal <= today && today <= (i.tanggalSelesai || i.tanggal) && (
+                      {i.statusPersetujuan === 'Disetujui' && i.tanggal <= today && today <= (i.tanggalSelesai || i.tanggal) && (!i.hariBerulang?.length || i.hariBerulang.includes(hariIso(today))) && (
                         <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Berlaku hari ini</span>
                       )}
                     </div>
-                    <span className="text-[11px] font-medium text-gray-400 shrink-0">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}</span>
+                    <span className="text-[11px] font-medium text-gray-400 shrink-0">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}</span>
                   </div>
                   <p className="text-xs text-gray-700 leading-relaxed">{i.alasan}</p>
                   <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px]">

@@ -22,8 +22,10 @@ import DateInput from '../components/DateInput'
 import TimeInput from '../components/TimeInput'
 import { notifikasiAdmin } from '../notifikasiPeran'
 import { JadwalMalamAdmin } from '../components/JadwalMalam'
+import { downloadReport, type ExportFormat } from '../ekspor'
+import * as XLSX from 'xlsx'
 import {
-  addDays, cariLibur, faseSesi, formatTanggal, hitungStatus, hunianKamar, penghuniWajibAbsen, namaSesiAktif, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, todayLocal, type DataPresensi,
+  addDays, cariLibur, faseSesi, formatTanggal, hitungStatus, hunianKamar, penghuniWajibAbsen, namaSesiAktif, riwayatPenghuni, sesiAktif, sesiPadaTanggal, sesiUntuk, statusSesi, todayLocal, type DataPresensi,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -60,9 +62,6 @@ import {
   ShieldCheck,
   FileText,
 } from 'lucide-react'
-import * as XLSX from 'xlsx'
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
@@ -333,12 +332,12 @@ function AdminDashboard({
   const tanpaPj = gedungList.filter(g => !g.nimPj)
   const tanpaKoordinat = gedungList.filter(g => g.latitude === null || g.longitude === null)
   // Sesi global + absen malam tiap gedung (jam malam berbeda per gedung)
-  const sesiHariIni = sesiList.filter(s => s.aktif).sort((a, b) => a.jamMulai.localeCompare(b.jamMulai))
+  const sesiHariIni = sesiList.filter(s => s.aktif).flatMap(s => sesiPadaTanggal(s, today) ?? []).sort((a, b) => a.jamMulai.localeCompare(b.jamMulai))
   const liburHariIni = cariLibur(today, data.libur)
 
   // Hitung total akumulasi kehadiran hari ini dari seluruh sesi aktif
   const totalStatusList = wajib.flatMap(p =>
-    sesiAktif(sesiList, p.namaGedung).map(s => statusSesi(p.nim, today, s, data, now).status)
+    sesiAktif(sesiList, p.namaGedung, today).map(s => statusSesi(p.nim, today, s, data, now).status)
   )
   const totalRekap = hitungStatus(totalStatusList)
   const sesiBerjalan = sesiHariIni.find(s => faseSesi(s, today, now) === 'dibuka')
@@ -461,7 +460,7 @@ function AdminDashboard({
           <div className="space-y-2.5">
             {gedungList.map(g => {
               const anggota = penghuniWajibAbsen(penghuni, g.nama)
-              const sesiGedung = sesiAktif(sesiList, g.nama)
+              const sesiGedung = sesiAktif(sesiList, g.nama, today)
               const bldgStatusList = sesiGedung.flatMap(s =>
                 anggota.map(p => statusSesi(p.nim, today, s, data, now).status)
               )
@@ -1311,7 +1310,7 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
 
   // Tiap penghuni dinilai dengan jadwal sesi gedungnya; gedung yang belum mengatur absen malam tidak ikut
   const rows: RekapRow[] = penghuniWajibAbsen(penghuni, gedung || undefined).flatMap(p => {
-    const s = sesiUntuk(sesiList, sesi, p.namaGedung)
+    const s = sesiUntuk(sesiList, sesi, p.namaGedung, tanggal)
     return s ? [{ penghuni: p, detail: statusSesi(p.nim, tanggal, s, data, now) }] : []
   })
   const izinRows = data.izin
@@ -1374,7 +1373,7 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
                     <p className="mono text-[11px] text-gray-500">{i.nim}</p>
                   </td>
                   <td className="px-5 py-3.5 text-xs text-gray-600">{i.namaGedung}</td>
-                  <td className="px-5 py-3.5 text-xs text-gray-700 whitespace-nowrap">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi)}</td>
+                  <td className="px-5 py-3.5 text-xs text-gray-700 whitespace-nowrap">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}</td>
                   <td className="px-5 py-3.5 text-xs text-gray-700 max-w-[240px]">{i.alasan}</td>
                   <td className="px-5 py-3.5"><Badge status={i.statusPersetujuan} /></td>
                   <td className="px-5 py-3.5 text-xs text-gray-600">{i.namaApprover ? `${i.namaApprover} · ${formatTanggal(i.tanggalApproval || '', 'tanpaHari')}` : '–'}</td>
@@ -1741,64 +1740,6 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
 // Laporan
 // ---------------------------------------------------------------------------
 
-type ExportFormat = 'csv' | 'xlsx' | 'doc' | 'pdf'
-
-function downloadReport(filename: string, headers: string[], rows: unknown[][], format: ExportFormat, title: string) {
-  const escapeCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
-  const content = [headers, ...rows].map(row => row.map(escapeCell).join(',')).join('\r\n')
-  if (format === 'xlsx') {
-    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
-    worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: headers.length - 1 } }) }
-    worksheet['!cols'] = headers.map((header, index) => ({
-      wch: Math.min(32, Math.max(header.length + 2, ...rows.slice(0, 100).map(row => String(row[index] ?? '').length + 2))),
-    }))
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Laporan')
-    XLSX.writeFile(workbook, filename)
-    return
-  }
-
-  if (format === 'pdf') {
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-    pdf.setFontSize(14)
-    pdf.text(title, 14, 14)
-    pdf.setFontSize(8)
-    pdf.text(`Dicetak ${new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(new Date())}`, 14, 20)
-    autoTable(pdf, {
-      head: [headers],
-      body: rows.map(row => row.map(value => String(value ?? ''))),
-      startY: 25,
-      theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
-      headStyles: { fillColor: [6, 95, 70], textColor: 255 },
-      alternateRowStyles: { fillColor: [240, 253, 244] },
-      margin: { left: 10, right: 10 },
-    })
-    pdf.save(filename)
-    return
-  }
-
-  if (format === 'doc') {
-    const tableRows = [headers, ...rows].map((row, index) => `<tr>${row.map(value => index === 0 ? `<th>${String(value ?? '')}</th>` : `<td>${String(value ?? '')}</td>`).join('')}</tr>`).join('')
-    const html = `<html><head><meta charset="utf-8"><style>body{font-family:Arial;color:#19352a}h1{font-size:18pt}p{font-size:9pt;color:#666}table{border-collapse:collapse;font-family:Arial;font-size:10pt;width:100%}th,td{border:1px solid #9bb5a5;padding:6px;text-align:left}th{background:#065f46;color:#fff}tr:nth-child(even){background:#f0fdf4}</style></head><body><h1>${title}</h1><p>Dicetak ${new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(new Date())}</p><table>${tableRows}</table></body></html>`
-    const blob = new Blob([html], { type: 'application/msword' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(url)
-    return
-  }
-
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(url)
-}
 
 function AdminLaporan({ penghuni, gedungList, sesiList, data, now }: {
   penghuni: Penghuni[]

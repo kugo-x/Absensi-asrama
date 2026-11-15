@@ -1,4 +1,4 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi } from './types'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso } from './types'
 import {
   DEMO_ACCOUNTS,
   gedungList as initialGedung,
@@ -132,6 +132,7 @@ const JUDUL_AKTIVITAS: Record<string, string> = {
   'presensi': 'Presensi berhasil',
   'presensi/koreksi': 'Koreksi presensi disimpan',
   'presensi/validasi-foto': 'Validasi foto disimpan',
+  'presensi/validasi-foto-massal': 'Foto presensi diterima',
   'izin': 'Pengajuan izin terkirim',
   'izin/status': 'Keputusan izin disimpan',
   'penghuni': 'Penghuni ditambahkan',
@@ -211,7 +212,7 @@ export const setPjGedungApi = (id: number, nimPj: string | null) =>
 export const saveSesiApi = (sesi: Sesi[]) => postJson('sesi', { sesi: sesi.filter(s => s.idGedung == null) })
 
 // Fasil PJ: atur absen malam gedung yang dipegang
-export const saveSesiGedungApi = (data: { jamMulai: string; jamSelesai: string; aktif: boolean }) => postJson('sesi-gedung', data)
+export const saveSesiGedungApi = (data: { jamMulai: string; jamSelesai: string; aktif: boolean; hari?: JadwalHari[] }) => postJson('sesi-gedung', data)
 
 export const addLiburApi = (data: Omit<HariLibur, 'id'>) => postJson('libur', data)
 
@@ -306,11 +307,14 @@ export const koreksiPresensiApi = (data: { nim: string; tanggal: string; sesi: s
 export const validasiFotoApi = (id: number, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) =>
   postJson('presensi/validasi-foto', { id, status, catatan })
 
+// Fasil: terima banyak foto sekaligus (penolakan tetap satu per satu karena wajib bercatatan)
+export const validasiFotoMassalApi = (ids: number[]) => postJson('presensi/validasi-foto-massal', { ids })
+
 // ---------- Izin ----------
 
 export const fetchIzin = () => getList<IzinRecord>('izin', initialIzin)
 
-export const submitIzinApi = (data: { nim: string; alasan: string; tanggal: string; tanggalSelesai: string; sesi: string | null; fileBukti?: string }) =>
+export const submitIzinApi = (data: { nim: string; alasan: string; tanggal: string; tanggalSelesai: string; sesi: string | null; fileBukti?: string; hariBerulang?: HariIso[] | null }) =>
   postJson('izin', data)
 
 export const updateIzinStatusApi = (id: number, status: 'Disetujui' | 'Ditolak', approverNim: string, catatan: string) =>

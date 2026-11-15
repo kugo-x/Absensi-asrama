@@ -37,21 +37,55 @@ class PresensiService
      * atau sesi khusus gedung tempat kamarnya berada (tabel `sesi_gedung`).
      * Kunci kembalian sama: Nama, Jam_mulai, Jam_selesai, Aktif, created_at (+ Id_Gedung untuk sesi gedung).
      */
-    public function cariSesiAktif(string $nim, string $nama): ?array
+    public function cariSesiAktif(string $nim, string $nama, ?string $tanggal = null): ?array
     {
         $global = $this->db->table('sesi')->where('Nama', $nama)->where('Aktif', 1)->get()->getRowArray();
         if ($global) {
             return $global;
         }
 
-        return $this->db->table('sesi_gedung sg')
-            ->select('sg.Nama, sg.Jam_mulai, sg.Jam_selesai, sg.Aktif, sg.created_at, sg.Id_Gedung')
+        $sg = $this->db->table('sesi_gedung sg')
+            ->select('sg.Id_sesi_gedung, sg.Nama, sg.Jam_mulai, sg.Jam_selesai, sg.Aktif, sg.created_at, sg.Id_Gedung')
             ->join('kamar k', 'k.Id_Gedung = sg.Id_Gedung')
             ->join('user u', 'u.Nomor_kamar = k.Nomor_kamar')
             ->where('u.NIM', $nim)
             ->where('sg.Nama', $nama)
             ->where('sg.Aktif', 1)
             ->get()->getRowArray();
+
+        return $sg ? $this->jadwalPadaTanggal($sg, $tanggal ?? date('Y-m-d')) : null;
+    }
+
+    /** Hari ISO-8601 (1 = Senin … 7 = Minggu) dari tanggal YYYY-MM-DD */
+    public static function hariIso(string $tanggal): int
+    {
+        return (int) date('N', strtotime($tanggal));
+    }
+
+    /**
+     * Terapkan pengecualian per hari (tabel sesi_gedung_hari) pada sebuah sesi gedung.
+     * null = tidak ada absen pada hari itu (diliburkan fasil).
+     */
+    public function jadwalPadaTanggal(array $sg, string $tanggal): ?array
+    {
+        $khusus = $this->db->table('sesi_gedung_hari')
+            ->where('Id_sesi_gedung', $sg['Id_sesi_gedung'])
+            ->where('Hari', self::hariIso($tanggal))
+            ->get()->getRowArray();
+        if (! $khusus) {
+            return $sg;
+        }
+        if (! (int) $khusus['Aktif']) {
+            return null;
+        }
+
+        return array_merge($sg, ['Jam_mulai' => $khusus['Jam_mulai'], 'Jam_selesai' => $khusus['Jam_selesai']]);
+    }
+
+    /** Kondisi SQL: izin berlaku pada hari dalam seminggu milik $tanggal (izin rutin berulang) */
+    private function kondisiHariIzin(string $tanggal): string
+    {
+        return '(Hari_berulang IS NULL OR FIND_IN_SET(' . self::hariIso($tanggal) . ', Hari_berulang) > 0)';
     }
 
     /** Nama sesi dikenal di sistem (global maupun per gedung), mis. untuk validasi pengajuan izin */
@@ -68,6 +102,7 @@ class PresensiService
             ->where('Status_persetujuan', 'Disetujui')
             ->where('Tanggal <=', $tanggal)
             ->where('COALESCE(Tanggal_selesai, Tanggal) >= ' . $this->db->escape($tanggal), null, false)
+            ->where($this->kondisiHariIzin($tanggal), null, false)
             ->groupStart()->where('Sesi', null)->orWhere('Sesi', $sesi)->groupEnd()
             ->get()->getRowArray();
     }
@@ -84,6 +119,7 @@ class PresensiService
             ->where('Status_persetujuan', 'Disetujui')
             ->where('Tanggal <=', $tanggal)
             ->where('COALESCE(Tanggal_selesai, Tanggal) >= ' . $this->db->escape($tanggal), null, false)
+            ->where($this->kondisiHariIzin($tanggal), null, false)
             ->get()->getResultArray();
 
         $perNim = [];
@@ -154,13 +190,16 @@ class PresensiService
         //   mengatur tidak punya sesi tersebut.
         $daftarSesi = $this->db->table('sesi')->where('Aktif', 1)->orderBy('Jam_mulai', 'ASC')->get()->getResultArray();
         $sesiGedung = $this->db->table('sesi_gedung sg')
-            ->select('sg.Nama, sg.Jam_mulai, sg.Jam_selesai, sg.created_at, sg.Id_Gedung, g.Nama AS Nama_gedung')
+            ->select('sg.Id_sesi_gedung, sg.Nama, sg.Jam_mulai, sg.Jam_selesai, sg.created_at, sg.Id_Gedung, g.Nama AS Nama_gedung')
             ->join('gedung g', 'g.Id_Gedung = sg.Id_Gedung')
             ->where('sg.Aktif', 1)
             ->orderBy('sg.Jam_mulai', 'ASC')->orderBy('g.Nama', 'ASC')
             ->get()->getResultArray();
         foreach ($sesiGedung as $sg) {
-            $daftarSesi[] = $sg;
+            // Jadwal khusus hari itu; hari yang diliburkan fasil tidak punya absen malam
+            if ($berlaku = $this->jadwalPadaTanggal($sg, $tanggal)) {
+                $daftarSesi[] = $berlaku;
+            }
         }
 
         // Penghuni wajib absen saat ini; yang baru masuk setelah $tanggal tidak ditandai (backfill aman)

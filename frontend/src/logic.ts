@@ -1,4 +1,4 @@
-import type { HariLibur, IzinRecord, Kamar, Penghuni, PresensiRecord, PresensiStatus, Sesi } from './types'
+import type { HariIso, HariLibur, IzinRecord, Kamar, Penghuni, PresensiRecord, PresensiStatus, Sesi } from './types'
 
 // ---------- Tanggal & waktu lokal (WIB perangkat) ----------
 
@@ -19,6 +19,30 @@ export function toHM(d: Date): string {
 export function addDays(tanggal: string, n: number): string {
   const [y, m, d] = tanggal.split('-').map(Number)
   return toDateStr(new Date(y, m - 1, d + n))
+}
+
+/** Hari ISO dari YYYY-MM-DD: 1 = Senin … 7 = Minggu */
+export function hariIso(tanggal: string): HariIso {
+  const [y, m, d] = tanggal.split('-').map(Number)
+  return ((new Date(y, m - 1, d).getDay() || 7) as HariIso)
+}
+
+export const NAMA_HARI: Record<HariIso, string> = { 1: 'Senin', 2: 'Selasa', 3: 'Rabu', 4: 'Kamis', 5: 'Jumat', 6: 'Sabtu', 7: 'Minggu' }
+export const SEMUA_HARI: HariIso[] = [1, 2, 3, 4, 5, 6, 7]
+
+/** Ada tanggal di [dari, sampai] yang jatuh pada salah satu `hari` (cukup periksa 7 hari pertama) */
+export function adaHariDalamRentang(dari: string, sampai: string, hari: HariIso[]): boolean {
+  for (let t = dari, n = 0; t <= sampai && n < 7; t = addDays(t, 1), n++) {
+    if (hari.includes(hariIso(t))) return true
+  }
+  return false
+}
+
+/** "Setiap Selasa & Kamis" / "Setiap Senin, Rabu & Jumat" */
+export function teksHariBerulang(hari?: HariIso[] | null): string {
+  if (!hari || hari.length === 0 || hari.length === 7) return ''
+  const nama = [...hari].sort().map(h => NAMA_HARI[h])
+  return 'Setiap ' + (nama.length === 1 ? nama[0] : `${nama.slice(0, -1).join(', ')} & ${nama[nama.length - 1]}`)
 }
 
 // ---------- Format tampilan tanggal (hanya untuk ditampilkan; data tetap YYYY-MM-DD) ----------
@@ -75,13 +99,30 @@ function berlakuDiGedung(s: Sesi, gedung?: string | null): boolean {
  * Tanpa `gedung`, hanya sesi global yang dikembalikan (sesi per gedung seperti absen Malam
  * berbeda-beda jamnya, jadi selalu harus dikaitkan ke gedung penghuni).
  */
-export function sesiAktif(list: Sesi[], gedung?: string | null): Sesi[] {
-  return list.filter(s => s.aktif && berlakuDiGedung(s, gedung)).sort((a, b) => a.jamMulai.localeCompare(b.jamMulai))
+export function sesiAktif(list: Sesi[], gedung?: string | null, tanggal?: string): Sesi[] {
+  return list
+    .filter(s => s.aktif && berlakuDiGedung(s, gedung))
+    .flatMap(s => {
+      const t = tanggal ? sesiPadaTanggal(s, tanggal) : s
+      return t ? [t] : []
+    })
+    .sort((a, b) => a.jamMulai.localeCompare(b.jamMulai))
+}
+
+/**
+ * Jadwal sebuah sesi pada tanggal tertentu, memperhitungkan pengecualian per hari dari fasil.
+ * null = tidak ada sesi itu pada hari tersebut (diliburkan).
+ */
+export function sesiPadaTanggal(s: Sesi, tanggal: string): Sesi | null {
+  const khusus = s.jadwalHari?.find(h => h.hari === hariIso(tanggal))
+  if (!khusus) return s
+  if (!khusus.aktif || !khusus.jamMulai || !khusus.jamSelesai) return null
+  return { ...s, jamMulai: khusus.jamMulai, jamSelesai: khusus.jamSelesai }
 }
 
 /** Sesi aktif bernama `nama` yang berlaku di gedung tertentu (mis. "Malam" milik Asrama Putra A) */
-export function sesiUntuk(list: Sesi[], nama: string, gedung?: string | null): Sesi | undefined {
-  return sesiAktif(list, gedung).find(s => s.nama === nama)
+export function sesiUntuk(list: Sesi[], nama: string, gedung?: string | null, tanggal?: string): Sesi | undefined {
+  return sesiAktif(list, gedung, tanggal).find(s => s.nama === nama)
 }
 
 /** Daftar nama sesi aktif yang unik (untuk pilihan sesi lintas gedung, mis. di halaman admin) */
@@ -113,6 +154,7 @@ export function cariLibur(tanggal: string, libur: HariLibur[]): HariLibur | unde
 
 export function izinMencakup(i: IzinRecord, tanggal: string, sesi: string): boolean {
   return i.tanggal <= tanggal && tanggal <= (i.tanggalSelesai || i.tanggal) && (!i.sesi || i.sesi === sesi)
+    && (!i.hariBerulang || i.hariBerulang.length === 0 || i.hariBerulang.includes(hariIso(tanggal)))
 }
 
 export function cariIzinDisetujui(izin: IzinRecord[], nim: string, tanggal: string, sesi: string): IzinRecord | undefined {
@@ -188,7 +230,7 @@ export interface RiwayatRow {
 export function riwayatPenghuni(nim: string, mulai: string, sampai: string, sesiList: Sesi[], data: DataPresensi, now: Date, gedung?: string | null): RiwayatRow[] {
   const rows: RiwayatRow[] = []
   for (const tanggal of dateRangeDesc(mulai, sampai)) {
-    for (const sesi of [...sesiAktif(sesiList, gedung)].reverse()) {
+    for (const sesi of [...sesiAktif(sesiList, gedung, tanggal)].reverse()) {
       const detail = statusSesi(nim, tanggal, sesi, data, now)
       if (detail.status === 'Belum' && detail.fase === 'belum-dibuka') continue
       rows.push({ tanggal, sesi, detail })

@@ -491,10 +491,10 @@ class DataController extends BaseController
         }
 
         // Sesi global (admin) atau sesi gedung penghuni (fasil, mis. Malam)
-        $dataSesi = $this->presensiService->cariSesiAktif($nim, $sesi);
+        $dataSesi = $this->presensiService->cariSesiAktif($nim, $sesi, $tanggal);
         if (!$dataSesi) {
             return $this->fail(strcasecmp($sesi, PresensiService::SESI_PER_GEDUNG) === 0
-                ? 'Absen ' . strtolower($sesi) . ' belum diatur atau sedang dinonaktifkan oleh fasil gedung Anda.'
+                ? 'Tidak ada absen ' . strtolower($sesi) . ' hari ini: belum diatur, dinonaktifkan, atau diliburkan oleh fasil gedung Anda.'
                 : 'Sesi ' . $sesi . ' tidak tersedia.', 400);
         }
         if (!$modeUji['abaikanJam'] && ($jam < $dataSesi['Jam_mulai'] || $jam > $dataSesi['Jam_selesai'])) {
@@ -806,6 +806,66 @@ class DataController extends BaseController
     }
 
     // ----------------------------------------------------
+    // POST /api/presensi/validasi-foto-massal  { ids: number[] }
+    // Fasil menerima banyak foto sekaligus. Penolakan tetap satu per satu karena wajib bercatatan.
+    // Foto yang sudah divalidasi atau bukan milik gedungnya dilewati, bukan menggagalkan semuanya.
+    // ----------------------------------------------------
+    public function validasiFotoMassal()
+    {
+        $token = $this->tokenUser();
+        if (($token['role'] ?? '') !== 'fasil') {
+            return $this->failForbidden('Hanya fasil yang dapat memvalidasi foto presensi.');
+        }
+        $fasilNim = $token['nim'] ?? '';
+
+        $input = $this->request->getJSON(true) ?? $this->request->getPost();
+        $ids   = $input['ids'] ?? null;
+        if (! is_array($ids) || $ids === []) {
+            return $this->fail('Pilih minimal satu foto presensi.', 400);
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn ($id) => $id > 0)));
+        if ($ids === [] || count($ids) > 500) {
+            return $this->fail('Daftar foto presensi tidak valid (maksimal 500 sekaligus).', 400);
+        }
+
+        // Hanya foto Menunggu milik penghuni gedung yang dipegang fasil ini
+        $milik = $this->db->table('presensi p')
+            ->select('p.Id_presensi')
+            ->join('user u', 'u.NIM = p.NIM')
+            ->join('kamar k', 'k.Nomor_kamar = u.Nomor_kamar')
+            ->join('gedung g', 'g.Id_Gedung = k.Id_Gedung')
+            ->whereIn('p.Id_presensi', $ids)
+            ->where('g.NIM_Pj', $fasilNim)
+            ->where('p.Status_foto', 'Menunggu')
+            ->where("p.Foto_wajah IS NOT NULL AND p.Foto_wajah <> ''", null, false)
+            ->get()->getResultArray();
+        $idMilik = array_map('intval', array_column($milik, 'Id_presensi'));
+
+        $diterima = 0;
+        if ($idMilik !== []) {
+            $now = date('Y-m-d H:i:s');
+            $this->db->transStart();
+            $this->db->table('presensi')
+                ->whereIn('Id_presensi', $idMilik)
+                ->where('Status_foto', 'Menunggu')
+                ->update(['Status_foto' => 'Diterima', 'Catatan_validasi' => null, 'Divalidasi_oleh' => $fasilNim, 'Divalidasi_pada' => $now, 'updated_at' => $now]);
+            $diterima = $this->db->affectedRows();
+            $this->db->transComplete();
+            if (! $this->db->transStatus()) {
+                return $this->fail('Validasi foto gagal disimpan.', 500);
+            }
+        }
+        $dilewati = count($ids) - $diterima;
+
+        return $this->respond([
+            'status'   => 'success',
+            'diterima' => $diterima,
+            'dilewati' => $dilewati,
+            'message'  => $diterima . ' foto diterima' . ($dilewati > 0 ? ', ' . $dilewati . ' dilewati (sudah divalidasi atau bukan gedung Anda)' : '') . '.',
+        ]);
+    }
+
+    // ----------------------------------------------------
     // GET /api/izin
     // ----------------------------------------------------
     public function getIzin()
@@ -825,6 +885,7 @@ class DataController extends BaseController
                 i.Tanggal as tanggal,
                 COALESCE(i.Tanggal_selesai, i.Tanggal) as tanggalSelesai,
                 i.Sesi as sesi,
+                i.Hari_berulang as hariBerulang,
                 COALESCE(i.Catatan_approver, '') as catatanApprover,
                 COALESCE(DATE_FORMAT(i.Tanggal_approval, '%Y-%m-%d'), '') as tanggalApproval
             FROM izin i
@@ -838,6 +899,8 @@ class DataController extends BaseController
         $data = $query->getResultArray();
         foreach ($data as &$row) {
             $row['id'] = (int) $row['id'];
+            // Izin rutin: daftar hari ISO (1 = Senin … 7 = Minggu); null = setiap hari dalam rentang
+            $row['hariBerulang'] = $row['hariBerulang'] === null ? null : array_map('intval', explode(',', $row['hariBerulang']));
         }
         return $this->respond($data);
     }
@@ -868,6 +931,28 @@ class DataController extends BaseController
             return $this->fail('Sesi tidak dikenal.', 400);
         }
 
+        // Izin rutin berulang (opsional): hari dalam seminggu, 1 = Senin … 7 = Minggu
+        $hariBerulang = null;
+        if (isset($input['hariBerulang']) && $input['hariBerulang'] !== null) {
+            $hari = $input['hariBerulang'];
+            if (!is_array($hari) || $hari === []) {
+                return $this->fail('Pilih minimal satu hari untuk izin rutin.', 400);
+            }
+            $hari = array_values(array_unique(array_map('intval', $hari)));
+            sort($hari);
+            if ($hari[0] < 1 || end($hari) > 7) {
+                return $this->fail('Hari izin rutin tidak valid.', 400);
+            }
+            if ($tanggalSelesai === $tanggal) {
+                return $this->fail('Izin rutin membutuhkan rentang tanggal (tanggal selesai setelah tanggal mulai).', 400);
+            }
+            if (!$this->adaHariDalamRentang($tanggal, $tanggalSelesai, $hari)) {
+                return $this->fail('Tidak ada hari terpilih di dalam rentang tanggal izin.', 400);
+            }
+            // Ketujuh hari = setiap hari, sama dengan izin biasa
+            $hariBerulang = count($hari) === 7 ? null : $hari;
+        }
+
         // Tolak pengajuan yang bertumpuk dengan izin pending/disetujui
         $bentrok = $this->db->table('izin')
             ->where('NIM', $nim)
@@ -877,8 +962,15 @@ class DataController extends BaseController
         if ($sesi !== null) {
             $bentrok->groupStart()->where('Sesi', null)->orWhere('Sesi', $sesi)->groupEnd();
         }
-        if ($bentrok->countAllResults()) {
-            return $this->fail('Sudah ada pengajuan izin pada tanggal/sesi tersebut.', 409);
+        // Dua izin rutin di rentang yang sama tidak bentrok bila harinya berbeda
+        foreach ($bentrok->get()->getResultArray() as $lama) {
+            $hariLama = $lama['Hari_berulang'] === null ? range(1, 7) : array_map('intval', explode(',', $lama['Hari_berulang']));
+            $irisan   = array_values(array_intersect($hariBerulang ?? range(1, 7), $hariLama));
+            $dari     = max($tanggal, $lama['Tanggal']);
+            $sampai   = min($tanggalSelesai, $lama['Tanggal_selesai'] ?? $lama['Tanggal']);
+            if ($irisan !== [] && $this->adaHariDalamRentang($dari, $sampai, $irisan)) {
+                return $this->fail('Sudah ada pengajuan izin pada tanggal/sesi tersebut.', 409);
+            }
         }
 
         $this->db->table('izin')->insert([
@@ -889,11 +981,24 @@ class DataController extends BaseController
             'Tanggal'            => $tanggal,
             'Tanggal_selesai'    => $tanggalSelesai,
             'Sesi'               => $sesi,
+            'Hari_berulang'      => $hariBerulang === null ? null : implode(',', $hariBerulang),
             'created_at'         => date('Y-m-d H:i:s'),
             'updated_at'         => date('Y-m-d H:i:s'),
         ]);
 
         return $this->respondCreated(['status' => 'success', 'message' => 'Pengajuan izin berhasil dikirim']);
+    }
+
+    /** Ada tanggal di [$dari, $sampai] yang jatuh pada salah satu hari ISO di $hari */
+    private function adaHariDalamRentang(string $dari, string $sampai, array $hari): bool
+    {
+        for ($t = $dari, $n = 0; $t <= $sampai && $n < 7; $t = date('Y-m-d', strtotime($t . ' +1 day')), $n++) {
+            if (in_array((int) date('N', strtotime($t)), $hari, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ----------------------------------------------------

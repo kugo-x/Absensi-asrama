@@ -68,6 +68,18 @@ export interface Sesi {
   namaGedung?: string | null
   diaturOleh?: string | null
   namaPengatur?: string | null
+  // Pengecualian per hari untuk sesi gedung (hari tanpa entri memakai jamMulai/jamSelesai)
+  jadwalHari?: JadwalHari[]
+}
+
+// 1 = Senin … 7 = Minggu (ISO-8601)
+export type HariIso = 1 | 2 | 3 | 4 | 5 | 6 | 7
+
+export interface JadwalHari {
+  hari: HariIso
+  aktif: boolean // false = tidak ada absen pada hari itu
+  jamMulai: string | null
+  jamSelesai: string | null
 }
 
 export interface HariLibur {
@@ -134,6 +146,8 @@ export interface IzinRecord {
   tanggalSelesai: string
   // null = berlaku untuk seluruh sesi pada rentang tanggal
   sesi: string | null
+  // Izin rutin: hanya berlaku pada hari-hari ini dalam rentang tanggal; null = setiap hari
+  hariBerulang?: HariIso[] | null
   catatanApprover?: string
   tanggalApproval?: string
 }
