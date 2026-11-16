@@ -1,4 +1,4 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso } from './types'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, RekapEventResult, GedungInput, KamarInput } from './types'
 import {
   DEMO_ACCOUNTS,
   gedungList as initialGedung,
@@ -8,6 +8,8 @@ import {
   izinList as initialIzin,
   sesiList as initialSesi,
   liburList as initialLibur,
+  eventList as initialEvent,
+  presensiEventList as initialPresensiEvent,
 } from './data/mockData'
 
 const API_BASE = '/api'
@@ -202,11 +204,24 @@ export const fetchPenghuni = () => getList<Penghuni>('penghuni', initialPenghuni
 export const fetchSesi = () => getList<Sesi>('sesi', initialSesi)
 export const fetchLibur = () => getList<HariLibur>('libur', initialLibur)
 
+export const addGedungApi = (data: GedungInput) => postJson('gedung/add', data)
+
 export const updateGedungApi = (id: number, data: { latitude: number | null; longitude: number | null; radiusMeter: number }) =>
   postJson('gedung/update', { id, ...data })
 
+export const updateGedungFullApi = (id: number, data: Partial<GedungInput>) =>
+  postJson('gedung/update', { id, ...data })
+
+export const deleteGedungApi = (id: number) => postJson('gedung/delete', { id })
+
 export const setPjGedungApi = (id: number, nimPj: string | null) =>
   postJson('gedung/pj', { id, nimPj })
+
+export const addKamarApi = (data: KamarInput) => postJson('kamar/add', data)
+
+export const updateKamarApi = (data: KamarInput) => postJson('kamar/update', data)
+
+export const deleteKamarApi = (nomorKamar: string) => postJson('kamar/delete', { nomorKamar })
 
 // Admin: hanya sesi global (sesi per gedung diatur fasil lewat saveSesiGedungApi)
 export const saveSesiApi = (sesi: Sesi[]) => postJson('sesi', { sesi: sesi.filter(s => s.idGedung == null) })
@@ -217,6 +232,19 @@ export const saveSesiGedungApi = (data: { jamMulai: string; jamSelesai: string; 
 export const addLiburApi = (data: Omit<HariLibur, 'id'>) => postJson('libur', data)
 
 export const deleteLiburApi = (id: number) => postJson('libur/delete', { id })
+
+export async function seedDatabaseApi(): Promise<ApiResult> {
+  try {
+    const res = await fetch(`${API_BASE}/seed`)
+    if (res.ok) {
+      const data = await res.json()
+      return { ok: true, message: data.message || 'Seeder berhasil dijalankan!' }
+    }
+    return { ok: false, message: 'Gagal menjalankan seeder.' }
+  } catch {
+    return { ok: false, message: 'Gagal terhubung ke seeder backend.' }
+  }
+}
 
 export const MODE_UJI_MATI: ModeUji = { abaikanJam: false, abaikanRadius: false }
 
@@ -319,3 +347,81 @@ export const submitIzinApi = (data: { nim: string; alasan: string; tanggal: stri
 
 export const updateIzinStatusApi = (id: number, status: 'Disetujui' | 'Ditolak', approverNim: string, catatan: string) =>
   postJson('izin/status', { id, status, approverNim, catatan })
+
+// ---------- Event Asrama ----------
+
+export const fetchEvent = () => getList<EventAsrama>('event', initialEvent)
+
+export const addEventApi = (data: Partial<EventAsrama>) => postJson('event/add', data)
+
+export const updateEventApi = (id: number, data: Partial<EventAsrama>) => postJson('event/update', { id, ...data })
+
+export const deleteEventApi = (id: number) => postJson('event/delete', { id })
+
+export async function fetchRekapEvent(idEvent: number): Promise<RekapEventResult | null> {
+  try {
+    const res = await fetch(`${API_BASE}/event/rekap/${idEvent}`, { headers: authHeaders() })
+    if (res.ok && isJson(res)) {
+      return await res.json()
+    }
+  } catch {
+    /* backend down / offline demo */
+  }
+
+  if (OFFLINE_DEMO) {
+    const ev = initialEvent.find(e => e.id === idEvent)
+    if (!ev) return null
+    const listPeserta = initialPenghuni.map(p => {
+      const pr = initialPresensiEvent.find(pe => pe.idEvent === idEvent && pe.nim === p.nim)
+      return {
+        nim: p.nim,
+        nama: p.nama,
+        nomorKamar: p.nomorKamar,
+        namaGedung: p.namaGedung,
+        status: (pr ? pr.status : 'Belum Absen') as 'Hadir' | 'Tidak Hadir' | 'Belum Absen',
+        waktu: pr ? pr.waktu : null,
+        jarakMeter: pr ? pr.jarakMeter : null,
+        foto: pr ? pr.foto : null,
+        keterangan: pr ? pr.keterangan : null,
+      }
+    })
+    const hadir = listPeserta.filter(x => x.status === 'Hadir').length
+    const tidakHadir = listPeserta.filter(x => x.status === 'Tidak Hadir').length
+    const belum = listPeserta.filter(x => x.status === 'Belum Absen').length
+    const total = listPeserta.length
+    return {
+      event: ev,
+      statistik: {
+        totalPeserta: total,
+        hadir,
+        tidakHadir,
+        belumAbsen: belum,
+        persenHadir: total > 0 ? Math.round((hadir / total) * 100) : 0,
+      },
+      peserta: listPeserta,
+    }
+  }
+
+  return null
+}
+
+export const absenEventApi = (data: { idEvent: number; latitude: number; longitude: number; foto: string }) =>
+  postJson('event/absen', data)
+
+export function fotoEventUrl(foto: string | null | undefined): string | null {
+  if (!foto) return null
+  if (foto.startsWith('data:')) return foto
+  return `${API_BASE}/event/foto/${encodeURIComponent(foto)}`
+}
+
+export async function fetchFotoEvent(foto: string | null | undefined): Promise<string | null> {
+  const url = fotoEventUrl(foto)
+  if (!url || url.startsWith('data:')) return url
+  try {
+    const res = await fetch(url, { headers: authHeaders() })
+    if (!res.ok) return null
+    return URL.createObjectURL(await res.blob())
+  } catch {
+    return null
+  }
+}

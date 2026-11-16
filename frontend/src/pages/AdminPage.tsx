@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi } from '../types'
+import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import {
@@ -10,13 +10,19 @@ import {
   izinList as initialIzin,
   sesiList as initialSesi,
   liburList as initialLibur,
+  eventList as initialEvent,
 } from '../data/mockData'
 import {
   fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, updateGedungApi, setPjGedungApi,
+  addGedungApi, updateGedungFullApi, deleteGedungApi, addKamarApi, updateKamarApi, deleteKamarApi,
+  fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent,
   fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, type ApiResult, type UbahPenghuni,
   fetchModeUji, saveModeUjiApi, MODE_UJI_MATI, resetPasswordApi,
-  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT, awalDemo,
+  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT, awalDemo, seedDatabaseApi,
 } from '../api'
+import MapPicker from '../components/MapPicker'
+import { EventFormModal, EventRekapModal } from '../components/EventModals'
+import { GedungFormModal, KamarFormModal } from '../components/GedungKamarModals'
 import { getCurrentPosition } from '../geo'
 import DateInput from '../components/DateInput'
 import TimeInput from '../components/TimeInput'
@@ -61,12 +67,16 @@ import {
   ArrowRight,
   ShieldCheck,
   FileText,
+  CalendarDays,
+  Sparkles,
+  Edit,
 } from 'lucide-react'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
   { id: 'penghuni', label: 'Data Penghuni', icon: <Users className="w-[18px] h-[18px]" /> },
   { id: 'gedung', label: 'Gedung & Kamar', icon: <Building2 className="w-[18px] h-[18px]" /> },
+  { id: 'event', label: 'Event Asrama', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
   { id: 'presensi', label: 'Presensi & Izin', icon: <ClipboardList className="w-[18px] h-[18px]" /> },
   { id: 'pengaturan', label: 'Sesi & Hari Libur', icon: <Settings className="w-[18px] h-[18px]" /> },
   { id: 'laporan', label: 'Laporan Rekap', icon: <FileBarChart className="w-[18px] h-[18px]" /> },
@@ -120,12 +130,21 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
   const [izin, setIzin] = useState<IzinRecord[]>(initialIzin)
   const [sesiList, setSesiList] = useState<Sesi[]>(awalDemo(initialSesi))
   const [libur, setLibur] = useState<HariLibur[]>(awalDemo(initialLibur))
+  const [eventList, setEventList] = useState<EventAsrama[]>(awalDemo(initialEvent))
   const [modeUji, setModeUji] = useState<ModeUji>(MODE_UJI_MATI)
   const [aturan, setAturan] = useState<AturanPresensi>(ATURAN_PRESENSI_DEFAULT)
   const [showAddModal, setShowAddModal] = useState(false)
   const [kelola, setKelola] = useState<Penghuni | null>(null)
   const [resetTarget, setResetTarget] = useState<Penghuni | null>(null)
   const [showDefaultNotice, setShowDefaultNotice] = useState(true)
+
+  // Modals Modul 2
+  const [gedungModal, setGedungModal] = useState<{ open: boolean; gedung: Gedung | null }>({ open: false, gedung: null })
+  const [kamarModal, setKamarModal] = useState<{ open: boolean; kamar: Kamar | null; defaultGedungId?: number }>({ open: false, kamar: null })
+  const [eventModal, setEventModal] = useState<{ open: boolean; event: EventAsrama | null }>({ open: false, event: null })
+  const [rekapModal, setRekapModal] = useState<{ open: boolean; rekap: RekapEventResult | null }>({ open: false, rekap: null })
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} })
+
   const now = new Date()
 
   useEffect(() => {
@@ -136,6 +155,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     fetchIzin().then(setIzin)
     fetchSesi().then(setSesiList)
     fetchLibur().then(setLibur)
+    fetchEvent().then(setEventList)
     fetchModeUji().then(setModeUji)
     fetchAturanPresensi().then(setAturan)
   }, [])
@@ -221,6 +241,122 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     return result
   }
 
+  const [loadingSeed, setLoadingSeed] = useState(false)
+  const handleSeed = async () => {
+    if (!confirm('Apakah Anda ingin mengisi database framework dengan data contoh bawaan (gedung, kamar, penghuni, event)?')) return
+    setLoadingSeed(true)
+    const res = await seedDatabaseApi()
+    setLoadingSeed(false)
+    alert(res.message)
+    fetchPenghuni().then(setPenghuni)
+    fetchGedung().then(setGedungList)
+    fetchKamar().then(setKamarList)
+    fetchPresensi().then(setPresensi)
+    fetchIzin().then(setIzin)
+    fetchEvent().then(setEventList)
+    fetchSesi().then(setSesiList)
+    fetchLibur().then(setLibur)
+  }
+
+  // Modul 2 Handlers
+  const handleSaveGedung = async (data: GedungInput & { id?: number }): Promise<ApiResult> => {
+    const res = data.id ? await updateGedungFullApi(data.id, data) : await addGedungApi(data)
+    if (res.ok || res.offline) {
+      fetchGedung().then(setGedungList)
+      fetchKamar().then(setKamarList)
+    }
+    return res
+  }
+
+  const handleDeleteGedung = (g: Gedung) => {
+    const kamarCount = kamarList.filter(k => k.idGedung === g.id).length
+    if (kamarCount > 0) {
+      alert(`Gedung "${g.nama}" tidak dapat dihapus karena masih memiliki ${kamarCount} kamar terdaftar. Hapus atau pindahkan kamar terlebih dahulu.`)
+      return
+    }
+    setConfirmDialog({
+      open: true,
+      title: 'Hapus Gedung',
+      message: `Apakah Anda yakin ingin menghapus gedung "${g.nama}"?`,
+      onConfirm: async () => {
+        const res = await deleteGedungApi(g.id)
+        if (res.ok || res.offline) {
+          fetchGedung().then(setGedungList)
+        } else {
+          alert(res.message || 'Gagal menghapus gedung.')
+        }
+        setConfirmDialog(c => ({ ...c, open: false }))
+      },
+    })
+  }
+
+  const handleSaveKamar = async (data: KamarInput, isEdit: boolean): Promise<ApiResult> => {
+    const res = isEdit ? await updateKamarApi(data) : await addKamarApi(data)
+    if (res.ok || res.offline) {
+      fetchKamar().then(setKamarList)
+      fetchGedung().then(setGedungList)
+    }
+    return res
+  }
+
+  const handleDeleteKamar = (nomorKamar: string) => {
+    const k = kamarList.find(x => x.nomorKamar === nomorKamar)
+    const isi = k ? hunianKamar(k, penghuni) : 0
+    if (isi > 0) {
+      alert(`Kamar ${nomorKamar} masih ditempati oleh ${isi} penghuni aktif. Pindahkan penghuni terlebih dahulu sebelum menghapus kamar.`)
+      return
+    }
+    setConfirmDialog({
+      open: true,
+      title: 'Hapus Kamar',
+      message: `Apakah Anda yakin ingin menghapus kamar ${nomorKamar}?`,
+      onConfirm: async () => {
+        const res = await deleteKamarApi(nomorKamar)
+        if (res.ok || res.offline) {
+          fetchKamar().then(setKamarList)
+          fetchGedung().then(setGedungList)
+        } else {
+          alert(res.message || 'Gagal menghapus kamar.')
+        }
+        setConfirmDialog(c => ({ ...c, open: false }))
+      },
+    })
+  }
+
+  const handleSaveEvent = async (data: Partial<EventAsrama>): Promise<ApiResult> => {
+    const res = eventModal.event ? await updateEventApi(eventModal.event.id, data) : await addEventApi(data)
+    if (res.ok || res.offline) {
+      fetchEvent().then(setEventList)
+    }
+    return res
+  }
+
+  const handleDeleteEvent = (ev: EventAsrama) => {
+    setConfirmDialog({
+      open: true,
+      title: 'Hapus Event Asrama',
+      message: `Apakah Anda yakin ingin menghapus event "${ev.judul}"? Catatan presensi peserta untuk event ini juga akan ikut terhapus.`,
+      onConfirm: async () => {
+        const res = await deleteEventApi(ev.id)
+        if (res.ok || res.offline) {
+          fetchEvent().then(setEventList)
+        } else {
+          alert(res.message || 'Gagal menghapus event.')
+        }
+        setConfirmDialog(c => ({ ...c, open: false }))
+      },
+    })
+  }
+
+  const handleViewRekap = async (ev: EventAsrama) => {
+    const rekap = await fetchRekapEvent(ev.id)
+    if (rekap) {
+      setRekapModal({ open: true, rekap })
+    } else {
+      alert('Gagal memuat rekap event.')
+    }
+  }
+
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}
       notifikasi={notifikasiAdmin({ passwordDefault: defaultPasswordCount, modeUji, gedung: gedungList, sesi: sesiList, izin, presensi })}>
@@ -235,13 +371,37 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
           now={now}
           modeUji={modeUji}
           onNavigateTab={setActiveTab}
+          onSeed={handleSeed}
+          loadingSeed={loadingSeed}
         />
       )}
       {activeTab === 'penghuni' && (
         <AdminPenghuni penghuni={penghuni} onAddClick={() => setShowAddModal(true)} onKelola={setKelola} onResetPassword={nim => setResetTarget(penghuni.find(p => p.nim === nim) || null)} />
       )}
       {activeTab === 'gedung' && (
-        <AdminGedung gedungList={gedungList} kamarList={kamarList} penghuni={penghuni} onSaveLokasi={handleSaveLokasi} onSetPj={handleSetPj} />
+        <AdminGedung
+          gedungList={gedungList}
+          kamarList={kamarList}
+          penghuni={penghuni}
+          onSaveLokasi={handleSaveLokasi}
+          onSetPj={handleSetPj}
+          onTambahGedung={() => setGedungModal({ open: true, gedung: null })}
+          onEditGedung={g => setGedungModal({ open: true, gedung: g })}
+          onHapusGedung={handleDeleteGedung}
+          onTambahKamar={defaultGedungId => setKamarModal({ open: true, kamar: null, defaultGedungId })}
+          onEditKamar={k => setKamarModal({ open: true, kamar: k })}
+          onHapusKamar={handleDeleteKamar}
+        />
+      )}
+      {activeTab === 'event' && (
+        <AdminEvent
+          eventList={eventList}
+          gedungList={gedungList}
+          onTambahEvent={() => setEventModal({ open: true, event: null })}
+          onEditEvent={ev => setEventModal({ open: true, event: ev })}
+          onHapusEvent={handleDeleteEvent}
+          onLihatRekap={handleViewRekap}
+        />
       )}
       {activeTab === 'presensi' && <AdminPresensiIzin penghuni={penghuni} gedungList={gedungList} sesiList={sesiList} data={data} now={now} />}
       {activeTab === 'pengaturan' && (
@@ -279,6 +439,54 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
         />
       )}
       {resetTarget && <ResetPasswordDialog target={resetTarget} onClose={() => setResetTarget(null)} />}
+
+      {/* Modals Modul 2 */}
+      {gedungModal.open && (
+        <GedungFormModal
+          gedung={gedungModal.gedung}
+          fasilList={penghuni.filter(p => p.role === 'fasil' && p.statusAktif)}
+          onClose={() => setGedungModal({ open: false, gedung: null })}
+          onSave={handleSaveGedung}
+        />
+      )}
+
+      {kamarModal.open && (
+        <KamarFormModal
+          kamar={kamarModal.kamar}
+          gedungList={gedungList}
+          defaultGedungId={kamarModal.defaultGedungId}
+          onClose={() => setKamarModal({ open: false, kamar: null })}
+          onSave={handleSaveKamar}
+        />
+      )}
+
+      {eventModal.open && (
+        <EventFormModal
+          event={eventModal.event}
+          gedungList={gedungList}
+          role="admin"
+          onClose={() => setEventModal({ open: false, event: null })}
+          onSave={handleSaveEvent}
+        />
+      )}
+
+      {rekapModal.open && rekapModal.rekap && (
+        <EventRekapModal
+          rekap={rekapModal.rekap}
+          onClose={() => setRekapModal({ open: false, rekap: null })}
+        />
+      )}
+
+      {confirmDialog.open && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel="Hapus"
+          isDestructive
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(c => ({ ...c, open: false }))}
+        />
+      )}
     </AppLayout>
   )
 }
@@ -313,6 +521,8 @@ function AdminDashboard({
   now,
   modeUji,
   onNavigateTab,
+  onSeed,
+  loadingSeed,
 }: {
   penghuni: Penghuni[]
   gedungList: Gedung[]
@@ -322,6 +532,8 @@ function AdminDashboard({
   now: Date
   modeUji?: ModeUji
   onNavigateTab?: (tab: string) => void
+  onSeed?: () => void
+  loadingSeed?: boolean
 }) {
   const today = todayLocal()
   const wajib = penghuniWajibAbsen(penghuni)
@@ -346,6 +558,24 @@ function AdminDashboard({
 
   return (
     <div className="space-y-4">
+      {/* Banner Seeder bila database kosong */}
+      {gedungList.length === 0 && penghuni.length === 0 && onSeed && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 shadow-2xs">
+          <div className="text-[13px]">
+            <p className="font-bold text-emerald-800">Database Anda saat ini masih kosong</p>
+            <p className="text-emerald-700/90">Klik tombol di samping untuk langsung mengisi database dengan data contoh (gedung, kamar, penghuni, sesi, dan event asrama).</p>
+          </div>
+          <button
+            type="button"
+            onClick={onSeed}
+            disabled={loadingSeed}
+            className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 cursor-pointer shadow-xs transition"
+          >
+            {loadingSeed ? 'Mengisi database...' : '⚡ Jalankan Seeder (Isi Data Contoh)'}
+          </button>
+        </div>
+      )}
+
       {/* 4 StatCards Utama */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
@@ -1085,71 +1315,173 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
 
 type GedungLokasi = { latitude: number | null; longitude: number | null; radiusMeter: number }
 
-function AdminGedung({ gedungList, kamarList, penghuni, onSaveLokasi, onSetPj }: {
+function AdminGedung({
+  gedungList,
+  kamarList,
+  penghuni,
+  onSaveLokasi,
+  onSetPj,
+  onTambahGedung,
+  onEditGedung,
+  onHapusGedung,
+  onTambahKamar,
+  onEditKamar,
+  onHapusKamar,
+}: {
   gedungList: Gedung[]
   kamarList: Kamar[]
   penghuni: Penghuni[]
   onSaveLokasi: (id: number, data: GedungLokasi) => Promise<ApiResult>
   onSetPj: (id: number, nimPj: string | null) => Promise<ApiResult>
+  onTambahGedung: () => void
+  onEditGedung: (gedung: Gedung) => void
+  onHapusGedung: (gedung: Gedung) => void
+  onTambahKamar: (defaultGedungId?: number) => void
+  onEditKamar: (kamar: Kamar) => void
+  onHapusKamar: (nomorKamar: string) => void
 }) {
   const fasilList = penghuni.filter(p => p.role === 'fasil' && p.statusAktif)
 
   return (
     <div className="space-y-6">
+      {/* Action Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4.5 rounded-2xl border border-emerald-100/90 shadow-xs">
+        <div>
+          <h3 className="text-base font-extrabold text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Manajemen Gedung & Kamar
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Tambah, edit, dan hapus gedung/kamar asrama serta atur radius geofencing presensi
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onTambahGedung}
+            className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-700/20 cursor-pointer transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Tambah Gedung</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onTambahKamar()}
+            className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+          >
+            <Plus className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Tambah Kamar</span>
+          </button>
+        </div>
+      </div>
+
       <div className="grid lg:grid-cols-2 gap-6">
         {gedungList.map(g => {
           const kamarGedung = kamarList.filter(k => k.idGedung === g.id)
           const kapasitas = kamarGedung.reduce((s, k) => s + k.kapasitas, 0)
           const terisi = kamarGedung.reduce((s, k) => s + hunianKamar(k, penghuni), 0)
           return (
-            <div key={g.id} className="bg-white rounded-2xl p-6 border border-emerald-100/80 shadow-xs hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-100">
-                    <Building2 className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-extrabold text-base text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>{g.nama}</h4>
-                    <span className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${g.jenis === 'Putra' ? 'bg-emerald-50 text-emerald-800' : 'bg-purple-50 text-purple-800'}`}>
-                      Asrama {g.jenis}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-xs font-bold text-gray-600">Terisi {terisi}/{kapasitas}</span>
-              </div>
-
-              <div className="border-t border-b border-gray-100 py-3 text-sm">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Fasil Penanggung Jawab</label>
-                <select
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white outline-none focus:border-emerald-600"
-                  value={g.nimPj || ''}
-                  onChange={e => onSetPj(g.id, e.target.value || null)}
-                >
-                  <option value="">— Belum ditetapkan —</option>
-                  {fasilList.map(f => {
-                    const pjLain = gedungList.find(x => x.nimPj === f.nim && x.id !== g.id)
-                    return <option key={f.nim} value={f.nim}>{f.nama} ({f.nim}){pjLain ? ` · saat ini PJ ${pjLain.nama}` : ''}</option>
-                  })}
-                </select>
-                {!g.nimPj && <p className="text-[11px] text-amber-700 font-semibold mt-1">Tanpa PJ, izin penghuni gedung ini tidak dapat diproses.</p>}
-              </div>
-
-              <GedungLokasiForm gedung={g} onSave={onSaveLokasi} />
-
-              <div className="mt-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-emerald-900 mb-2.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>Daftar Kamar</p>
-                <div className="flex flex-wrap gap-2">
-                  {kamarGedung.map(k => {
-                    const isi = hunianKamar(k, penghuni)
-                    const warna = isi >= k.kapasitas ? 'bg-rose-50 text-rose-800 border-rose-200' : isi === 0 ? 'bg-gray-50 text-gray-600 border-gray-200' : 'bg-emerald-50 text-emerald-800 border-emerald-100'
-                    return (
-                      <span key={k.nomorKamar} className={`mono text-xs font-semibold px-2.5 py-1 rounded-lg border ${warna}`} title={`Lantai ${k.lantai}`}>
-                        {k.nomorKamar} · {isi}/{k.kapasitas}
+            <div key={g.id} className="bg-white rounded-2xl p-6 border border-emerald-100/80 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between">
+              <div>
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-100 shrink-0">
+                      <Building2 className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-base text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>{g.nama}</h4>
+                      <span className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${g.jenis === 'Putra' ? 'bg-emerald-50 text-emerald-800' : 'bg-purple-50 text-purple-800'}`}>
+                        Asrama {g.jenis}
                       </span>
-                    )
-                  })}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-gray-600 mr-1">Terisi {terisi}/{kapasitas}</span>
+                    <button
+                      type="button"
+                      onClick={() => onEditGedung(g)}
+                      title="Edit Nama & Data Gedung"
+                      className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors"
+                    >
+                      <Edit className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onHapusGedung(g)}
+                      title="Hapus Gedung"
+                      className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-                <p className="text-[11px] text-gray-400 mt-2">Merah = penuh, abu-abu = kosong.</p>
+
+                <div className="border-t border-b border-gray-100 py-3 text-sm">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Fasil Penanggung Jawab</label>
+                  <select
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white outline-none focus:border-emerald-600"
+                    value={g.nimPj || ''}
+                    onChange={e => onSetPj(g.id, e.target.value || null)}
+                  >
+                    <option value="">— Belum ditetapkan —</option>
+                    {fasilList.map(f => {
+                      const pjLain = gedungList.find(x => x.nimPj === f.nim && x.id !== g.id)
+                      return <option key={f.nim} value={f.nim}>{f.nama} ({f.nim}){pjLain ? ` · saat ini PJ ${pjLain.nama}` : ''}</option>
+                    })}
+                  </select>
+                  {!g.nimPj && <p className="text-[11px] text-amber-700 font-semibold mt-1">Tanpa PJ, izin penghuni gedung ini tidak dapat diproses.</p>}
+                </div>
+
+                <GedungLokasiForm gedung={g} onSave={onSaveLokasi} />
+
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                      Daftar Kamar ({kamarGedung.length})
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => onTambahKamar(g.id)}
+                      className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Tambah Kamar</span>
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {kamarGedung.map(k => {
+                      const isi = hunianKamar(k, penghuni)
+                      const warna = isi >= k.kapasitas ? 'bg-rose-50 text-rose-800 border-rose-200' : isi === 0 ? 'bg-gray-50 text-gray-600 border-gray-200' : 'bg-emerald-50 text-emerald-800 border-emerald-100'
+                      return (
+                        <div
+                          key={k.nomorKamar}
+                          className={`group relative mono text-xs font-semibold pl-2.5 pr-1.5 py-1 rounded-lg border flex items-center gap-1.5 ${warna}`}
+                          title={`Lantai ${k.lantai} · Kapasitas: ${k.kapasitas} orang (terisi ${isi})`}
+                        >
+                          <span>{k.nomorKamar} · {isi}/{k.kapasitas}</span>
+                          <div className="flex items-center gap-0.5 opacity-80 group-hover:opacity-100">
+                            <button
+                              type="button"
+                              onClick={() => onEditKamar(k)}
+                              title="Edit Kamar"
+                              className="p-0.5 hover:bg-black/10 rounded cursor-pointer"
+                            >
+                              <Edit className="w-2.5 h-2.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onHapusKamar(k.nomorKamar)}
+                              title="Hapus Kamar"
+                              className="p-0.5 hover:bg-black/10 rounded cursor-pointer"
+                            >
+                              <Trash2 className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">Merah = penuh, abu-abu = kosong. Klik ikon pensil untuk ubah kapasitas/lantai.</p>
+                </div>
               </div>
             </div>
           )
@@ -1159,68 +1491,43 @@ function AdminGedung({ gedungList, kamarList, penghuni, onSaveLokasi, onSetPj }:
   )
 }
 
-// Form pengaturan titik koordinat (Latitude, Longitude) & Radius_meter gedung
+// Form pengaturan titik koordinat (Latitude, Longitude) & Radius_meter gedung dengan Leaflet MapPicker
 function GedungLokasiForm({ gedung, onSave }: { gedung: Gedung; onSave: (id: number, data: GedungLokasi) => Promise<ApiResult> }) {
   const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({
-    latitude: gedung.latitude?.toString() ?? '',
-    longitude: gedung.longitude?.toString() ?? '',
-    radiusMeter: gedung.radiusMeter.toString(),
-  })
-  const [locating, setLocating] = useState(false)
+  const [lat, setLat] = useState<number | null>(gedung.latitude)
+  const [lng, setLng] = useState<number | null>(gedung.longitude)
+  const [radiusMeter, setRadiusMeter] = useState(gedung.radiusMeter)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const hasKoordinat = gedung.latitude !== null && gedung.longitude !== null
 
-  const useMyLocation = async () => {
-    setLocating(true)
-    setMessage(null)
-    try {
-      const pos = await getCurrentPosition()
-      setForm(f => ({ ...f, latitude: pos.latitude.toFixed(8), longitude: pos.longitude.toFixed(8) }))
-      setMessage({ type: 'success', text: `Lokasi terbaca (akurasi ±${Math.round(pos.accuracy)} m).` })
-    } catch (err) {
-      setMessage({ type: 'error', text: (err as Error).message })
-    }
-    setLocating(false)
-  }
-
   const handleSave = async () => {
-    const lat = form.latitude.trim() === '' ? null : Number(form.latitude)
-    const lng = form.longitude.trim() === '' ? null : Number(form.longitude)
-    const radius = Number(form.radiusMeter)
     if ((lat === null) !== (lng === null)) {
       setMessage({ type: 'error', text: 'Latitude dan Longitude harus diisi keduanya.' })
       return
     }
-    if (lat !== null && (Number.isNaN(lat) || lat < -90 || lat > 90)) {
-      setMessage({ type: 'error', text: 'Latitude harus di antara -90 dan 90.' })
+    if (lat !== null && (lat < -90 || lat > 90 || lng! < -180 || lng! > 180)) {
+      setMessage({ type: 'error', text: 'Koordinat tidak valid.' })
       return
     }
-    if (lng !== null && (Number.isNaN(lng) || lng < -180 || lng > 180)) {
-      setMessage({ type: 'error', text: 'Longitude harus di antara -180 dan 180.' })
-      return
-    }
-    if (!Number.isInteger(radius) || radius < 1) {
+    if (radiusMeter < 1) {
       setMessage({ type: 'error', text: 'Radius harus bilangan bulat minimal 1 meter.' })
       return
     }
-    const result = await onSave(gedung.id, { latitude: lat, longitude: lng, radiusMeter: radius })
+    const result = await onSave(gedung.id, { latitude: lat, longitude: lng, radiusMeter })
     setMessage(result.ok || result.offline ? { type: 'success', text: 'Lokasi gedung berhasil disimpan.' } : { type: 'error', text: result.message })
     setEditing(false)
   }
-
-  const fieldCls = 'w-full px-3 py-2 rounded-lg border border-gray-200 text-xs mono outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all'
 
   return (
     <div className="mt-4 p-3.5 rounded-xl bg-blue-50/40 border border-blue-100">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-          <MapPin className="w-3.5 h-3.5" />
-          Lokasi Geofence
+          <MapPin className="w-3.5 h-3.5 text-blue-700" />
+          Lokasi Geofence Presensi
         </p>
         {!editing && (
-          <button onClick={() => { setEditing(true); setMessage(null) }} className="text-xs font-bold text-blue-800 hover:underline cursor-pointer">
-            Atur Lokasi
+          <button onClick={() => { setEditing(true); setMessage(null); setLat(gedung.latitude); setLng(gedung.longitude); setRadiusMeter(gedung.radiusMeter) }} className="text-xs font-bold text-blue-800 hover:underline cursor-pointer">
+            Atur Lokasi di Peta
           </button>
         )}
       </div>
@@ -1246,37 +1553,23 @@ function GedungLokasiForm({ gedung, onSave }: { gedung: Gedung; onSave: (id: num
           </div>
         </div>
       ) : (
-        <div className="space-y-2.5">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-[11px] font-semibold text-gray-600 mb-1">Latitude</label>
-              <input className={fieldCls} value={form.latitude} placeholder="-0.914488" onChange={e => setForm(f => ({ ...f, latitude: e.target.value }))} />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-gray-600 mb-1">Longitude</label>
-              <input className={fieldCls} value={form.longitude} placeholder="100.466542" onChange={e => setForm(f => ({ ...f, longitude: e.target.value }))} />
-            </div>
-          </div>
-          <div>
-            <label className="block text-[11px] font-semibold text-gray-600 mb-1">Radius (meter)</label>
-            <input type="number" min={1} className={fieldCls} value={form.radiusMeter} onChange={e => setForm(f => ({ ...f, radiusMeter: e.target.value }))} />
-          </div>
-          <button
-            type="button"
-            onClick={useMyLocation}
-            disabled={locating}
-            className="w-full py-2 rounded-lg text-xs font-bold text-blue-800 bg-white border border-blue-200 hover:bg-blue-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-          >
-            <Crosshair className="w-3.5 h-3.5" />
-            <span>{locating ? 'Membaca lokasi...' : 'Gunakan Lokasi Saya Saat Ini'}</span>
-          </button>
+        <div className="space-y-3">
+          <MapPicker
+            latitude={lat}
+            longitude={lng}
+            radiusMeter={radiusMeter}
+            onChange={(newLat, newLng) => { setLat(newLat); setLng(newLng) }}
+            onRadiusChange={setRadiusMeter}
+            height="220px"
+            title={`Atur Lokasi ${gedung.nama}`}
+          />
           <div className="flex gap-2">
             <button type="button" onClick={() => { setEditing(false); setMessage(null) }} className="flex-1 py-2 rounded-lg text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer">
               Batal
             </button>
             <button type="button" onClick={handleSave} className="flex-1 py-2 rounded-lg text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
               <Save className="w-3.5 h-3.5" />
-              <span>Simpan</span>
+              <span>Simpan Lokasi</span>
             </button>
           </div>
         </div>
@@ -1284,6 +1577,259 @@ function GedungLokasiForm({ gedung, onSave }: { gedung: Gedung; onSave: (id: num
 
       {message && (
         <p className={`text-[11px] font-semibold mt-2 ${message.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{message.text}</p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Event Asrama (Admin)
+// ---------------------------------------------------------------------------
+
+function AdminEvent({
+  eventList,
+  gedungList,
+  onTambahEvent,
+  onEditEvent,
+  onHapusEvent,
+  onLihatRekap,
+}: {
+  eventList: EventAsrama[]
+  gedungList: Gedung[]
+  onTambahEvent: () => void
+  onEditEvent: (ev: EventAsrama) => void
+  onHapusEvent: (ev: EventAsrama) => void
+  onLihatRekap: (ev: EventAsrama) => void
+}) {
+  const [filterTipe, setFilterTipe] = useState<'semua' | 'seluruh' | 'gedung'>('semua')
+  const [filterStatus, setFilterStatus] = useState<string>('semua')
+  const [cari, setCari] = useState('')
+
+  const today = todayLocal()
+  const now = new Date()
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+
+  const getStatusEvent = (ev: EventAsrama): 'Akan Datang' | 'Sedang Berlangsung' | 'Selesai' => {
+    if (ev.tanggal > today) return 'Akan Datang'
+    if (ev.tanggal < today) return 'Selesai'
+    if (currentTime < ev.jamMulai) return 'Akan Datang'
+    if (currentTime > ev.jamSelesai) return 'Selesai'
+    return 'Sedang Berlangsung'
+  }
+
+  const filtered = eventList.filter(ev => {
+    if (filterTipe !== 'semua' && ev.tipe !== filterTipe) return false
+    const st = getStatusEvent(ev)
+    if (filterStatus !== 'semua' && st !== filterStatus) return false
+    if (cari.trim()) {
+      const q = cari.toLowerCase()
+      return (
+        ev.judul.toLowerCase().includes(q) ||
+        (ev.deskripsi || '').toLowerCase().includes(q) ||
+        ev.lokasi.toLowerCase().includes(q) ||
+        (ev.namaGedung || '').toLowerCase().includes(q)
+      )
+    }
+    return true
+  })
+
+  const totalEvent = eventList.length
+  const akanDatang = eventList.filter(e => getStatusEvent(e) === 'Akan Datang').length
+  const berlangsung = eventList.filter(e => getStatusEvent(e) === 'Sedang Berlangsung').length
+  const selesai = eventList.filter(e => getStatusEvent(e) === 'Selesai').length
+
+  return (
+    <div className="space-y-6">
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard
+          icon={<CalendarDays className="w-5 h-5 text-emerald-700" />}
+          label="Total Event"
+          value={totalEvent}
+          sub="Seluruh asrama & gedung"
+          color="#064e3b"
+        />
+        <StatCard
+          icon={<Clock className="w-5 h-5 text-blue-700" />}
+          label="Akan Datang"
+          value={akanDatang}
+          sub="Jadwal mendatang"
+          color="#1e40af"
+        />
+        <StatCard
+          icon={<Sparkles className="w-5 h-5 text-amber-700" />}
+          label="Sedang Berlangsung"
+          value={berlangsung}
+          sub="Presensi dibuka saat ini"
+          color="#b45309"
+        />
+        <StatCard
+          icon={<CheckCircle2 className="w-5 h-5 text-purple-700" />}
+          label="Event Selesai"
+          value={selesai}
+          sub="Alpa dicatat otomatis"
+          color="#6b21a8"
+        />
+      </div>
+
+      {/* Action & Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4.5 rounded-2xl border border-emerald-100/90 shadow-xs">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Cari judul, lokasi, agenda..."
+              value={cari}
+              onChange={e => setCari(e.target.value)}
+              className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 w-48 sm:w-64 bg-gray-50/50"
+            />
+          </div>
+          <select
+            value={filterTipe}
+            onChange={e => setFilterTipe(e.target.value as any)}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white outline-none focus:border-emerald-600 font-medium"
+          >
+            <option value="semua">Semua Cakupan</option>
+            <option value="seluruh">Seluruh Asrama</option>
+            <option value="gedung">Per Gedung</option>
+          </select>
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white outline-none focus:border-emerald-600 font-medium"
+          >
+            <option value="semua">Semua Status</option>
+            <option value="Akan Datang">Akan Datang</option>
+            <option value="Sedang Berlangsung">Sedang Berlangsung</option>
+            <option value="Selesai">Selesai</option>
+          </select>
+        </div>
+
+        <button
+          type="button"
+          onClick={onTambahEvent}
+          className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-700/20 cursor-pointer transition-all"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Buat Event Baru</span>
+        </button>
+      </div>
+
+      {/* Event Cards Grid */}
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-2xl p-12 text-center border border-gray-100 shadow-xs">
+          <CalendarDays className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <h4 className="font-extrabold text-base text-gray-800 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Belum Ada Event
+          </h4>
+          <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
+            Tidak ada event yang sesuai dengan filter. Klik tombol di bawah untuk membuat event baru.
+          </p>
+          <button
+            type="button"
+            onClick={onTambahEvent}
+            className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Buat Event Baru</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-5">
+          {filtered.map(ev => {
+            const st = getStatusEvent(ev)
+            return (
+              <div
+                key={ev.id}
+                className="bg-white rounded-2xl p-5 border border-emerald-100/80 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-2.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          ev.tipe === 'seluruh'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-purple-50 text-purple-800 border border-purple-200'
+                        }`}
+                      >
+                        {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
+                      </span>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          st === 'Sedang Berlangsung'
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
+                            : st === 'Akan Datang'
+                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                            : 'bg-gray-100 text-gray-700 border border-gray-200'
+                        }`}
+                      >
+                        {st}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onEditEvent(ev)}
+                        title="Edit Event"
+                        className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onHapusEvent(ev)}
+                        title="Hapus Event"
+                        className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <h4 className="font-extrabold text-base text-gray-900 leading-snug" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                    {ev.judul}
+                  </h4>
+                  {ev.deskripsi && (
+                    <p className="text-xs text-gray-600 mt-1 line-clamp-2 leading-relaxed">
+                      {ev.deskripsi}
+                    </p>
+                  )}
+
+                  <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="font-semibold">{ev.tanggal}</span>
+                      <span className="text-gray-400">·</span>
+                      <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="font-semibold">{ev.jamMulai}–{ev.jamSelesai} WIB</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <MapPin className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                      <span className="truncate">{ev.lokasi} (Radius: {ev.radiusMeter} m)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-[11px] text-gray-400">
+                    Oleh: {ev.namaPembuat || ev.createdBy || 'Admin'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onLihatRekap(ev)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Rekap Kehadiran</span>
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )

@@ -11,15 +11,38 @@ class AsramaSeeder extends Seeder
         $db = \Config\Database::connect();
         $db->disableForeignKeyChecks();
 
-        // 1. Clear existing records
-        $db->table('izin')->truncate();
-        $db->table('hari_libur')->truncate();
-        $db->table('sesi')->truncate();
-        $db->table('sesi_gedung')->truncate();
-        $db->table('presensi')->truncate();
-        $db->table('gedung')->truncate();
-        $db->table('kamar')->truncate();
-        $db->table('user')->truncate();
+        // Helper untuk memfilter kolom yang hanya ada di tabel target
+        $filterData = static function (string $tableName, array $rows) use ($db): array {
+            if (! $db->tableExists($tableName)) {
+                return [];
+            }
+            $existingCols = $db->getFieldNames($tableName);
+            $cleanRows = [];
+            foreach ($rows as $row) {
+                $cleanRow = [];
+                foreach ($row as $col => $val) {
+                    if (in_array($col, $existingCols, true)) {
+                        $cleanRow[$col] = $val;
+                    }
+                }
+                $cleanRows[] = $cleanRow;
+            }
+            return $cleanRows;
+        };
+
+        // 1. Clear existing records safely
+        $tablesToTruncate = [
+            'presensi_event', 'event', 'izin', 'hari_libur',
+            'sesi_gedung_hari', 'sesi_gedung', 'sesi', 'presensi',
+            'user', 'kamar', 'gedung'
+        ];
+        foreach ($tablesToTruncate as $t) {
+            try {
+                if ($db->tableExists($t)) {
+                    $db->table($t)->truncate();
+                }
+            } catch (\Throwable $e) {}
+        }
 
         // 2. Insert Gedung
         $gedungData = [
@@ -64,7 +87,10 @@ class AsramaSeeder extends Seeder
                 'updated_at'   => date('Y-m-d H:i:s'),
             ],
         ];
-        $db->table('gedung')->insertBatch($gedungData);
+        $filteredGedung = $filterData('gedung', $gedungData);
+        if (! empty($filteredGedung)) {
+            $db->table('gedung')->insertBatch($filteredGedung);
+        }
 
         // 3. Insert Kamar
         $kamarData = [
@@ -81,7 +107,10 @@ class AsramaSeeder extends Seeder
             ['Nomor_kamar' => '102-PtA', 'Lantai' => 1, 'Kapasitas' => 2, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
             ['Nomor_kamar' => '201-PtA', 'Lantai' => 2, 'Kapasitas' => 2, 'Id_Gedung' => 3, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
         ];
-        $db->table('kamar')->insertBatch($kamarData);
+        $filteredKamar = $filterData('kamar', $kamarData);
+        if (! empty($filteredKamar)) {
+            $db->table('kamar')->insertBatch($filteredKamar);
+        }
 
         // 4. Insert Users
         $userData = [
@@ -284,7 +313,10 @@ class AsramaSeeder extends Seeder
                 'updated_at'   => date('Y-m-d H:i:s'),
             ],
         ];
-        $db->table('user')->insertBatch($userData);
+        $filteredUser = $filterData('user', $userData);
+        if (! empty($filteredUser)) {
+            $db->table('user')->insertBatch($filteredUser);
+        }
 
         // 5. Insert Presensi
         $today = date('Y-m-d');
@@ -297,7 +329,10 @@ class AsramaSeeder extends Seeder
             ['NIM' => '2310933009', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 05:10:00'), 'Latitude' => -0.91350000, 'Longitude' => 100.46580000, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
             ['NIM' => '2310933010', 'Tanggal' => $today, 'Sesi' => 'Subuh', 'Waktu' => date('Y-m-d 05:25:00'), 'Latitude' => -0.91350000, 'Longitude' => 100.46580000, 'Status' => 'Hadir', 'Foto_wajah' => null, 'Keterangan' => 'Hadir tepat waktu', 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
         ];
-        $db->table('presensi')->insertBatch($presensiData);
+        $filteredPresensi = $filterData('presensi', $presensiData);
+        if (! empty($filteredPresensi)) {
+            $db->table('presensi')->insertBatch($filteredPresensi);
+        }
 
         // 6. Insert Izin
         $izinData = [
@@ -358,30 +393,113 @@ class AsramaSeeder extends Seeder
                 'updated_at'         => date('Y-m-d H:i:s', strtotime('-4 days')),
             ],
         ];
-        $db->table('izin')->insertBatch($izinData);
+        $filteredIzin = $filterData('izin', $izinData);
+        if (! empty($filteredIzin)) {
+            $db->table('izin')->insertBatch($filteredIzin);
+        }
 
-        // 7. Insert Sesi (jam presensi)
-        $db->table('sesi')->insertBatch([
-            ['Nama' => 'Subuh', 'Jam_mulai' => '04:00:00', 'Jam_selesai' => '06:00:00', 'Aktif' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-        ]);
+        // 7. Insert Sesi (jam presensi) jika tabel ada
+        if ($db->tableExists('sesi')) {
+            $sesiData = [
+                ['Nama' => 'Subuh', 'Jam_mulai' => '04:00:00', 'Jam_selesai' => '06:00:00', 'Aktif' => 1, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+            ];
+            $db->table('sesi')->insertBatch($filterData('sesi', $sesiData));
+        }
 
-        // Absen malam per gedung, diatur fasil PJ masing-masing (Asrama Putri B sengaja belum diatur:
-        // penghuninya tidak punya absen malam sampai fasilnya mengatur)
-        $now = date('Y-m-d H:i:s');
-        $db->table('sesi_gedung')->insertBatch([
-            ['Id_Gedung' => 1, 'Nama' => 'Malam', 'Jam_mulai' => '18:00:00', 'Jam_selesai' => '20:30:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936001', 'created_at' => $now, 'updated_at' => $now],
-            ['Id_Gedung' => 2, 'Nama' => 'Malam', 'Jam_mulai' => '18:30:00', 'Jam_selesai' => '21:00:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936002', 'created_at' => $now, 'updated_at' => $now],
-            ['Id_Gedung' => 3, 'Nama' => 'Malam', 'Jam_mulai' => '19:00:00', 'Jam_selesai' => '21:30:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936003', 'created_at' => $now, 'updated_at' => $now],
-        ]);
+        // Absen malam per gedung jika tabel ada
+        if ($db->tableExists('sesi_gedung')) {
+            $now = date('Y-m-d H:i:s');
+            $sesiGedungData = [
+                ['Id_Gedung' => 1, 'Nama' => 'Malam', 'Jam_mulai' => '18:00:00', 'Jam_selesai' => '20:30:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936001', 'created_at' => $now, 'updated_at' => $now],
+                ['Id_Gedung' => 2, 'Nama' => 'Malam', 'Jam_mulai' => '18:30:00', 'Jam_selesai' => '21:00:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936002', 'created_at' => $now, 'updated_at' => $now],
+                ['Id_Gedung' => 3, 'Nama' => 'Malam', 'Jam_mulai' => '19:00:00', 'Jam_selesai' => '21:30:00', 'Aktif' => 1, 'Diatur_oleh' => '2310936003', 'created_at' => $now, 'updated_at' => $now],
+            ];
+            $db->table('sesi_gedung')->insertBatch($filterData('sesi_gedung', $sesiGedungData));
+        }
 
-        // 8. Insert Hari Libur
-        $db->table('hari_libur')->insert([
-            'Tanggal_mulai'   => date('Y-m-d', strtotime('-10 days')),
-            'Tanggal_selesai' => date('Y-m-d', strtotime('-9 days')),
-            'Keterangan'      => 'Libur Maulid Nabi',
-            'created_at'      => date('Y-m-d H:i:s'),
-            'updated_at'      => date('Y-m-d H:i:s'),
-        ]);
+        // 8. Insert Hari Libur jika tabel ada
+        if ($db->tableExists('hari_libur')) {
+            $liburData = [
+                [
+                    'Tanggal_mulai'   => date('Y-m-d', strtotime('-10 days')),
+                    'Tanggal_selesai' => date('Y-m-d', strtotime('-9 days')),
+                    'Keterangan'      => 'Libur Maulid Nabi',
+                    'created_at'      => date('Y-m-d H:i:s'),
+                    'updated_at'      => date('Y-m-d H:i:s'),
+                ]
+            ];
+            $filteredLibur = $filterData('hari_libur', $liburData);
+            if (! empty($filteredLibur)) {
+                $db->table('hari_libur')->insertBatch($filteredLibur);
+            }
+        }
+
+        // 9. Insert Event Asrama & Presensi Event (Modul 2) jika tabel ada
+        if ($db->tableExists('event')) {
+            $eventData = [
+                [
+                    'id'           => 1,
+                    'judul'        => 'Gotong Royong & Kerja Bakti Asrama',
+                    'deskripsi'    => 'Kegiatan gotong royong membersihkan pekarangan dan selokan lingkungan asrama mahasiswa.',
+                    'tipe'         => 'seluruh',
+                    'id_gedung'    => null,
+                    'tanggal'      => date('Y-m-d', strtotime('+2 days')),
+                    'jam_mulai'    => '08:00:00',
+                    'jam_selesai'  => '11:00:00',
+                    'lokasi'       => 'Lapangan Depan Asrama Unand',
+                    'latitude'     => -0.91448800,
+                    'longitude'    => 100.46654200,
+                    'radius_meter' => 80,
+                    'created_by'   => 'admin',
+                    'created_at'   => date('Y-m-d H:i:s'),
+                    'updated_at'   => date('Y-m-d H:i:s'),
+                ],
+                [
+                    'id'           => 2,
+                    'judul'        => 'Briefing Disiplin Gedung Asrama Putra A',
+                    'deskripsi'    => 'Pertemuan bulanan evaluasi ketertiban dan kebersihan khusus penghuni Gedung Asrama Putra A.',
+                    'tipe'         => 'gedung',
+                    'id_gedung'    => 1,
+                    'tanggal'      => date('Y-m-d', strtotime('+3 days')),
+                    'jam_mulai'    => '19:30:00',
+                    'jam_selesai'  => '21:00:00',
+                    'lokasi'       => 'Lobi Lantai 1 Gedung Asrama Putra A',
+                    'latitude'     => -0.91448800,
+                    'longitude'    => 100.46654200,
+                    'radius_meter' => 50,
+                    'created_by'   => '2310936001',
+                    'created_at'   => date('Y-m-d H:i:s'),
+                    'updated_at'   => date('Y-m-d H:i:s'),
+                ],
+            ];
+            $filteredEvent = $filterData('event', $eventData);
+            if (! empty($filteredEvent)) {
+                $db->table('event')->insertBatch($filteredEvent);
+            }
+        }
+
+        if ($db->tableExists('presensi_event')) {
+            $presensiEvData = [
+                [
+                    'id_event'     => 1,
+                    'nim'          => '2310933001',
+                    'tanggal'      => date('Y-m-d', strtotime('+2 days')),
+                    'waktu'        => '08:15:00',
+                    'latitude'     => -0.91448800,
+                    'longitude'    => 100.46654200,
+                    'jarak_meter'  => 12.50,
+                    'foto'         => null,
+                    'status'       => 'Hadir',
+                    'keterangan'   => 'Hadir tepat waktu',
+                    'created_at'   => date('Y-m-d H:i:s'),
+                    'updated_at'   => date('Y-m-d H:i:s'),
+                ],
+            ];
+            $filteredPresensiEv = $filterData('presensi_event', $presensiEvData);
+            if (! empty($filteredPresensiEv)) {
+                $db->table('presensi_event')->insertBatch($filteredPresensiEv);
+            }
+        }
 
         $db->enableForeignKeyChecks();
     }

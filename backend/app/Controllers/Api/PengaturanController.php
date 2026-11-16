@@ -33,81 +33,88 @@ class PengaturanController extends BaseController
     // ----------------------------------------------------
     public function getSesi()
     {
-        $data = $this->db->query("
-            SELECT
-                Id_sesi as id,
-                Nama as nama,
-                TIME_FORMAT(Jam_mulai, '%H:%i') as jamMulai,
-                TIME_FORMAT(Jam_selesai, '%H:%i') as jamSelesai,
-                Aktif as aktif,
-                COALESCE(DATE(created_at), '') as berlakuSejak
-            FROM sesi
-            ORDER BY Jam_mulai ASC
-        ")->getResultArray();
+        $data = [];
+        try {
+            if ($this->db->tableExists('sesi')) {
+                $data = $this->db->query("
+                    SELECT
+                        Id_sesi as id,
+                        Nama as nama,
+                        TIME_FORMAT(Jam_mulai, '%H:%i') as jamMulai,
+                        TIME_FORMAT(Jam_selesai, '%H:%i') as jamSelesai,
+                        Aktif as aktif,
+                        COALESCE(DATE(created_at), '') as berlakuSejak
+                    FROM sesi
+                    ORDER BY Jam_mulai ASC
+                ")->getResultArray();
 
-        foreach ($data as &$row) {
-            $row['id']          = (int) $row['id'];
-            $row['aktif']       = (bool) $row['aktif'];
-            $row['idGedung']    = null;
-            $row['namaGedung']  = null;
-            $row['diaturOleh']  = null;
-            $row['namaPengatur'] = null;
-        }
-        unset($row);
-
-        $token   = $this->tokenUser();
-        $builder = $this->db->table('sesi_gedung sg')
-            ->select("sg.Id_sesi_gedung, sg.Nama, TIME_FORMAT(sg.Jam_mulai, '%H:%i') AS jamMulai, TIME_FORMAT(sg.Jam_selesai, '%H:%i') AS jamSelesai,
-                      sg.Aktif, COALESCE(DATE(sg.created_at), '') AS berlakuSejak, sg.Id_Gedung, g.Nama AS namaGedung, sg.Diatur_oleh, u.Nama AS namaPengatur", false)
-            ->join('gedung g', 'g.Id_Gedung = sg.Id_Gedung')
-            ->join('user u', 'u.NIM = sg.Diatur_oleh', 'left')
-            ->orderBy('g.Nama', 'ASC');
-        switch ($token['role'] ?? '') {
-            case 'admin':
-                break;
-            case 'fasil':
-                $builder->where('g.NIM_Pj', $token['nim']);
-                break;
-            case 'penghuni':
-                $builder->join('kamar k', 'k.Id_Gedung = sg.Id_Gedung')->join('user p', 'p.Nomor_kamar = k.Nomor_kamar')->where('p.NIM', $token['nim']);
-                break;
-            default:
-                $builder->where('1 = 0', null, false);
-        }
-        $daftar = $builder->get()->getResultArray();
-        // Pengecualian per hari, dikelompokkan per sesi gedung
-        $perHari = [];
-        if ($daftar !== []) {
-            $rows = $this->db->table('sesi_gedung_hari')
-                ->select("Id_sesi_gedung, Hari, TIME_FORMAT(Jam_mulai, '%H:%i') AS jamMulai, TIME_FORMAT(Jam_selesai, '%H:%i') AS jamSelesai, Aktif", false)
-                ->whereIn('Id_sesi_gedung', array_column($daftar, 'Id_sesi_gedung'))
-                ->orderBy('Hari', 'ASC')->get()->getResultArray();
-            foreach ($rows as $h) {
-                $perHari[$h['Id_sesi_gedung']][] = [
-                    'hari'       => (int) $h['Hari'],
-                    'jamMulai'   => $h['jamMulai'],
-                    'jamSelesai' => $h['jamSelesai'],
-                    'aktif'      => (bool) $h['Aktif'],
-                ];
+                foreach ($data as &$row) {
+                    $row['id']          = (int) $row['id'];
+                    $row['aktif']       = (bool) $row['aktif'];
+                    $row['idGedung']    = null;
+                    $row['namaGedung']  = null;
+                    $row['diaturOleh']  = null;
+                    $row['namaPengatur'] = null;
+                }
+                unset($row);
             }
-        }
-        foreach ($daftar as $sg) {
-            $data[] = [
-                // id dibedakan dari id sesi global agar unik di klien
-                'id'           => self::OFFSET_ID_SESI_GEDUNG + (int) $sg['Id_sesi_gedung'],
-                'nama'         => $sg['Nama'],
-                'jamMulai'     => $sg['jamMulai'],
-                'jamSelesai'   => $sg['jamSelesai'],
-                'aktif'        => (bool) $sg['Aktif'],
-                'berlakuSejak' => $sg['berlakuSejak'],
-                'idGedung'     => (int) $sg['Id_Gedung'],
-                'namaGedung'   => $sg['namaGedung'],
-                'diaturOleh'   => $sg['Diatur_oleh'],
-                'namaPengatur' => $sg['namaPengatur'],
-                // Hari tanpa entri memakai jamMulai/jamSelesai di atas
-                'jadwalHari'   => $perHari[$sg['Id_sesi_gedung']] ?? [],
-            ];
-        }
+
+            if ($this->db->tableExists('sesi_gedung')) {
+                $token   = $this->tokenUser();
+                $builder = $this->db->table('sesi_gedung sg')
+                    ->select("sg.Id_sesi_gedung, sg.Nama, TIME_FORMAT(sg.Jam_mulai, '%H:%i') AS jamMulai, TIME_FORMAT(sg.Jam_selesai, '%H:%i') AS jamSelesai,
+                              sg.Aktif, COALESCE(DATE(sg.created_at), '') AS berlakuSejak, sg.Id_Gedung, g.Nama AS namaGedung, sg.Diatur_oleh, u.Nama AS namaPengatur", false)
+                    ->join('gedung g', 'g.Id_Gedung = sg.Id_Gedung')
+                    ->join('user u', 'u.NIM = sg.Diatur_oleh', 'left')
+                    ->orderBy('g.Nama', 'ASC');
+                switch ($token['role'] ?? '') {
+                    case 'admin':
+                        break;
+                    case 'fasil':
+                        $builder->where('g.NIM_Pj', $token['nim']);
+                        break;
+                    case 'penghuni':
+                        $builder->join('kamar k', 'k.Id_Gedung = sg.Id_Gedung')->join('user p', 'p.Nomor_kamar = k.Nomor_kamar')->where('p.NIM', $token['nim']);
+                        break;
+                    default:
+                        $builder->where('1 = 0', null, false);
+                }
+                $daftar = $builder->get()->getResultArray();
+                // Pengecualian per hari, dikelompokkan per sesi gedung
+                $perHari = [];
+                if ($daftar !== [] && $this->db->tableExists('sesi_gedung_hari')) {
+                    $rows = $this->db->table('sesi_gedung_hari')
+                        ->select("Id_sesi_gedung, Hari, TIME_FORMAT(Jam_mulai, '%H:%i') AS jamMulai, TIME_FORMAT(Jam_selesai, '%H:%i') AS jamSelesai, Aktif", false)
+                        ->whereIn('Id_sesi_gedung', array_column($daftar, 'Id_sesi_gedung'))
+                        ->orderBy('Hari', 'ASC')->get()->getResultArray();
+                    foreach ($rows as $h) {
+                        $perHari[$h['Id_sesi_gedung']][] = [
+                            'hari'       => (int) $h['Hari'],
+                            'jamMulai'   => $h['jamMulai'],
+                            'jamSelesai' => $h['jamSelesai'],
+                            'aktif'      => (bool) $h['Aktif'],
+                        ];
+                    }
+                }
+                foreach ($daftar as $sg) {
+                    $data[] = [
+                        // id dibedakan dari id sesi global agar unik di klien
+                        'id'           => self::OFFSET_ID_SESI_GEDUNG + (int) $sg['Id_sesi_gedung'],
+                        'nama'         => $sg['Nama'],
+                        'jamMulai'     => $sg['jamMulai'],
+                        'jamSelesai'   => $sg['jamSelesai'],
+                        'aktif'        => (bool) $sg['Aktif'],
+                        'berlakuSejak' => $sg['berlakuSejak'],
+                        'idGedung'     => (int) $sg['Id_Gedung'],
+                        'namaGedung'   => $sg['namaGedung'],
+                        'diaturOleh'   => $sg['Diatur_oleh'],
+                        'namaPengatur' => $sg['namaPengatur'],
+                        // Hari tanpa entri memakai jamMulai/jamSelesai di atas
+                        'jadwalHari'   => $perHari[$sg['Id_sesi_gedung']] ?? [],
+                    ];
+                }
+            }
+        } catch (\Throwable $e) {}
 
         return $this->respond($data);
     }
@@ -391,19 +398,24 @@ class PengaturanController extends BaseController
     // ----------------------------------------------------
     public function getLibur()
     {
-        $data = $this->db->query("
-            SELECT
-                Id_libur as id,
-                Tanggal_mulai as tanggalMulai,
-                Tanggal_selesai as tanggalSelesai,
-                Keterangan as keterangan
-            FROM hari_libur
-            ORDER BY Tanggal_mulai DESC
-        ")->getResultArray();
+        $data = [];
+        try {
+            if ($this->db->tableExists('hari_libur')) {
+                $data = $this->db->query("
+                    SELECT
+                        Id_libur as id,
+                        Tanggal_mulai as tanggalMulai,
+                        Tanggal_selesai as tanggalSelesai,
+                        Keterangan as keterangan
+                    FROM hari_libur
+                    ORDER BY Tanggal_mulai DESC
+                ")->getResultArray();
 
-        foreach ($data as &$row) {
-            $row['id'] = (int) $row['id'];
-        }
+                foreach ($data as &$row) {
+                    $row['id'] = (int) $row['id'];
+                }
+            }
+        } catch (\Throwable $e) {}
         return $this->respond($data);
     }
 

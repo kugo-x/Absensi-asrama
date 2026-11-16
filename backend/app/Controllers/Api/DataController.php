@@ -25,69 +25,186 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function getGedung()
     {
-        $query = $this->db->query("
-            SELECT 
-                g.Id_Gedung as id,
-                g.Nama as nama,
-                g.NIM_Pj as nimPj,
-                u.Nama as namaPj,
-                g.Latitude as latitude,
-                g.Longitude as longitude,
-                g.Radius_meter as radiusMeter,
-                (SELECT COUNT(*) FROM kamar k WHERE k.Id_Gedung = g.Id_Gedung) as totalKamar,
-                CASE WHEN g.Nama LIKE '%Putri%' THEN 'Putri' ELSE 'Putra' END as jenis
-            FROM gedung g
-            LEFT JOIN user u ON u.NIM = g.NIM_Pj
-            ORDER BY g.Id_Gedung ASC
-        ");
+        try {
+            if ($this->db->tableExists('gedung')) {
+                $query = $this->db->query("
+                    SELECT 
+                        g.Id_Gedung as id,
+                        g.Nama as nama,
+                        g.NIM_Pj as nimPj,
+                        u.Nama as namaPj,
+                        g.Latitude as latitude,
+                        g.Longitude as longitude,
+                        g.Radius_meter as radiusMeter,
+                        (SELECT COUNT(*) FROM kamar k WHERE k.Id_Gedung = g.Id_Gedung) as totalKamar,
+                        CASE WHEN g.Nama LIKE '%Putri%' THEN 'Putri' ELSE 'Putra' END as jenis
+                    FROM gedung g
+                    LEFT JOIN user u ON BINARY u.NIM = BINARY g.NIM_Pj
+                    ORDER BY g.Id_Gedung ASC
+                ");
 
-        $data = $query->getResultArray();
-        // DECIMAL dari MySQL dikembalikan sebagai string
-        foreach ($data as &$row) {
-            $row['id']          = (int) $row['id'];
-            $row['latitude']    = $row['latitude'] !== null ? (float) $row['latitude'] : null;
-            $row['longitude']   = $row['longitude'] !== null ? (float) $row['longitude'] : null;
-            $row['radiusMeter'] = (int) $row['radiusMeter'];
-            $row['totalKamar']  = (int) $row['totalKamar'];
+                $data = $query->getResultArray();
+                log_message('error', 'DEBUG: getGedung returned ' . count($data) . ' rows');
+                // DECIMAL dari MySQL dikembalikan sebagai string
+                foreach ($data as &$row) {
+                    $row['id']          = (int) $row['id'];
+                    $row['latitude']    = $row['latitude'] !== null ? (float) $row['latitude'] : null;
+                    $row['longitude']   = $row['longitude'] !== null ? (float) $row['longitude'] : null;
+                    $row['radiusMeter'] = (int) $row['radiusMeter'];
+                    $row['totalKamar']  = (int) $row['totalKamar'];
+                }
+                return $this->respond($data);
+            }
+        } catch (\Throwable $e) {}
+        return $this->respond([]);
+    }
+
+    // ----------------------------------------------------
+    // POST /api/gedung/add
+    // Tambah gedung baru (Admin)
+    // ----------------------------------------------------
+    public function addGedung()
+    {
+        $user = $this->tokenUser();
+        if (strtolower($user['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya Admin yang dapat menambah gedung.');
         }
-        return $this->respond($data);
+
+        $input  = $this->request->getJSON(true) ?? $this->request->getPost();
+        $nama   = trim($input['nama'] ?? '');
+        $nimPj  = trim($input['nimPj'] ?? '') ?: null;
+        $lat    = isset($input['latitude']) && $input['latitude'] !== '' ? (float) $input['latitude'] : null;
+        $lng    = isset($input['longitude']) && $input['longitude'] !== '' ? (float) $input['longitude'] : null;
+        $radius = (int) ($input['radiusMeter'] ?? 50);
+
+        if ($nama === '') {
+            return $this->fail('Nama gedung wajib diisi.', 400);
+        }
+        if ($radius < 1) {
+            return $this->fail('Radius geofence minimal 1 meter.', 400);
+        }
+
+        if (($lat === null) !== ($lng === null)) {
+            return $this->fail('Latitude dan Longitude harus diisi keduanya.', 400);
+        }
+
+        if ($nimPj !== null) {
+            $fasil = $this->db->table('user')->where('NIM', $nimPj)->get()->getRowArray();
+            if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || $fasil['Status_aktif'] !== 'Aktif') {
+                return $this->fail('PJ gedung harus akun fasil yang aktif.', 400);
+            }
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->table('gedung')->insert([
+            'Nama'         => $nama,
+            'NIM_Pj'       => $nimPj,
+            'Latitude'     => $lat,
+            'Longitude'    => $lng,
+            'Radius_meter' => $radius,
+            'created_at'   => $now,
+            'updated_at'   => $now,
+        ]);
+        $newId = $this->db->insertID();
+
+        if ($nimPj !== null) {
+            // Lepas dari gedung lain
+            $this->db->table('gedung')->where('NIM_Pj', $nimPj)->where('Id_Gedung !=', $newId)->update(['NIM_Pj' => null]);
+        }
+
+        return $this->respondCreated([
+            'status'  => 'success',
+            'message' => 'Gedung berhasil ditambahkan.',
+            'id'      => $newId,
+        ]);
     }
 
     // ----------------------------------------------------
     // POST /api/gedung/update
-    // Mengatur titik koordinat & radius geofence gedung
+    // Mengatur nama, titik koordinat & radius geofence gedung
     // ----------------------------------------------------
     public function updateGedung()
     {
         $input  = $this->request->getJSON(true) ?? $this->request->getPost();
         $id     = (int) ($input['id'] ?? 0);
-        $lat    = $input['latitude'] ?? null;
-        $lng    = $input['longitude'] ?? null;
+        $nama   = isset($input['nama']) ? trim($input['nama']) : null;
+        $lat    = array_key_exists('latitude', $input) && $input['latitude'] !== '' && $input['latitude'] !== null ? (float) $input['latitude'] : null;
+        $lng    = array_key_exists('longitude', $input) && $input['longitude'] !== '' && $input['longitude'] !== null ? (float) $input['longitude'] : null;
         $radius = (int) ($input['radiusMeter'] ?? 0);
 
-        if (! $id || $radius < 1) {
-            return $this->fail('ID gedung dan radius (minimal 1 meter) wajib diisi.', 400);
-        }
-        if (($lat === null) !== ($lng === null)) {
-            return $this->fail('Latitude dan Longitude harus diisi keduanya.', 400);
-        }
-        if ($lat !== null && (! is_numeric($lat) || $lat < -90 || $lat > 90 || ! is_numeric($lng) || $lng < -180 || $lng > 180)) {
-            return $this->fail('Koordinat tidak valid.', 400);
+        if (! $id) {
+            return $this->fail('ID gedung wajib diisi.', 400);
         }
 
-        $exists = $this->db->table('gedung')->where('Id_Gedung', $id)->countAllResults();
+        $exists = $this->db->table('gedung')->where('Id_Gedung', $id)->get()->getRowArray();
         if (! $exists) {
             return $this->failNotFound('Gedung tidak ditemukan.');
         }
 
-        $this->db->table('gedung')->where('Id_Gedung', $id)->update([
-            'Latitude'     => $lat,
-            'Longitude'    => $lng,
-            'Radius_meter' => $radius,
-            'updated_at'   => date('Y-m-d H:i:s'),
-        ]);
+        $updateData = ['updated_at' => date('Y-m-d H:i:s')];
 
-        return $this->respond(['status' => 'success', 'message' => 'Lokasi gedung berhasil diperbarui']);
+        if ($nama !== null) {
+            if ($nama === '') {
+                return $this->fail('Nama gedung tidak boleh kosong.', 400);
+            }
+            $updateData['Nama'] = $nama;
+        }
+
+        if (array_key_exists('radiusMeter', $input)) {
+            if ($radius < 1) {
+                return $this->fail('Radius geofence minimal 1 meter.', 400);
+            }
+            $updateData['Radius_meter'] = $radius;
+        }
+
+        if (array_key_exists('latitude', $input) || array_key_exists('longitude', $input)) {
+            if (($lat === null) !== ($lng === null)) {
+                return $this->fail('Latitude dan Longitude harus diisi keduanya.', 400);
+            }
+            if ($lat !== null && ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180)) {
+                return $this->fail('Koordinat tidak valid.', 400);
+            }
+            $updateData['Latitude']  = $lat;
+            $updateData['Longitude'] = $lng;
+        }
+
+        $this->db->table('gedung')->where('Id_Gedung', $id)->update($updateData);
+
+        return $this->respond(['status' => 'success', 'message' => 'Data gedung berhasil diperbarui']);
+    }
+
+    // ----------------------------------------------------
+    // POST /api/gedung/delete
+    // Hapus gedung (Admin)
+    // ----------------------------------------------------
+    public function deleteGedung()
+    {
+        $user = $this->tokenUser();
+        if (strtolower($user['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya Admin yang dapat menghapus gedung.');
+        }
+
+        $input = $this->request->getJSON(true) ?? $this->request->getPost();
+        $id    = (int) ($input['id'] ?? 0);
+
+        if (! $id) {
+            return $this->fail('ID gedung wajib disertakan.', 400);
+        }
+
+        $gedung = $this->db->table('gedung')->where('Id_Gedung', $id)->get()->getRowArray();
+        if (! $gedung) {
+            return $this->failNotFound('Gedung tidak ditemukan.');
+        }
+
+        // Cek kamar yang ada di gedung
+        $kamarCount = $this->db->table('kamar')->where('Id_Gedung', $id)->countAllResults();
+        if ($kamarCount > 0) {
+            return $this->fail(sprintf('Gedung "%s" tidak dapat dihapus karena masih memiliki %d kamar. Hapus atau pindahkan kamar terlebih dahulu.', $gedung['Nama'], $kamarCount), 400);
+        }
+
+        $this->db->table('gedung')->where('Id_Gedung', $id)->delete();
+
+        return $this->respond(['status' => 'success', 'message' => 'Gedung berhasil dihapus.']);
     }
 
     // ----------------------------------------------------
@@ -126,27 +243,209 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function getKamar()
     {
-        $query = $this->db->query("
-            SELECT
-                k.Nomor_kamar as nomorKamar,
-                k.Lantai as lantai,
-                k.Kapasitas as kapasitas,
-                k.Id_Gedung as idGedung,
-                g.Nama as namaGedung,
-                (SELECT COUNT(*) FROM user u WHERE u.Nomor_kamar = k.Nomor_kamar AND u.Status_aktif = 'Aktif') as penghuniCount
-            FROM kamar k
-            LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
-            ORDER BY k.Nomor_kamar ASC
-        ");
+        try {
+            if ($this->db->tableExists('kamar')) {
+                $cols = $this->db->getFieldNames('kamar');
+                $hasKapasitas = in_array('Kapasitas', $cols, true);
+                $hasLantai    = in_array('Lantai', $cols, true);
+                $hasIdGedung  = in_array('Id_Gedung', $cols, true);
 
-        $data = $query->getResultArray();
-        foreach ($data as &$row) {
-            $row['lantai']        = (int) $row['lantai'];
-            $row['kapasitas']     = (int) $row['kapasitas'];
-            $row['idGedung']      = (int) $row['idGedung'];
-            $row['penghuniCount'] = (int) $row['penghuniCount'];
+                $kapasitasCol = $hasKapasitas ? 'k.Kapasitas as kapasitas' : '4 as kapasitas';
+                $lantaiCol    = $hasLantai ? 'k.Lantai as lantai' : '1 as lantai';
+                $idGedungCol  = $hasIdGedung ? 'k.Id_Gedung as idGedung' : '1 as idGedung';
+
+                $hasGedung    = $this->db->tableExists('gedung');
+                $joinGedung   = ($hasIdGedung && $hasGedung) ? 'LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung' : '';
+                $namaGedungCol = ($hasIdGedung && $hasGedung) ? "COALESCE(g.Nama, '') as namaGedung" : "'' as namaGedung";
+
+                $hasUser       = $this->db->tableExists('user');
+                $countPenghuni = $hasUser 
+                    ? "(SELECT COUNT(*) FROM user u WHERE BINARY u.Nomor_kamar = BINARY k.Nomor_kamar AND u.Status_aktif = 'Aktif') as penghuniCount"
+                    : "0 as penghuniCount";
+
+                $query = $this->db->query("
+                    SELECT
+                        k.Nomor_kamar as nomorKamar,
+                        {$lantaiCol},
+                        {$kapasitasCol},
+                        {$idGedungCol},
+                        {$namaGedungCol},
+                        {$countPenghuni}
+                    FROM kamar k
+                    {$joinGedung}
+                    ORDER BY k.Nomor_kamar ASC
+                ");
+
+                $data = $query->getResultArray();
+                log_message('error', 'DEBUG: getKamar returned ' . count($data) . ' rows');
+                foreach ($data as &$row) {
+                    $row['lantai']        = (int) $row['lantai'];
+                    $row['kapasitas']     = (int) $row['kapasitas'];
+                    $row['idGedung']      = (int) $row['idGedung'];
+                    $row['penghuniCount'] = (int) $row['penghuniCount'];
+                }
+                return $this->respond($data);
+            }
+        } catch (\Throwable $e) {}
+        return $this->respond([]);
+    }
+
+    // ----------------------------------------------------
+    // POST /api/kamar/add
+    // Tambah kamar baru (Admin)
+    // ----------------------------------------------------
+    public function addKamar()
+    {
+        $user = $this->tokenUser();
+        if (strtolower($user['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya Admin yang dapat menambah kamar.');
         }
-        return $this->respond($data);
+
+        $input      = $this->request->getJSON(true) ?? $this->request->getPost();
+        $nomorKamar = strtoupper(trim($input['nomorKamar'] ?? ''));
+        $lantai     = (int) ($input['lantai'] ?? 1);
+        $kapasitas  = (int) ($input['kapasitas'] ?? 2);
+        $idGedung   = (int) ($input['idGedung'] ?? 0);
+
+        if ($nomorKamar === '') {
+            return $this->fail('Nomor kamar wajib diisi.', 400);
+        }
+        if ($lantai < 1) {
+            return $this->fail('Lantai minimal 1.', 400);
+        }
+        if ($kapasitas < 1) {
+            return $this->fail('Kapasitas minimal 1 orang.', 400);
+        }
+        if (! $idGedung || ! $this->db->table('gedung')->where('Id_Gedung', $idGedung)->countAllResults()) {
+            return $this->fail('Gedung tidak valid atau tidak ditemukan.', 400);
+        }
+
+        $kamarAda = $this->db->table('kamar')->where('Nomor_kamar', $nomorKamar)->countAllResults();
+        if ($kamarAda) {
+            return $this->fail('Nomor kamar ' . $nomorKamar . ' sudah digunakan.', 400);
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->table('kamar')->insert([
+            'Nomor_kamar' => $nomorKamar,
+            'Lantai'      => $lantai,
+            'Kapasitas'   => $kapasitas,
+            'Id_Gedung'   => $idGedung,
+            'created_at'  => $now,
+            'updated_at'  => $now,
+        ]);
+
+        return $this->respondCreated([
+            'status'  => 'success',
+            'message' => 'Kamar ' . $nomorKamar . ' berhasil ditambahkan.',
+        ]);
+    }
+
+    // ----------------------------------------------------
+    // POST /api/kamar/update
+    // Edit kamar (kapasitas dan lantai) (Admin)
+    // ----------------------------------------------------
+    public function updateKamar()
+    {
+        $user = $this->tokenUser();
+        if (strtolower($user['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya Admin yang dapat mengedit kamar.');
+        }
+
+        $input      = $this->request->getJSON(true) ?? $this->request->getPost();
+        $nomorKamar = strtoupper(trim($input['nomorKamar'] ?? ''));
+        $lantai     = (int) ($input['lantai'] ?? 1);
+        $kapasitas  = (int) ($input['kapasitas'] ?? 2);
+        $idGedung   = isset($input['idGedung']) ? (int) $input['idGedung'] : null;
+
+        if ($nomorKamar === '') {
+            return $this->fail('Nomor kamar wajib diisi.', 400);
+        }
+        if ($lantai < 1) {
+            return $this->fail('Lantai minimal 1.', 400);
+        }
+        if ($kapasitas < 1) {
+            return $this->fail('Kapasitas minimal 1 orang.', 400);
+        }
+
+        $kamar = $this->db->table('kamar')->where('Nomor_kamar', $nomorKamar)->get()->getRowArray();
+        if (! $kamar) {
+            return $this->failNotFound('Kamar tidak ditemukan.');
+        }
+
+        // Cek jumlah penghuni aktif di kamar saat ini
+        $penghuniAktif = $this->db->table('user')
+            ->where('Nomor_kamar', $nomorKamar)
+            ->where('Status_aktif', 'Aktif')
+            ->countAllResults();
+
+        if ($kapasitas < $penghuniAktif) {
+            return $this->fail(sprintf(
+                'Kapasitas (%d) tidak boleh lebih kecil dari jumlah penghuni aktif saat ini (%d). Pindahkan penghuni terlebih dahulu.',
+                $kapasitas,
+                $penghuniAktif
+            ), 400);
+        }
+
+        $updateData = [
+            'Lantai'     => $lantai,
+            'Kapasitas'  => $kapasitas,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        if ($idGedung && $this->db->table('gedung')->where('Id_Gedung', $idGedung)->countAllResults()) {
+            $updateData['Id_Gedung'] = $idGedung;
+        }
+
+        $this->db->table('kamar')->where('Nomor_kamar', $nomorKamar)->update($updateData);
+
+        return $this->respond([
+            'status'  => 'success',
+            'message' => 'Data kamar ' . $nomorKamar . ' berhasil diperbarui.',
+        ]);
+    }
+
+    // ----------------------------------------------------
+    // POST /api/kamar/delete
+    // Hapus kamar (Admin)
+    // ----------------------------------------------------
+    public function deleteKamar()
+    {
+        $user = $this->tokenUser();
+        if (strtolower($user['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya Admin yang dapat menghapus kamar.');
+        }
+
+        $input      = $this->request->getJSON(true) ?? $this->request->getPost();
+        $nomorKamar = strtoupper(trim($input['nomorKamar'] ?? ''));
+
+        if ($nomorKamar === '') {
+            return $this->fail('Nomor kamar wajib diisi.', 400);
+        }
+
+        $kamar = $this->db->table('kamar')->where('Nomor_kamar', $nomorKamar)->get()->getRowArray();
+        if (! $kamar) {
+            return $this->failNotFound('Kamar tidak ditemukan.');
+        }
+
+        $penghuniAktif = $this->db->table('user')
+            ->where('Nomor_kamar', $nomorKamar)
+            ->where('Status_aktif', 'Aktif')
+            ->countAllResults();
+
+        if ($penghuniAktif > 0) {
+            return $this->fail(sprintf(
+                'Kamar %s tidak dapat dihapus karena masih ditempati %d penghuni aktif. Pindahkan penghuni terlebih dahulu.',
+                $nomorKamar,
+                $penghuniAktif
+            ), 400);
+        }
+
+        $this->db->table('kamar')->where('Nomor_kamar', $nomorKamar)->delete();
+
+        return $this->respond([
+            'status'  => 'success',
+            'message' => 'Kamar ' . $nomorKamar . ' berhasil dihapus.',
+        ]);
     }
 
     // ----------------------------------------------------
@@ -154,37 +453,60 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function getPenghuni()
     {
-        $query = $this->db->query("
-            SELECT
-                u.NIM as nim,
-                u.Nama as nama,
-                COALESCE(u.Nomor_kamar, '') as nomorKamar,
-                COALESCE(g.Nama, '') as namaGedung,
-                u.Asal as asal,
-                u.Email as email,
-                u.No_HP as noHp,
-                u.Password as passwordHash,
-                (u.Status_aktif = 'Aktif') as statusAktif,
-                LOWER(u.Role) as role,
-                COALESCE(DATE(u.created_at), '') as tanggalMasuk
-            FROM user u
-            LEFT JOIN kamar k ON k.Nomor_kamar = u.Nomor_kamar
-            LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
-            WHERE LOWER(u.Role) <> 'admin'
-            ORDER BY u.Nama ASC
-        ");
-
-        $data = $query->getResultArray();
-        // Convert statusAktif to boolean and normalize roles
-        foreach ($data as &$row) {
-            $row['statusAktif'] = (bool)$row['statusAktif'];
-            if ($row['role'] === 'mahasiswa') {
-                $row['role'] = 'penghuni';
+        try {
+            if (! $this->db->tableExists('user')) {
+                return $this->respond([]);
             }
-            $row['passwordDefault'] = $row['role'] === 'penghuni' && password_verify('penghuni123', $row['passwordHash']);
-            unset($row['passwordHash']);
+
+            $hasCreatedAt = false;
+            try {
+                $hasCreatedAt = in_array('created_at', $this->db->getFieldNames('user'), true);
+            } catch (\Throwable $e) {}
+
+            $dateCol = $hasCreatedAt ? "COALESCE(DATE(u.created_at), '') as tanggalMasuk" : "'' as tanggalMasuk";
+
+            $hasKamar = $this->db->tableExists('kamar');
+            $hasGedung = $this->db->tableExists('gedung');
+
+            $joinKamar = ($hasKamar) ? "LEFT JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar" : "";
+            $joinGedung = ($hasGedung && $hasKamar) ? "LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung" : "";
+            $gedungCol = ($hasGedung && $hasKamar) ? "COALESCE(g.Nama, '') as namaGedung" : "'' as namaGedung";
+
+            $query = $this->db->query("
+                SELECT
+                    u.NIM as nim,
+                    u.Nama as nama,
+                    COALESCE(u.Nomor_kamar, '') as nomorKamar,
+                    {$gedungCol},
+                    u.Asal as asal,
+                    u.Email as email,
+                    u.No_HP as noHp,
+                    u.Password as passwordHash,
+                    (u.Status_aktif = 'Aktif') as statusAktif,
+                    LOWER(u.Role) as role,
+                    {$dateCol}
+                FROM user u
+                {$joinKamar}
+                {$joinGedung}
+                WHERE LOWER(u.Role) <> 'admin'
+                ORDER BY u.Nama ASC
+            ");
+
+            $data = $query->getResultArray();
+            log_message('error', 'DEBUG: getPenghuni returned ' . count($data) . ' rows');
+            // Convert statusAktif to boolean and normalize roles
+            foreach ($data as &$row) {
+                $row['statusAktif'] = (bool)$row['statusAktif'];
+                if ($row['role'] === 'mahasiswa') {
+                    $row['role'] = 'penghuni';
+                }
+                $row['passwordDefault'] = $row['role'] === 'penghuni' && password_verify('penghuni123', $row['passwordHash'] ?? '');
+                unset($row['passwordHash']);
+            }
+            return $this->respond($data);
+        } catch (\Throwable $e) {
+            return $this->respond([]);
         }
-        return $this->respond($data);
     }
 
     /**
@@ -377,67 +699,113 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function getPresensi()
     {
-        // Lingkup data mengikuti peran: penghuni = miliknya sendiri, fasil = penghuni gedung yang ia pegang,
-        // admin = semua. Mencegah penghuni melihat presensi & nama berkas foto wajah penghuni lain.
-        $token = $this->tokenUser();
-        $binds = [];
-        switch ($token['role'] ?? '') {
-            case 'admin':
-                $where = '';
-                break;
-            case 'fasil':
-                $where   = 'WHERE g.NIM_Pj = ?';
-                $binds[] = $token['nim'];
-                break;
-            case 'penghuni':
-                $where   = 'WHERE p.NIM = ?';
-                $binds[] = $token['nim'];
-                break;
-            default:
-                return $this->failForbidden('Akses data presensi tidak diizinkan.');
-        }
+        try {
+            if (! $this->db->tableExists('presensi')) {
+                return $this->respond([]);
+            }
 
-        $query = $this->db->query("
-            SELECT
-                p.Id_presensi as id,
-                p.NIM as nim,
-                u.Nama as namaPenghuni,
-                COALESCE(u.Nomor_kamar, '') as nomorKamar,
-                COALESCE(g.Nama, '') as namaGedung,
-                p.Tanggal as tanggal,
-                p.Sesi as sesi,
-                COALESCE(DATE_FORMAT(p.Waktu, '%H:%i'), '') as waktu,
-                p.Latitude as latitude,
-                p.Longitude as longitude,
-                p.Akurasi_meter as akurasiMeter,
-                p.Status as status,
-                COALESCE(p.Foto_wajah, '') as fotoWajah,
-                COALESCE(p.Keterangan, '') as keterangan,
-                p.Dikoreksi_oleh as dikoreksiOleh,
-                p.Status_foto as statusFoto,
-                COALESCE(p.Catatan_validasi, '') as catatanValidasi,
-                p.Divalidasi_oleh as divalidasiOleh,
-                validator.Nama as namaValidator,
-                COALESCE(DATE_FORMAT(p.Divalidasi_pada, '%Y-%m-%d %H:%i'), '') as divalidasiPada,
-                (p.Keterangan LIKE '" . PresensiService::KETERANGAN_OTOMATIS . "%' AND p.Dikoreksi_oleh IS NULL) as otomatis
-            FROM presensi p
-            LEFT JOIN user u ON u.NIM = p.NIM
-            LEFT JOIN user validator ON validator.NIM = p.Divalidasi_oleh
-            LEFT JOIN kamar k ON k.Nomor_kamar = u.Nomor_kamar
-            LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
-            {$where}
-            ORDER BY p.Tanggal DESC, p.Id_presensi DESC
-        ", $binds);
+            // Lingkup data mengikuti peran: penghuni = miliknya sendiri, fasil = penghuni gedung yang ia pegang,
+            // admin = semua. Mencegah penghuni melihat presensi & nama berkas foto wajah penghuni lain.
+            $token = $this->tokenUser();
+            $binds = [];
+            $hasGedung = $this->db->tableExists('gedung');
+            switch ($token['role'] ?? '') {
+                case 'admin':
+                    $where = '';
+                    break;
+                case 'fasil':
+                    $where   = $hasGedung ? 'WHERE g.NIM_Pj = ?' : '';
+                    if ($hasGedung) $binds[] = $token['nim'];
+                    break;
+                case 'penghuni':
+                    $where   = 'WHERE BINARY p.NIM = BINARY ?';
+                    $binds[] = $token['nim'];
+                    break;
+                default:
+                    return $this->failForbidden('Akses data presensi tidak diizinkan.');
+            }
 
-        $data = $query->getResultArray();
-        foreach ($data as &$row) {
-            $row['id']        = (int) $row['id'];
-            $row['latitude']  = $row['latitude'] !== null ? (float) $row['latitude'] : null;
-            $row['longitude'] = $row['longitude'] !== null ? (float) $row['longitude'] : null;
-            $row['otomatis']  = (bool) $row['otomatis'];
-            $row['akurasiMeter'] = $row['akurasiMeter'] !== null ? (float) $row['akurasiMeter'] : null;
+            $cols = $this->db->getFieldNames('presensi');
+            $hasAkurasi     = in_array('Akurasi_meter', $cols, true);
+            $hasDikoreksi   = in_array('Dikoreksi_oleh', $cols, true);
+            $hasStatusFoto  = in_array('Status_foto', $cols, true);
+            $hasCatatanFoto = in_array('Catatan_validasi', $cols, true);
+            $hasDivalidasi  = in_array('Divalidasi_oleh', $cols, true);
+            $hasDivalidasiPada = in_array('Divalidasi_pada', $cols, true);
+            $hasWaktu       = in_array('Waktu', $cols, true);
+            $hasLat         = in_array('Latitude', $cols, true);
+            $hasLng         = in_array('Longitude', $cols, true);
+            $hasFoto        = in_array('Foto_wajah', $cols, true);
+            $hasKet         = in_array('Keterangan', $cols, true);
+
+            $akurasiCol    = $hasAkurasi ? 'p.Akurasi_meter as akurasiMeter' : 'NULL as akurasiMeter';
+            $dikoreksiCol  = $hasDikoreksi ? 'p.Dikoreksi_oleh as dikoreksiOleh' : 'NULL as dikoreksiOleh';
+            $statusFotoCol = $hasStatusFoto ? 'p.Status_foto as statusFoto' : "'Disetujui' as statusFoto";
+            $catatanValCol = $hasCatatanFoto ? "COALESCE(p.Catatan_validasi, '') as catatanValidasi" : "'' as catatanValidasi";
+            $divalidasiCol = $hasDivalidasi ? "p.Divalidasi_oleh as divalidasiOleh, validator.Nama as namaValidator" : "NULL as divalidasiOleh, '' as namaValidator";
+            $joinValidator = $hasDivalidasi ? "LEFT JOIN user validator ON BINARY validator.NIM = BINARY p.Divalidasi_oleh" : "";
+            $divPadaCol    = $hasDivalidasiPada ? "COALESCE(DATE_FORMAT(p.Divalidasi_pada, '%Y-%m-%d %H:%i'), '') as divalidasiPada" : "'' as divalidasiPada";
+            $waktuCol      = $hasWaktu ? "COALESCE(DATE_FORMAT(p.Waktu, '%H:%i'), '') as waktu" : "'' as waktu";
+            $latCol        = $hasLat ? 'p.Latitude as latitude' : 'NULL as latitude';
+            $lngCol        = $hasLng ? 'p.Longitude as longitude' : 'NULL as longitude';
+            $fotoCol       = $hasFoto ? "COALESCE(p.Foto_wajah, '') as fotoWajah" : "'' as fotoWajah";
+            $ketCol        = $hasKet ? "COALESCE(p.Keterangan, '') as keterangan" : "'' as keterangan";
+            $otomatisCol   = $hasKet ? "(p.Keterangan LIKE '" . PresensiService::KETERANGAN_OTOMATIS . "%'" . ($hasDikoreksi ? " AND p.Dikoreksi_oleh IS NULL" : "") . ") as otomatis" : "0 as otomatis";
+
+            $hasUser  = $this->db->tableExists('user');
+            $hasKamar = $this->db->tableExists('kamar');
+
+            $namaPenghuniCol = $hasUser ? 'u.Nama as namaPenghuni' : "'' as namaPenghuni";
+            $nomorKamarCol   = ($hasUser && $hasKamar) ? "COALESCE(u.Nomor_kamar, '') as nomorKamar" : "'' as nomorKamar";
+            $namaGedungCol   = ($hasKamar && $hasGedung) ? "COALESCE(g.Nama, '') as namaGedung" : "'' as namaGedung";
+
+            $joinUser   = $hasUser ? "LEFT JOIN user u ON BINARY u.NIM = BINARY p.NIM" : "";
+            $joinKamar  = ($hasUser && $hasKamar) ? "LEFT JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar" : "";
+            $joinGedung = ($hasKamar && $hasGedung) ? "LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung" : "";
+
+            $query = $this->db->query("
+                SELECT
+                    p.Id_presensi as id,
+                    p.NIM as nim,
+                    {$namaPenghuniCol},
+                    {$nomorKamarCol},
+                    {$namaGedungCol},
+                    p.Tanggal as tanggal,
+                    p.Sesi as sesi,
+                    {$waktuCol},
+                    {$latCol},
+                    {$lngCol},
+                    {$akurasiCol},
+                    p.Status as status,
+                    {$fotoCol},
+                    {$ketCol},
+                    {$dikoreksiCol},
+                    {$statusFotoCol},
+                    {$catatanValCol},
+                    {$divalidasiCol},
+                    {$divPadaCol},
+                    {$otomatisCol}
+                FROM presensi p
+                {$joinUser}
+                {$joinValidator}
+                {$joinKamar}
+                {$joinGedung}
+                {$where}
+                ORDER BY p.Tanggal DESC, p.Id_presensi DESC
+            ", $binds);
+
+            $data = $query->getResultArray();
+            foreach ($data as &$row) {
+                $row['id']        = (int) $row['id'];
+                $row['latitude']  = $row['latitude'] !== null ? (float) $row['latitude'] : null;
+                $row['longitude'] = $row['longitude'] !== null ? (float) $row['longitude'] : null;
+                $row['otomatis']  = (bool) $row['otomatis'];
+                $row['akurasiMeter'] = $row['akurasiMeter'] !== null ? (float) $row['akurasiMeter'] : null;
+            }
+            return $this->respond($data);
+        } catch (\Throwable $e) {
+            return $this->respond([]);
         }
-        return $this->respond($data);
     }
 
     // ----------------------------------------------------
@@ -870,39 +1238,77 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function getIzin()
     {
-        $query = $this->db->query("
-            SELECT
-                i.Id_izin as id,
-                i.NIM as nim,
-                u.Nama as namaPenghuni,
-                COALESCE(u.Nomor_kamar, '') as nomorKamar,
-                COALESCE(g.Nama, '') as namaGedung,
-                i.NIM_approver as nimApprover,
-                approver.Nama as namaApprover,
-                i.Alasan as alasan,
-                i.Status_persetujuan as statusPersetujuan,
-                COALESCE(i.File_bukti, '') as fileBukti,
-                i.Tanggal as tanggal,
-                COALESCE(i.Tanggal_selesai, i.Tanggal) as tanggalSelesai,
-                i.Sesi as sesi,
-                i.Hari_berulang as hariBerulang,
-                COALESCE(i.Catatan_approver, '') as catatanApprover,
-                COALESCE(DATE_FORMAT(i.Tanggal_approval, '%Y-%m-%d'), '') as tanggalApproval
-            FROM izin i
-            LEFT JOIN user u ON u.NIM = i.NIM
-            LEFT JOIN user approver ON approver.NIM = i.NIM_approver
-            LEFT JOIN kamar k ON k.Nomor_kamar = u.Nomor_kamar
-            LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
-            ORDER BY i.Tanggal DESC, i.Id_izin DESC
-        ");
+        try {
+            if (! $this->db->tableExists('izin')) {
+                return $this->respond([]);
+            }
 
-        $data = $query->getResultArray();
-        foreach ($data as &$row) {
-            $row['id'] = (int) $row['id'];
-            // Izin rutin: daftar hari ISO (1 = Senin … 7 = Minggu); null = setiap hari dalam rentang
-            $row['hariBerulang'] = $row['hariBerulang'] === null ? null : array_map('intval', explode(',', $row['hariBerulang']));
+            $cols = $this->db->getFieldNames('izin');
+            $hasTglSelesai   = in_array('Tanggal_selesai', $cols, true);
+            $hasSesi         = in_array('Sesi', $cols, true);
+            $hasHariBerulang = in_array('Hari_berulang', $cols, true);
+            $hasCatatanApp   = in_array('Catatan_approver', $cols, true);
+            $hasTglApp       = in_array('Tanggal_approval', $cols, true);
+            $hasApprover     = in_array('NIM_approver', $cols, true);
+            $hasBukti        = in_array('File_bukti', $cols, true);
+
+            $tglSelesaiCol   = $hasTglSelesai ? "COALESCE(i.Tanggal_selesai, i.Tanggal) as tanggalSelesai" : "i.Tanggal as tanggalSelesai";
+            $sesiCol         = $hasSesi ? "i.Sesi as sesi" : "NULL as sesi";
+            $hariBerulangCol = $hasHariBerulang ? "i.Hari_berulang as hariBerulang" : "NULL as hariBerulang";
+            $catatanAppCol   = $hasCatatanApp ? "COALESCE(i.Catatan_approver, '') as catatanApprover" : "'' as catatanApprover";
+            $tglAppCol       = $hasTglApp ? "COALESCE(DATE_FORMAT(i.Tanggal_approval, '%Y-%m-%d'), '') as tanggalApproval" : "'' as tanggalApproval";
+            $buktiCol        = $hasBukti ? "COALESCE(i.File_bukti, '') as fileBukti" : "'' as fileBukti";
+
+            $approverCol     = $hasApprover ? "i.NIM_approver as nimApprover, approver.Nama as namaApprover" : "NULL as nimApprover, '' as namaApprover";
+            $joinApprover    = $hasApprover ? "LEFT JOIN user approver ON BINARY approver.NIM = BINARY i.NIM_approver" : "";
+
+            $hasUser   = $this->db->tableExists('user');
+            $hasKamar  = $this->db->tableExists('kamar');
+            $hasGedung = $this->db->tableExists('gedung');
+
+            $namaPenghuniCol = $hasUser ? "u.Nama as namaPenghuni" : "'' as namaPenghuni";
+            $nomorKamarCol   = ($hasUser && $hasKamar) ? "COALESCE(u.Nomor_kamar, '') as nomorKamar" : "'' as nomorKamar";
+            $namaGedungCol   = ($hasKamar && $hasGedung) ? "COALESCE(g.Nama, '') as namaGedung" : "'' as namaGedung";
+
+            $joinUser  = $hasUser ? "LEFT JOIN user u ON BINARY u.NIM = BINARY i.NIM" : "";
+            $joinKamar = ($hasUser && $hasKamar) ? "LEFT JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar" : "";
+            $joinGedung = ($hasKamar && $hasGedung) ? "LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung" : "";
+
+            $query = $this->db->query("
+                SELECT
+                    i.Id_izin as id,
+                    i.NIM as nim,
+                    {$namaPenghuniCol},
+                    {$nomorKamarCol},
+                    {$namaGedungCol},
+                    {$approverCol},
+                    i.Alasan as alasan,
+                    i.Status_persetujuan as statusPersetujuan,
+                    {$buktiCol},
+                    i.Tanggal as tanggal,
+                    {$tglSelesaiCol},
+                    {$sesiCol},
+                    {$hariBerulangCol},
+                    {$catatanAppCol},
+                    {$tglAppCol}
+                FROM izin i
+                {$joinUser}
+                {$joinApprover}
+                {$joinKamar}
+                {$joinGedung}
+                ORDER BY i.Tanggal DESC, i.Id_izin DESC
+            ");
+
+            $data = $query->getResultArray();
+            foreach ($data as &$row) {
+                $row['id'] = (int) $row['id'];
+                // Izin rutin: daftar hari ISO (1 = Senin … 7 = Minggu); null = setiap hari dalam rentang
+                $row['hariBerulang'] = $row['hariBerulang'] === null ? null : array_map('intval', explode(',', $row['hariBerulang']));
+            }
+            return $this->respond($data);
+        } catch (\Throwable $e) {
+            return $this->respond([]);
         }
-        return $this->respond($data);
     }
 
     // ----------------------------------------------------
@@ -1040,5 +1446,24 @@ class DataController extends BaseController
         ]);
 
         return $this->respond(['status' => 'success', 'message' => 'Status izin berhasil diperbarui']);
+    }
+
+    // ----------------------------------------------------
+    // GET or POST /api/seed
+    // Jalankan seeder untuk mengisi database framework dengan data awal
+    // ----------------------------------------------------
+    public function runSeeder()
+    {
+        try {
+            $seeder = new \App\Database\Seeds\AsramaSeeder();
+            $seeder->run();
+
+            return $this->respond([
+                'status'  => 'success',
+                'message' => 'Seeder berhasil dijalankan! Database framework kini telah terisi data.',
+            ]);
+        } catch (\Throwable $e) {
+            return $this->failServerError('Gagal menjalankan seeder: ' . $e->getMessage());
+        }
     }
 }

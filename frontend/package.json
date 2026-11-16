@@ -10,8 +10,10 @@
     "format": "oxfmt"
   },
   "dependencies": {
+    "@types/leaflet": "^1.9.22",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.9",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.49.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

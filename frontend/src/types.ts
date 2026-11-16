@@ -151,3 +151,85 @@ export interface IzinRecord {
   catatanApprover?: string
   tanggalApproval?: string
 }
+
+// ----------------------------------------------------
+// Modul 2: Gedung, Kamar & Event Asrama
+// ----------------------------------------------------
+
+export interface GedungInput {
+  nama: string
+  nimPj?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  radiusMeter?: number
+}
+
+export interface KamarInput {
+  nomorKamar: string
+  lantai: number
+  kapasitas: number
+  idGedung: number
+}
+
+export type EventTipe = 'seluruh' | 'gedung'
+
+export interface EventAsrama {
+  id: number
+  judul: string
+  deskripsi: string | null
+  tipe: EventTipe
+  idGedung: number | null
+  namaGedung?: string | null
+  tanggal: string // YYYY-MM-DD
+  jamMulai: string // HH:MM
+  jamSelesai: string // HH:MM
+  lokasi: string
+  latitude: number | null
+  longitude: number | null
+  radiusMeter: number
+  createdBy?: string | null
+  namaPembuat?: string | null
+  statusKehadiran?: 'Hadir' | 'Tidak Hadir' | 'Belum Absen'
+  presensiSaya?: PresensiEventRecord | null
+}
+
+export interface PresensiEventRecord {
+  id: number
+  idEvent: number
+  nim: string
+  namaPenghuni?: string
+  nomorKamar?: string
+  namaGedung?: string
+  tanggal: string
+  waktu: string | null
+  latitude: number | null
+  longitude: number | null
+  jarakMeter: number | null
+  foto: string | null
+  status: 'Hadir' | 'Tidak Hadir'
+  keterangan: string | null
+}
+
+export interface PesertaRekapEvent {
+  nim: string
+  nama: string
+  nomorKamar: string
+  namaGedung: string
+  status: 'Hadir' | 'Tidak Hadir' | 'Belum Absen'
+  waktu: string | null
+  jarakMeter: number | null
+  foto: string | null
+  keterangan: string | null
+}
+
+export interface RekapEventResult {
+  event: EventAsrama
+  statistik: {
+    totalPeserta: number
+    hadir: number
+    tidakHadir: number
+    belumAbsen: number
+    persenHadir: number
+  }
+  peserta: PesertaRekapEvent[]
+}

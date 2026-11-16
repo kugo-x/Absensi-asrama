@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { AturanPresensi, CurrentUser, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
+import type { AturanPresensi, CurrentUser, EventAsrama, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { FotoBadge, SesiIcon, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
@@ -11,9 +11,17 @@ import {
   gedungList as initialGedung,
   sesiList as initialSesi,
   liburList as initialLibur,
+  eventList as initialEvent,
+  presensiEventList as initialPresensiEvent,
 } from '../data/mockData'
-import { awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi, fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, changePasswordApi, uploadProfilePhotoApi } from '../api'
+import {
+  awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi,
+  fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT,
+  changePasswordApi, uploadProfilePhotoApi,
+  fetchEvent, absenEventApi,
+} from '../api'
 import KalenderKehadiran from '../components/KalenderKehadiran'
+import { EventPresensiModal } from '../components/EventModals'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
   addDays, cariLibur, formatTanggal, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
@@ -48,12 +56,15 @@ import {
   EyeOff,
   Pencil,
   ArrowRight,
+  CalendarDays,
+  Search,
 } from 'lucide-react'
 import Cropper, { type Area } from 'react-easy-crop'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
   { id: 'presensi', label: 'Presensi Mandiri', icon: <UserCheck className="w-[18px] h-[18px]" /> },
+  { id: 'event', label: 'Event Asrama', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
   { id: 'riwayat', label: 'Riwayat Saya', icon: <History className="w-[18px] h-[18px]" /> },
   { id: 'izin', label: 'Pengajuan Izin', icon: <FileText className="w-[18px] h-[18px]" /> },
   { id: 'profil', label: 'Profil Saya', icon: <User className="w-[18px] h-[18px]" /> },
@@ -105,6 +116,15 @@ function alasanTidakBisaPresensi(d: StatusDetail, sesi: Sesi): string {
   return ''
 }
 
+function getStatusEvent(ev: EventAsrama, today: string, now: Date): 'Akan Datang' | 'Sedang Berlangsung' | 'Selesai' {
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  if (ev.tanggal > today) return 'Akan Datang'
+  if (ev.tanggal < today) return 'Selesai'
+  if (currentTime < ev.jamMulai) return 'Akan Datang'
+  if (currentTime > ev.jamSelesai) return 'Selesai'
+  return 'Sedang Berlangsung'
+}
+
 export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [presensi, setPresensi] = useState<PresensiRecord[]>(awalDemo(initialPresensi))
@@ -112,6 +132,19 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
   const [sesiList, setSesiList] = useState<Sesi[]>(awalDemo(initialSesi))
   const [libur, setLibur] = useState<HariLibur[]>(awalDemo(initialLibur))
   const [gedung, setGedung] = useState<Gedung | null>(findGedung(initialGedung, user))
+  const [eventList, setEventList] = useState<EventAsrama[]>(() => {
+    const base = awalDemo(initialEvent)
+    return base.map(ev => {
+      const pr = initialPresensiEvent.find(p => p.idEvent === ev.id && p.nim === user.nim)
+      return {
+        ...ev,
+        statusKehadiranSaya: pr ? (pr.status as 'Hadir' | 'Tidak Hadir') : ev.statusKehadiranSaya || null,
+        waktuPresensiSaya: pr ? pr.waktu : ev.waktuPresensiSaya || null,
+        fotoPresensiSaya: pr ? pr.foto : ev.fotoPresensiSaya || null,
+      }
+    })
+  })
+  const [presensiModalEvent, setPresensiModalEvent] = useState<EventAsrama | null>(null)
   const [gps, setGps] = useState<GpsState>({ status: 'idle' })
   const [notice, setNotice] = useState<Notice | null>(null)
   const [checkingIn, setCheckingIn] = useState(false)
@@ -134,6 +167,11 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     fetchLibur().then(setLibur)
     fetchModeUji().then(setModeUji)
     fetchAturanPresensi().then(setAturan)
+    fetchEvent().then(res => {
+      if (res && res.length > 0) {
+        setEventList(res)
+      }
+    })
     fetchGedung().then(list => {
       const g = findGedung(list, user)
       setGedung(g)
@@ -247,6 +285,29 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     setCheckingIn(false)
   }
 
+  const handleAbsenEvent = async (data: { idEvent: number; latitude: number; longitude: number; foto: string }) => {
+    const result = await absenEventApi(data)
+    if (result.ok || result.offline) {
+      const jam = toHM(new Date())
+      setEventList(prev => prev.map(ev => {
+        if (ev.id === data.idEvent) {
+          return {
+            ...ev,
+            statusKehadiranSaya: 'Hadir' as const,
+            waktuPresensiSaya: jam,
+            fotoPresensiSaya: data.foto,
+          }
+        }
+        return ev
+      }))
+      if (result.ok) {
+        fetchEvent().then(setEventList)
+      }
+      return { ok: true, message: result.message || 'Presensi event berhasil dicatat!' }
+    }
+    return { ok: false, message: result.message || 'Gagal mengirim presensi event' }
+  }
+
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}
       notifikasi={notifikasiPenghuni({ nim: user.nim, presensi, izin: izinData, sesiHampirTutup, today })}>
@@ -295,6 +356,9 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           notice={notice}
           today={today}
           onNavigateTab={setActiveTab}
+          eventList={eventList}
+          onBukaPresensiEvent={ev => setPresensiModalEvent(ev)}
+          now={now}
         />
       )}
       {activeTab === 'presensi' && (
@@ -313,6 +377,15 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           onRefreshLocation={() => readLocation()}
         />
       )}
+      {activeTab === 'event' && (
+        <PenghuniEvent
+          eventList={eventList}
+          user={user}
+          onBukaAbsen={ev => setPresensiModalEvent(ev)}
+          today={today}
+          now={now}
+        />
+      )}
       {activeTab === 'riwayat' && (
         <PenghuniRiwayat riwayat={riwayat}>
           <KalenderKehadiran nim={user.nim} sesiList={sesiList} data={data} now={now} gedung={user.namaGedung} tanggalMasuk={user.tanggalMasuk} />
@@ -320,6 +393,18 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       )}
       {activeTab === 'izin' && <PenghuniIzin izinData={izinData} setIzinData={setIzinData} user={user} sesiList={sesiAktif(sesiList, user.namaGedung)} today={today} />}
       {activeTab === 'profil' && <PenghuniProfil user={user} onLogout={onLogout} />}
+      {presensiModalEvent && (
+        <EventPresensiModal
+          event={presensiModalEvent}
+          penghuniNim={user.nim}
+          onClose={() => setPresensiModalEvent(null)}
+          onSuccess={() => {
+            setPresensiModalEvent(null)
+            fetchEvent().then(setEventList)
+          }}
+          onAbsen={handleAbsenEvent}
+        />
+      )}
     </AppLayout>
   )
 }
@@ -337,7 +422,21 @@ function NoticeBox({ notice }: { notice: Notice | null }) {
   )
 }
 
-function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni, onBukaPresensi, gedung, notice, today, onNavigateTab }: {
+function PenghuniDashboard({
+  user,
+  sesiHariIni,
+  riwayat,
+  izinData,
+  liburHariIni,
+  onBukaPresensi,
+  gedung,
+  notice,
+  today,
+  onNavigateTab,
+  eventList,
+  onBukaPresensiEvent,
+  now,
+}: {
   user: CurrentUser
   sesiHariIni: SesiHariIni[]
   riwayat: ReturnType<typeof riwayatPenghuni>
@@ -348,6 +447,9 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
   notice: Notice | null
   today: string
   onNavigateTab?: (tab: string) => void
+  eventList?: EventAsrama[]
+  onBukaPresensiEvent?: (ev: EventAsrama) => void
+  now?: Date
 }) {
   const rekap = hitungStatus(riwayat.map(r => r.detail.status))
   // Pemberitahuan keputusan izin dalam 7 hari terakhir
@@ -359,6 +461,23 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
 
   // Ambil 5 riwayat presensi yang relevan / terbaru
   const riwayatTerkini = riwayat.filter(r => r.detail.status !== 'Belum').slice(0, 5)
+
+  // Event yang relevan untuk penghuni
+  const userGedungId = gedung?.id || user.idGedung
+  const eventSaya = (eventList || []).filter(ev =>
+    ev.tipe === 'seluruh' ||
+    (ev.idGedung && userGedungId && ev.idGedung === userGedungId) ||
+    (ev.namaGedung && user.namaGedung && ev.namaGedung === user.namaGedung)
+  )
+
+  const eventSedangBerlangsung = eventSaya.find(
+    ev => getStatusEvent(ev, today, now || new Date()) === 'Sedang Berlangsung' && ev.statusKehadiranSaya !== 'Hadir'
+  )
+
+  const eventTerdekat = eventSaya
+    .filter(ev => getStatusEvent(ev, today, now || new Date()) !== 'Selesai')
+    .sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.jamMulai.localeCompare(b.jamMulai))
+    .slice(0, 3)
 
   return (
     <div className="space-y-4">
@@ -398,6 +517,45 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
           </div>
         </div>
       </div>
+
+      {/* Banner Peringatan Event Sedang Berlangsung */}
+      {eventSedangBerlangsung && (
+        <div className="bg-amber-500/10 border border-amber-300 rounded-2xl p-4 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <CalendarDays className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900 font-extrabold text-[10px] uppercase tracking-wider">
+                  Event Sedang Berlangsung
+                </span>
+                <span className="text-xs text-amber-800 font-medium">
+                  {eventSedangBerlangsung.jamMulai} – {eventSedangBerlangsung.jamSelesai} WIB
+                </span>
+              </div>
+              <h4 className="font-bold text-sm text-gray-900 mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                {eventSedangBerlangsung.judul}
+              </h4>
+              <p className="text-xs text-gray-600 flex items-center gap-1 mt-0.5">
+                <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                <span>{eventSedangBerlangsung.lokasi} (Radius: {eventSedangBerlangsung.radiusMeter}m)</span>
+              </p>
+            </div>
+          </div>
+          {onBukaPresensiEvent && (
+            <button
+              type="button"
+              onClick={() => onBukaPresensiEvent(eventSedangBerlangsung)}
+              className="px-4 py-2 rounded-xl bg-[#0e4b29] hover:bg-[#0b3c20] text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+              style={{ fontFamily: 'Plus Jakarta Sans' }}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>Presensi Event Sekarang</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Pemberitahuan keputusan izin / foto ditolak */}
       {fotoDitolak.length > 0 && (
@@ -622,6 +780,81 @@ function PenghuniDashboard({ user, sesiHariIni, riwayat, izinData, liburHariIni,
                 <span className="font-bold text-gray-700">22:00 WIB</span>
               </div>
             </div>
+          </div>
+
+          {/* Event & Kegiatan Terdekat */}
+          <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-emerald-700" />
+                <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                  Event & Kegiatan Asrama
+                </h4>
+              </div>
+              {onNavigateTab && (
+                <button
+                  onClick={() => onNavigateTab('event')}
+                  className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Lihat Semua</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {eventTerdekat.length === 0 ? (
+              <div className="py-4 text-center text-gray-400">
+                <CalendarDays className="w-6 h-6 mx-auto mb-1 text-gray-300" />
+                <p className="text-xs">Tidak ada event mendatang</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {eventTerdekat.map(ev => {
+                  const st = getStatusEvent(ev, today, now || new Date())
+                  return (
+                    <div key={ev.id} className="p-2.5 rounded-xl border border-gray-100 bg-gray-50/70 text-xs flex flex-col gap-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            ev.tipe === 'seluruh'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : 'bg-purple-50 text-purple-800 border border-purple-200'
+                          }`}
+                        >
+                          {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            st === 'Sedang Berlangsung'
+                              ? 'bg-amber-100 text-amber-900 animate-pulse'
+                              : 'bg-blue-50 text-blue-800'
+                          }`}
+                        >
+                          {st}
+                        </span>
+                      </div>
+                      <p className="font-bold text-gray-800 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                        {ev.judul}
+                      </p>
+                      <div className="flex items-center justify-between text-[11px] text-gray-500">
+                        <span>{formatTanggal(ev.tanggal)} • {ev.jamMulai} WIB</span>
+                        {ev.statusKehadiranSaya === 'Hadir' ? (
+                          <span className="text-emerald-700 font-bold">✓ Hadir</span>
+                        ) : st === 'Sedang Berlangsung' && onBukaPresensiEvent ? (
+                          <button
+                            type="button"
+                            onClick={() => onBukaPresensiEvent(ev)}
+                            className="font-bold text-emerald-800 hover:text-emerald-950 underline cursor-pointer"
+                          >
+                            Absen
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Permohonan Izin Terkini & Quick Action */}
@@ -1543,6 +1776,303 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
           onCancel={onLogout}
           onConfirm={onLogout}
         />
+      )}
+    </div>
+  )
+}
+
+function PenghuniEvent({
+  eventList,
+  user,
+  onBukaAbsen,
+  today,
+  now,
+}: {
+  eventList: EventAsrama[]
+  user: CurrentUser
+  onBukaAbsen: (ev: EventAsrama) => void
+  today: string
+  now: Date
+}) {
+  const [filterKategori, setFilterKategori] = useState<'semua' | 'seluruh' | 'gedung'>('semua')
+  const [filterStatus, setFilterStatus] = useState<string>('semua')
+  const [cari, setCari] = useState('')
+
+  // Event yang relevan untuk penghuni: event seluruh asrama atau event gedung tempat tinggalnya
+  const eventSaya = eventList.filter(ev =>
+    ev.tipe === 'seluruh' ||
+    (ev.idGedung && user.idGedung && ev.idGedung === user.idGedung) ||
+    (ev.namaGedung && user.namaGedung && ev.namaGedung === user.namaGedung)
+  )
+
+  const filtered = eventSaya.filter(ev => {
+    const st = getStatusEvent(ev, today, now)
+    if (filterKategori === 'seluruh' && ev.tipe !== 'seluruh') return false
+    if (filterKategori === 'gedung' && ev.tipe !== 'gedung') return false
+    if (filterStatus !== 'semua' && st !== filterStatus) return false
+    if (cari.trim()) {
+      const q = cari.toLowerCase()
+      return (
+        ev.judul.toLowerCase().includes(q) ||
+        (ev.deskripsi || '').toLowerCase().includes(q) ||
+        ev.lokasi.toLowerCase().includes(q)
+      )
+    }
+    return true
+  })
+
+  // Statistik ringkas penghuni
+  const totalEvent = eventSaya.length
+  const sedangBerlangsung = eventSaya.filter(ev => getStatusEvent(ev, today, now) === 'Sedang Berlangsung').length
+  const akanDatang = eventSaya.filter(ev => getStatusEvent(ev, today, now) === 'Akan Datang').length
+  const hadirCount = eventSaya.filter(ev => ev.statusKehadiranSaya === 'Hadir').length
+
+  return (
+    <div className="space-y-6">
+      {/* Header Banner */}
+      <div
+        className="rounded-2xl p-6 text-white relative overflow-hidden shadow-xs"
+        style={{ background: 'linear-gradient(135deg, #064e3b 0%, #065f46 60%, #047857 100%)' }}
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md text-emerald-200 text-xs font-semibold mb-2 border border-white/10">
+              <CalendarDays className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Kegiatan & Agenda Asrama</span>
+            </div>
+            <h2 className="text-xl lg:text-2xl font-bold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              Pengumuman & Daftar Event
+            </h2>
+            <p className="text-emerald-100/80 text-xs mt-1 max-w-xl">
+              Ikuti kegiatan asrama dan lakukan presensi kehadiran tepat waktu dengan validasi GPS lokasi dan verifikasi foto wajah.
+            </p>
+          </div>
+
+          {/* 4 Stat Mini Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full lg:w-auto">
+            {[
+              { label: 'Total Event', value: totalEvent },
+              { label: 'Sedang Berlangsung', value: sedangBerlangsung },
+              { label: 'Akan Datang', value: akanDatang },
+              { label: 'Kehadiran Saya', value: `${hadirCount} Event` },
+            ].map(s => (
+              <div key={s.label} className="px-3.5 py-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 text-center min-w-[85px]">
+                <p className="text-[10px] font-medium text-emerald-200/90">{s.label}</p>
+                <p className="text-base lg:text-lg font-extrabold text-white mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Filter Kategori */}
+          <div className="flex rounded-xl bg-gray-100 p-1 text-xs font-bold text-gray-600">
+            <button
+              type="button"
+              onClick={() => setFilterKategori('semua')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                filterKategori === 'semua' ? 'bg-white text-emerald-900 shadow-xs' : 'hover:text-gray-900'
+              }`}
+            >
+              Semua
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterKategori('seluruh')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                filterKategori === 'seluruh' ? 'bg-white text-emerald-900 shadow-xs' : 'hover:text-gray-900'
+              }`}
+            >
+              Seluruh Asrama
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterKategori('gedung')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                filterKategori === 'gedung' ? 'bg-white text-emerald-900 shadow-xs' : 'hover:text-gray-900'
+              }`}
+            >
+              Gedung {user.namaGedung ? `(${user.namaGedung})` : 'Saya'}
+            </button>
+          </div>
+
+          {/* Filter Status */}
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-gray-200 text-xs bg-white outline-none focus:border-emerald-600 font-medium"
+          >
+            <option value="semua">Semua Status</option>
+            <option value="Sedang Berlangsung">Sedang Berlangsung</option>
+            <option value="Akan Datang">Akan Datang</option>
+            <option value="Selesai">Selesai</option>
+          </select>
+        </div>
+
+        {/* Input Pencarian */}
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Cari event, kegiatan, lokasi..."
+            value={cari}
+            onChange={e => setCari(e.target.value)}
+            className="pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 w-52 sm:w-72 bg-gray-50/50"
+          />
+        </div>
+      </div>
+
+      {/* Grid Daftar Event */}
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-2xl p-12 text-center border border-gray-200 shadow-2xs">
+          <CalendarDays className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <h4 className="font-extrabold text-base text-gray-800 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Tidak Ada Event yang Sesuai
+          </h4>
+          <p className="text-xs text-gray-500 max-w-sm mx-auto">
+            {cari || filterStatus !== 'semua' || filterKategori !== 'semua'
+              ? 'Coba atur ulang filter pencarian Anda untuk melihat event lainnya.'
+              : 'Belum ada pengumuman atau agenda kegiatan asrama yang terjadwal.'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-5">
+          {filtered.map(ev => {
+            const st = getStatusEvent(ev, today, now)
+            const sudahHadir = ev.statusKehadiranSaya === 'Hadir'
+            const tidakHadir = ev.statusKehadiranSaya === 'Tidak Hadir'
+            const bisaAbsen = st === 'Sedang Berlangsung' && !sudahHadir
+
+            return (
+              <div
+                key={ev.id}
+                className={`bg-white rounded-2xl p-5 border shadow-2xs hover:shadow-md transition-shadow flex flex-col justify-between ${
+                  st === 'Sedang Berlangsung' && !sudahHadir
+                    ? 'border-amber-300 ring-2 ring-amber-300/30'
+                    : 'border-gray-200'
+                }`}
+              >
+                <div>
+                  {/* Top Badges */}
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          ev.tipe === 'seluruh'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-purple-50 text-purple-800 border border-purple-200'
+                        }`}
+                      >
+                        {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
+                      </span>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          st === 'Sedang Berlangsung'
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
+                            : st === 'Akan Datang'
+                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                            : 'bg-gray-100 text-gray-700 border border-gray-200'
+                        }`}
+                      >
+                        {st}
+                      </span>
+                    </div>
+
+                    {/* Attendance Badge */}
+                    <div>
+                      {sudahHadir ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Hadir</span>
+                        </span>
+                      ) : tidakHadir ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-rose-50 text-rose-800 border border-rose-200">
+                          <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Tidak Hadir</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Belum Absen</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Title and Description */}
+                  <h4 className="font-extrabold text-base text-gray-900 mb-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                    {ev.judul}
+                  </h4>
+                  {ev.deskripsi && (
+                    <p className="text-xs text-gray-600 mb-4 line-clamp-2 leading-relaxed">
+                      {ev.deskripsi}
+                    </p>
+                  )}
+
+                  {/* Details Grid */}
+                  <div className="space-y-2 p-3 bg-gray-50/70 rounded-xl border border-gray-100 text-xs mb-4">
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="font-semibold">{formatTanggal(ev.tanggal)}</span>
+                      <span className="text-gray-400">•</span>
+                      <span className="mono font-bold text-gray-900">{ev.jamMulai} – {ev.jamSelesai} WIB</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="font-medium text-gray-900">{ev.lokasi}</span>
+                      <span className="text-gray-400">•</span>
+                      <span className="text-[11px] text-gray-500 font-semibold">Radius: {ev.radiusMeter}m</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-500 text-[11px]">
+                      <User className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                      <span>Penyelenggara: <strong className="text-gray-700">{ev.namaPembuat || (ev.tipe === 'seluruh' ? 'Pengelola Asrama' : 'Fasilitator Gedung')}</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom CTA / Status Info */}
+                <div className="pt-2 border-t border-gray-100">
+                  {sudahHadir ? (
+                    <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Kehadiran Anda telah tercatat</span>
+                      </span>
+                      {ev.waktuPresensiSaya && (
+                        <span className="mono text-[11px] font-bold text-emerald-800">
+                          {ev.waktuPresensiSaya} WIB
+                        </span>
+                      )}
+                    </div>
+                  ) : bisaAbsen ? (
+                    <button
+                      type="button"
+                      onClick={() => onBukaAbsen(ev)}
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+                      style={{ fontFamily: 'Plus Jakarta Sans' }}
+                    >
+                      <UserCheck className="w-4 h-4" />
+                      <span>Presensi Event Sekarang (GPS & Selfie)</span>
+                    </button>
+                  ) : st === 'Akan Datang' ? (
+                    <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-100 text-blue-900 text-xs font-medium flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>Presensi akan dibuka pada hari pelaksanaan pukul {ev.jamMulai} WIB</span>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-200 text-gray-600 text-xs font-medium flex items-center gap-1.5">
+                      <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                      <span>Event telah selesai. Sesi presensi ditutup.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )

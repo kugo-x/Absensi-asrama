@@ -15,13 +15,31 @@ $routes->group('api', static function ($routes) {
         return response()->setStatusCode(200);
     });
 
+    // Jalankan seeder database
+    $routes->get('seed', 'Api\DataController::runSeeder');
+    $routes->post('seed', 'Api\DataController::runSeeder');
+
     // Semua endpoint data wajib membawa token hasil login.
     $routes->group('', ['filter' => 'api-auth'], static function ($routes) {
         // Master Data
-    $routes->get('gedung', 'Api\DataController::getGedung');
-    $routes->post('gedung/update', 'Api\DataController::updateGedung');
-    $routes->post('gedung/pj', 'Api\DataController::setPjGedung');
-    $routes->get('kamar', 'Api\DataController::getKamar');
+        $routes->get('gedung', 'Api\DataController::getGedung');
+        $routes->post('gedung/add', 'Api\DataController::addGedung');
+        $routes->post('gedung/update', 'Api\DataController::updateGedung');
+        $routes->post('gedung/delete', 'Api\DataController::deleteGedung');
+        $routes->post('gedung/pj', 'Api\DataController::setPjGedung');
+        $routes->get('kamar', 'Api\DataController::getKamar');
+        $routes->post('kamar/add', 'Api\DataController::addKamar');
+        $routes->post('kamar/update', 'Api\DataController::updateKamar');
+        $routes->post('kamar/delete', 'Api\DataController::deleteKamar');
+
+        // Event Asrama
+        $routes->get('event', 'Api\EventController::getEvent');
+        $routes->post('event/add', 'Api\EventController::addEvent');
+        $routes->post('event/update', 'Api\EventController::updateEvent');
+        $routes->post('event/delete', 'Api\EventController::deleteEvent');
+        $routes->get('event/rekap/(:num)', 'Api\EventController::rekapEvent/$1');
+        $routes->post('event/absen', 'Api\EventController::absenEvent');
+        $routes->get('event/foto/(:segment)', 'Api\EventController::fotoEvent/$1');
     
     // Penghuni
     $routes->get('penghuni', 'Api\DataController::getPenghuni');

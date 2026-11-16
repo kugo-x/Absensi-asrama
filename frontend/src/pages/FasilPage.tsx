@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto } from '../types'
-import AppLayout, { SectionTitle, Badge } from '../components/AppLayout'
+import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult } from '../types'
+import AppLayout, { SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
 import { downloadReport, type ExportFormat } from '../ekspor'
 import { FotoBadge, FotoWajah, RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
@@ -13,8 +13,13 @@ import {
   gedungList as initialGedung,
   sesiList as initialSesi,
   liburList as initialLibur,
+  eventList as initialEvent,
 } from '../data/mockData'
-import { awalDemo, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur, updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT } from '../api'
+import {
+  awalDemo, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur,
+  fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent, type ApiResult,
+  updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT
+} from '../api'
 import {
   cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, toHM, todayLocal, type DataPresensi,
 } from '../logic'
@@ -25,6 +30,7 @@ import {
   BarChart3,
   AlertCircle,
   Calendar,
+  CalendarDays,
   Paperclip,
   User,
   Check,
@@ -35,10 +41,20 @@ import {
   Palmtree,
   Camera,
   MapPin,
+  Plus,
+  Trash2,
+  Edit,
+  Sparkles,
+  Clock,
+  CheckCircle2,
+  Search,
+  Eye,
 } from 'lucide-react'
+import { EventFormModal, EventRekapModal } from '../components/EventModals'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard Fasil', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
+  { id: 'event', label: 'Event Gedung', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
   { id: 'monitor', label: 'Monitor Presensi', icon: <ClipboardCheck className="w-[18px] h-[18px]" /> },
   { id: 'izin', label: 'Manajemen Izin', icon: <FileCheck className="w-[18px] h-[18px]" /> },
   { id: 'foto', label: 'Validasi Foto', icon: <Camera className="w-[18px] h-[18px]" /> },
@@ -59,6 +75,10 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const [izinData, setIzinData] = useState<IzinRecord[]>(initialIzin)
   const [sesiList, setSesiList] = useState<Sesi[]>(awalDemo(initialSesi))
   const [libur, setLibur] = useState<HariLibur[]>(awalDemo(initialLibur))
+  const [eventList, setEventList] = useState<EventAsrama[]>(awalDemo(initialEvent))
+  const [eventModal, setEventModal] = useState<{ open: boolean; event: EventAsrama | null }>({ open: false, event: null })
+  const [rekapModal, setRekapModal] = useState<{ open: boolean; rekap: RekapEventResult | null }>({ open: false, rekap: null })
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} })
   const [selectedIzin, setSelectedIzin] = useState<IzinRecord | null>(null)
   const [koreksi, setKoreksi] = useState<KoreksiTarget | null>(null)
   const [now, setNow] = useState(new Date())
@@ -85,6 +105,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     fetchIzin().then(setIzinData)
     fetchSesi().then(setSesiList)
     fetchLibur().then(setLibur)
+    fetchEvent().then(setEventList)
     fetchAturanPresensi().then(setAturan)
   }, [])
 
@@ -176,6 +197,45 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     return null
   }
 
+  const handleSaveEvent = async (data: Partial<EventAsrama>): Promise<ApiResult> => {
+    const payload = {
+      ...data,
+      tipe: 'gedung' as const,
+      idGedung: gedungSaya?.id ?? null,
+    }
+    const res = eventModal.event ? await updateEventApi(eventModal.event.id, payload) : await addEventApi(payload)
+    if (res.ok || res.offline) {
+      fetchEvent().then(setEventList)
+    }
+    return res
+  }
+
+  const handleDeleteEvent = (ev: EventAsrama) => {
+    setConfirmDialog({
+      open: true,
+      title: 'Hapus Event Gedung',
+      message: `Apakah Anda yakin ingin menghapus event "${ev.judul}"? Data presensi peserta untuk event ini akan ikut terhapus.`,
+      onConfirm: async () => {
+        const res = await deleteEventApi(ev.id)
+        if (res.ok || res.offline) {
+          fetchEvent().then(setEventList)
+        } else {
+          alert(res.message || 'Gagal menghapus event.')
+        }
+        setConfirmDialog(c => ({ ...c, open: false }))
+      },
+    })
+  }
+
+  const handleViewRekap = async (ev: EventAsrama) => {
+    const rekap = await fetchRekapEvent(ev.id)
+    if (rekap) {
+      setRekapModal({ open: true, rekap })
+    } else {
+      alert('Gagal memuat rekap event.')
+    }
+  }
+
   if (!gedungSaya) {
     return (
       <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={setActiveTab}>
@@ -216,6 +276,16 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
           onLihatFoto={() => setActiveTab('foto')}
         />
       )}
+      {activeTab === 'event' && (
+        <FasilEvent
+          eventList={eventList}
+          gedungSaya={gedungSaya}
+          onTambahEvent={() => setEventModal({ open: true, event: null })}
+          onEditEvent={ev => setEventModal({ open: true, event: ev })}
+          onHapusEvent={handleDeleteEvent}
+          onLihatRekap={handleViewRekap}
+        />
+      )}
       {activeTab === 'monitor' && (
         <FasilMonitor
           sesiList={sesiAktif(sesiList, gedungSaya.nama)}
@@ -234,7 +304,256 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
       {koreksi && (
         <KoreksiModal target={koreksi} onClose={() => setKoreksi(null)} onSave={handleKoreksi} />
       )}
+
+      {/* Modals Event */}
+      {eventModal.open && (
+        <EventFormModal
+          event={eventModal.event}
+          gedungList={gedungList}
+          role="fasil"
+          fasilIdGedung={gedungSaya.id}
+          onClose={() => setEventModal({ open: false, event: null })}
+          onSave={handleSaveEvent}
+        />
+      )}
+
+      {rekapModal.open && rekapModal.rekap && (
+        <EventRekapModal
+          rekap={rekapModal.rekap}
+          onClose={() => setRekapModal({ open: false, rekap: null })}
+        />
+      )}
+
+      {confirmDialog.open && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel="Hapus"
+          isDestructive
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(c => ({ ...c, open: false }))}
+        />
+      )}
     </AppLayout>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Event Gedung (Fasil)
+// ---------------------------------------------------------------------------
+
+function FasilEvent({
+  eventList,
+  gedungSaya,
+  onTambahEvent,
+  onEditEvent,
+  onHapusEvent,
+  onLihatRekap,
+}: {
+  eventList: EventAsrama[]
+  gedungSaya: Gedung
+  onTambahEvent: () => void
+  onEditEvent: (ev: EventAsrama) => void
+  onHapusEvent: (ev: EventAsrama) => void
+  onLihatRekap: (ev: EventAsrama) => void
+}) {
+  const [filterStatus, setFilterStatus] = useState<string>('semua')
+  const [cari, setCari] = useState('')
+
+  const today = todayLocal()
+  const now = new Date()
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+
+  const getStatusEvent = (ev: EventAsrama): 'Akan Datang' | 'Sedang Berlangsung' | 'Selesai' => {
+    if (ev.tanggal > today) return 'Akan Datang'
+    if (ev.tanggal < today) return 'Selesai'
+    if (currentTime < ev.jamMulai) return 'Akan Datang'
+    if (currentTime > ev.jamSelesai) return 'Selesai'
+    return 'Sedang Berlangsung'
+  }
+
+  // Event yang relevan untuk fasil: event gedung binaannya ATAU event seluruh asrama
+  const eventFasil = eventList.filter(ev => ev.tipe === 'seluruh' || ev.idGedung === gedungSaya.id)
+
+  const filtered = eventFasil.filter(ev => {
+    const st = getStatusEvent(ev)
+    if (filterStatus !== 'semua' && st !== filterStatus) return false
+    if (cari.trim()) {
+      const q = cari.toLowerCase()
+      return (
+        ev.judul.toLowerCase().includes(q) ||
+        (ev.deskripsi || '').toLowerCase().includes(q) ||
+        ev.lokasi.toLowerCase().includes(q)
+      )
+    }
+    return true
+  })
+
+  return (
+    <div className="space-y-6">
+      {/* Action Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4.5 rounded-2xl border border-emerald-100/90 shadow-xs">
+        <div>
+          <h3 className="text-base font-extrabold text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Event & Kegiatan {gedungSaya.nama}
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Buat kegiatan gedung, atur radius presensi di peta, dan pantau rekap kehadiran peserta
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onTambahEvent}
+          className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-700/20 cursor-pointer transition-all"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Buat Event Gedung</span>
+        </button>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-xs">
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Cari event, agenda, lokasi..."
+            value={cari}
+            onChange={e => setCari(e.target.value)}
+            className="pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 w-52 sm:w-72 bg-gray-50/50"
+          />
+        </div>
+        <select
+          value={filterStatus}
+          onChange={e => setFilterStatus(e.target.value)}
+          className="px-3 py-1.5 rounded-xl border border-gray-200 text-xs bg-white outline-none focus:border-emerald-600 font-medium"
+        >
+          <option value="semua">Semua Status ({eventFasil.length})</option>
+          <option value="Akan Datang">Akan Datang</option>
+          <option value="Sedang Berlangsung">Sedang Berlangsung</option>
+          <option value="Selesai">Selesai</option>
+        </select>
+      </div>
+
+      {/* Grid Cards */}
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-2xl p-12 text-center border border-gray-100 shadow-xs">
+          <CalendarDays className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <h4 className="font-extrabold text-base text-gray-800 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Belum Ada Event Terjadwal
+          </h4>
+          <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
+            Belum ada agenda atau kegiatan gedung yang terdaftar saat ini.
+          </p>
+          <button
+            type="button"
+            onClick={onTambahEvent}
+            className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Buat Event Gedung Baru</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-5">
+          {filtered.map(ev => {
+            const st = getStatusEvent(ev)
+            const adalahGedungSaya = ev.tipe === 'gedung' && ev.idGedung === gedungSaya.id
+            return (
+              <div
+                key={ev.id}
+                className="bg-white rounded-2xl p-5 border border-emerald-100/80 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-2.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          ev.tipe === 'seluruh'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-purple-50 text-purple-800 border border-purple-200'
+                        }`}
+                      >
+                        {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
+                      </span>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          st === 'Sedang Berlangsung'
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
+                            : st === 'Akan Datang'
+                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                            : 'bg-gray-100 text-gray-700 border border-gray-200'
+                        }`}
+                      >
+                        {st}
+                      </span>
+                    </div>
+
+                    {adalahGedungSaya && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onEditEvent(ev)}
+                          title="Edit Event Gedung"
+                          className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onHapusEvent(ev)}
+                          title="Hapus Event"
+                          className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <h4 className="font-extrabold text-base text-gray-900 leading-snug" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                    {ev.judul}
+                  </h4>
+                  {ev.deskripsi && (
+                    <p className="text-xs text-gray-600 mt-1 line-clamp-2 leading-relaxed">
+                      {ev.deskripsi}
+                    </p>
+                  )}
+
+                  <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="font-semibold">{ev.tanggal}</span>
+                      <span className="text-gray-400">·</span>
+                      <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span className="font-semibold">{ev.jamMulai}–{ev.jamSelesai} WIB</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <MapPin className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                      <span className="truncate">{ev.lokasi} (Radius: {ev.radiusMeter} m)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-[11px] text-gray-400">
+                    {adalahGedungSaya ? 'Dikelola oleh Anda' : `Penyelenggara: ${ev.namaPembuat || 'Admin'}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onLihatRekap(ev)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Rekap Kehadiran</span>
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
