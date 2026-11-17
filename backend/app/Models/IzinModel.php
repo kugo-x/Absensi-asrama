@@ -13,6 +13,7 @@ class IzinModel extends Model
     protected $useSoftDeletes   = false;
     protected $protectFields    = true;
     protected $allowedFields    = [
+        'Id_izin_sebelumnya',
         'NIM',
         'NIM_approver',
         'Alasan',

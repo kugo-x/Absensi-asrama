@@ -81,6 +81,17 @@ export function maxDate(a: string, b: string): string {
 }
 
 // Daftar tanggal dari yang terbaru ke yang terlama
+/** Kelompokkan tanggal (YYYY-MM-DD) menjadi rentang berurutan, mis. 1,2,3,5 Des → [1–3 Des], [5–5 Des] */
+export function kelompokkanTanggal(tanggal: string[]): [string, string][] {
+  const hasil: [string, string][] = []
+  for (const t of [...new Set(tanggal)].sort()) {
+    const akhir = hasil[hasil.length - 1]
+    if (akhir && addDays(akhir[1], 1) === t) akhir[1] = t
+    else hasil.push([t, t])
+  }
+  return hasil
+}
+
 export function dateRangeDesc(mulai: string, sampai: string): string[] {
   const out: string[] = []
   for (let t = sampai; t >= mulai; t = addDays(t, -1)) out.push(t)

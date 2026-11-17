@@ -60,6 +60,8 @@ $routes->group('api', static function ($routes) {
     $routes->get('izin', 'Api\DataController::getIzin');
     $routes->post('izin', 'Api\DataController::addIzin');
     $routes->post('izin/status', 'Api\DataController::updateIzinStatus');
+    $routes->post('izin/batal', 'Api\DataController::batalIzin');
+    $routes->get('izin/bukti/(:segment)', 'Api\DataController::buktiIzin/$1');
 
     // Pengaturan sesi & hari libur
     $routes->get('sesi', 'Api\PengaturanController::getSesi');

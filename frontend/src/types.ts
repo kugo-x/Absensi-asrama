@@ -150,6 +150,9 @@ export interface IzinRecord {
   hariBerulang?: HariIso[] | null
   catatanApprover?: string
   tanggalApproval?: string
+  // Pengajuan ulang: id izin lama yang ditolak, beserta catatan penolakannya
+  idIzinSebelumnya?: number | null
+  catatanSebelumnya?: string
 }
 
 // ----------------------------------------------------

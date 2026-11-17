@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { AturanPresensi, CurrentUser, EventAsrama, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
-import { FotoBadge, SesiIcon, formatRentangIzin } from '../components/PresensiWidgets'
+import { BuktiIzin, FotoBadge, KotakTanggalIzin, SesiIcon, TAMPILAN_STATUS_IZIN, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
 import { notifikasiPenghuni } from '../notifikasiPeran'
 import DateInput from '../components/DateInput'
+import PilihBeberapaTanggal from '../components/PilihBeberapaTanggal'
 import {
   presensiList as initialPresensi,
   izinList as initialIzin,
@@ -15,7 +16,7 @@ import {
   presensiEventList as initialPresensiEvent,
 } from '../data/mockData'
 import {
-  awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, fetchGedung, fetchSesi,
+  awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, batalIzinApi, adalahBuktiTersimpan, fetchGedung, fetchSesi,
   fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT,
   changePasswordApi, uploadProfilePhotoApi,
   fetchEvent, absenEventApi,
@@ -26,7 +27,7 @@ import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
   addDays, cariLibur, formatTanggal, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
   faseSesi, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi, type StatusDetail,
-  NAMA_HARI, SEMUA_HARI, adaHariDalamRentang, hariIso,
+  SEMUA_HARI, adaHariDalamRentang, hariIso, dateRangeDesc, formatRentangTanggal, teksHariBerulang, kelompokkanTanggal,
 } from '../logic'
 import {
   LayoutDashboard,
@@ -58,6 +59,8 @@ import {
   ArrowRight,
   CalendarDays,
   Search,
+  Plus,
+  X,
 } from 'lucide-react'
 import Cropper, { type Area } from 'react-easy-crop'
 
@@ -1181,6 +1184,16 @@ function PenghuniRiwayat({ riwayat, children }: { riwayat: ReturnType<typeof riw
   )
 }
 
+function formatUkuranBerkas(byte: number): string {
+  return byte < 1024 * 1024 ? `${Math.max(1, Math.round(byte / 1024))} KB` : `${(byte / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// "2026-11" → "November 2026"
+function namaBulan(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split('-').map(Number)
+  return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(y, m - 1, 1))
+}
+
 function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
   izinData: IzinRecord[]
   setIzinData: (fn: (prev: IzinRecord[]) => IzinRecord[]) => void
@@ -1188,239 +1201,709 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
   sesiList: Sesi[]
   today: string
 }) {
-  const kosong = { alasan: '', tanggal: '', tanggalSelesai: '', sesi: '', fileBukti: '', rutin: false, hari: [] as HariIso[] }
-  const [form, setForm] = useState(kosong)
+  const [formTerbuka, setFormTerbuka] = useState(false)
+  // Izin ditolak yang sedang diajukan ulang (null = pengajuan baru biasa)
+  const [dasarUlang, setDasarUlang] = useState<IzinRecord | null>(null)
+  const [batalTarget, setBatalTarget] = useState<IzinRecord | null>(null)
+  const [membatalkan, setMembatalkan] = useState(false)
+  const [filter, setFilter] = useState<'Semua' | IzinRecord['statusPersetujuan']>('Semua')
+  // Penelusuran riwayat: teks (alasan/catatan/tanggal), satu tanggal tertentu, atau satu bulan ('semua' | 'YYYY-MM')
+  const [cari, setCari] = useState('')
+  const [tanggalCari, setTanggalCari] = useState('')
+  const [periode, setPeriode] = useState('semua')
+  const [notice, setNotice] = useState<Notice | null>(null)
+  // Izin yang baru dikirim disorot sebentar agar mudah ditemukan di riwayat
+  const [sorotId, setSorotId] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (sorotId === null) return
+    document.getElementById(`izin-${sorotId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const t = setTimeout(() => setSorotId(null), 4000)
+    return () => clearTimeout(t)
+  }, [sorotId])
+
+  useEffect(() => {
+    if (!notice) return
+    const t = setTimeout(() => setNotice(null), 6000)
+    return () => clearTimeout(t)
+  }, [notice])
+
+  const bukaForm = (dasar: IzinRecord | null) => {
+    setDasarUlang(dasar)
+    setFormTerbuka(true)
+  }
+
+  // Batalkan izin yang masih menunggu: tunggu server, lalu muat ulang riwayat
+  const handleBatal = async () => {
+    if (!batalTarget) return
+    setMembatalkan(true)
+    const result = await batalIzinApi(batalTarget.id)
+    if (result.ok) {
+      const milikSaya = (await fetchIzin()).filter(i => i.nim === user.nim)
+      setIzinData(() => milikSaya)
+    } else if (result.offline) {
+      setIzinData(prev => prev.filter(i => i.id !== batalTarget.id))
+    }
+    setNotice(result.ok || result.offline
+      ? { type: 'success', text: 'Pengajuan izin dibatalkan.' }
+      : { type: 'error', text: result.message })
+    setMembatalkan(false)
+    setBatalTarget(null)
+  }
+
+  // izinOffline terisi hanya di mode demo; selain itu riwayat dimuat ulang dari server
+  const handleTerkirim = async (izinOffline: IzinRecord[] | null) => {
+    let idBaru: number | null
+    if (izinOffline) {
+      setIzinData(prev => [...izinOffline, ...prev])
+      idBaru = izinOffline[0]?.id ?? null
+    } else {
+      // Muat ulang agar id & nama berkas bukti sesuai yang tersimpan; id terbesar = pengajuan terbaru
+      const milikSaya = (await fetchIzin()).filter(i => i.nim === user.nim)
+      setIzinData(() => milikSaya)
+      idBaru = milikSaya.reduce<number | null>((maks, i) => (maks === null || i.id > maks ? i.id : maks), null)
+    }
+    setFormTerbuka(false)
+    resetSaringan()
+    setSorotId(idBaru)
+    setNotice({ type: 'success', text: 'Permohonan izin terkirim dan menunggu persetujuan fasilitator.' })
+  }
+
+  function resetSaringan() {
+    setFilter('Semua')
+    setCari('')
+    setTanggalCari('')
+    setPeriode('semua')
+  }
+
+  const hitung = (list: IzinRecord[]): Record<'Semua' | IzinRecord['statusPersetujuan'], number> => ({
+    Semua: list.length,
+    Pending: list.filter(i => i.statusPersetujuan === 'Pending').length,
+    Disetujui: list.filter(i => i.statusPersetujuan === 'Disetujui').length,
+    Ditolak: list.filter(i => i.statusPersetujuan === 'Ditolak').length,
+  })
+  // Kartu statistik = seluruh izin; angka di tombol status mengikuti periode & pencarian
+  const jumlah = hitung(izinData)
+
+  // Pilihan periode: bulan-bulan yang memiliki izin, terbaru di atas
+  const daftarBulan = [...new Set(izinData.flatMap(i => [i.tanggal.slice(0, 7), (i.tanggalSelesai || i.tanggal).slice(0, 7)]))].sort().reverse()
+  const batasPeriode: [string, string] | null =
+    tanggalCari ? [tanggalCari, tanggalCari]
+      : periode === 'semua' ? null
+        : [`${periode}-01`, `${periode}-31`]
+  const kataCari = cari.trim().toLowerCase()
+  // Izin masuk periode bila rentang tanggalnya bersinggungan (izin 30 Okt–2 Nov ikut di November).
+  // Teks pencarian juga dicocokkan dengan tanggal yang ditampilkan, mis. "29 nov" atau "nov 2026".
+  const tersaring = izinData.filter(i =>
+    (!batasPeriode || (i.tanggal <= batasPeriode[1] && (i.tanggalSelesai || i.tanggal) >= batasPeriode[0])) &&
+    (!kataCari || `${i.alasan} ${i.catatanApprover ?? ''} ${formatRentangTanggal(i.tanggal, i.tanggalSelesai)}`.toLowerCase().includes(kataCari)))
+  const adaSaringan = filter !== 'Semua' || batasPeriode !== null || kataCari !== ''
+  const jumlahTersaring = hitung(tersaring)
+
+  const daftar = (filter === 'Semua' ? tersaring : tersaring.filter(i => i.statusPersetujuan === filter))
+    .sort((a, b) => b.tanggal.localeCompare(a.tanggal) || b.id - a.id)
+  // Dikelompokkan per bulan tanggal mulai izin agar riwayat panjang mudah dipindai
+  const kelompokBulan: { bulan: string; izin: IzinRecord[] }[] = []
+  for (const i of daftar) {
+    const akhir = kelompokBulan[kelompokBulan.length - 1]
+    if (akhir?.bulan === i.tanggal.slice(0, 7)) akhir.izin.push(i)
+    else kelompokBulan.push({ bulan: i.tanggal.slice(0, 7), izin: [i] })
+  }
+
+  const berlakuHariIni = (i: IzinRecord) =>
+    i.statusPersetujuan === 'Disetujui' && i.tanggal <= today && today <= (i.tanggalSelesai || i.tanggal) &&
+    (!i.hariBerulang?.length || i.hariBerulang.includes(hariIso(today)))
+
+  const chipCls = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border'
+  const saringCls = 'w-full px-3 py-2 rounded-lg border border-gray-300 hover:border-gray-400 text-sm text-gray-800 bg-white outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 transition-colors placeholder:text-gray-400'
+  const tombolAjukan = (
+    <button
+      type="button"
+      onClick={() => bukaForm(null)}
+      className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg font-bold text-sm text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer shrink-0"
+      style={{ fontFamily: 'Plus Jakarta Sans' }}
+    >
+      <Plus className="w-4 h-4" />
+      <span>Ajukan Izin</span>
+    </button>
+  )
+
+  return (
+    <div className="w-full space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={<FileText className="w-5 h-5 text-gray-600" />} label="Total Pengajuan" value={jumlah.Semua} />
+        <StatCard icon={<Clock className="w-5 h-5 text-orange-600" />} label="Menunggu" value={jumlah.Pending} color="#c2410c" />
+        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-blue-700" />} label="Disetujui" value={jumlah.Disetujui} color="#1d4ed8" />
+        <StatCard icon={<XCircle className="w-5 h-5 text-red-600" />} label="Ditolak" value={jumlah.Ditolak} color="#dc2626" />
+      </div>
+
+      {notice && <NoticeBox notice={notice} />}
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
+        <div className="px-5 pt-4 pb-4 border-b border-gray-100">
+          <div className="flex items-start justify-between gap-3">
+            <SectionTitle subtitle="Status terbaru setiap pengajuan izin Anda">Riwayat Pengajuan Izin</SectionTitle>
+            {tombolAjukan}
+          </div>
+
+          {izinData.length > 0 && (
+            <div className="space-y-2 mb-3">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="search"
+                    value={cari}
+                    onChange={e => setCari(e.target.value)}
+                    placeholder="Cari alasan, catatan, atau tanggal (mis. 29 Nov)..."
+                    aria-label="Cari izin"
+                    className={`${saringCls} pl-9`}
+                  />
+                </div>
+                <div className="grid grid-cols-2 sm:flex gap-2">
+                  {/* Tanggal tertentu & bulan saling menggantikan agar tidak bertentangan */}
+                  <div className="sm:w-48">
+                    <DateInput clearable placeholder="Cari tanggal" className={saringCls} value={tanggalCari} onChange={e => { setTanggalCari(e.target.value); if (e.target.value) setPeriode('semua') }} />
+                  </div>
+                  <select value={periode} onChange={e => { setPeriode(e.target.value); setTanggalCari('') }} aria-label="Bulan izin" className={`${saringCls} sm:w-44`}>
+                    <option value="semua">Semua bulan</option>
+                    {daftarBulan.map(b => <option key={b} value={b}>{namaBulan(b)}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Saring status izin">
+            {(['Semua', 'Pending', 'Disetujui', 'Ditolak'] as const).map(f => {
+              const aktif = filter === f
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  role="tab"
+                  aria-selected={aktif}
+                  onClick={() => setFilter(f)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${aktif ? 'bg-[#0e4b29] text-white border-[#0e4b29]' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
+                  style={{ fontFamily: 'Plus Jakarta Sans' }}
+                >
+                  {f === 'Semua' ? 'Semua' : TAMPILAN_STATUS_IZIN[f].label}
+                  <span className={`ml-1.5 ${aktif ? 'text-emerald-100' : 'text-gray-400'}`}>{jumlahTersaring[f]}</span>
+                </button>
+              )
+            })}
+            {adaSaringan && (
+              <span className="ml-auto flex items-center gap-2 text-xs text-gray-500">
+                <span>{daftar.length} dari {izinData.length} izin</span>
+                <button type="button" onClick={resetSaringan} className="font-semibold text-emerald-700 hover:underline cursor-pointer">Reset filter</button>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4 space-y-5">
+          {daftar.length === 0 && (
+            <div className="py-12 text-center">
+              <FileText className="w-10 h-10 text-gray-200 mx-auto mb-2" />
+              {izinData.length === 0 ? (
+                <>
+                  <p className="text-sm text-gray-500 font-medium">Belum ada pengajuan izin</p>
+                  <p className="text-xs text-gray-400 mt-1 mb-4">Ajukan izin jika Anda berhalangan mengikuti sesi presensi.</p>
+                  {tombolAjukan}
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-500 font-medium">Tidak ada izin yang cocok dengan filter</p>
+                  <p className="text-xs text-gray-400 mt-1 mb-4">Coba ubah periode, kata pencarian, atau status.</p>
+                  <button type="button" onClick={resetSaringan} className="rounded-lg px-3.5 py-2 text-sm font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 cursor-pointer">Reset filter</button>
+                </>
+              )}
+            </div>
+          )}
+
+          {kelompokBulan.map(g => (
+            <section key={g.bulan} aria-label={namaBulan(g.bulan)}>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 px-1 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                {namaBulan(g.bulan)} <span className="font-semibold normal-case tracking-normal text-gray-400">· {g.izin.length} izin</span>
+              </h4>
+              <div className="space-y-2">
+                {g.izin.map(i => {
+                  const tampil = TAMPILAN_STATUS_IZIN[i.statusPersetujuan]
+                  const rutin = teksHariBerulang(i.hariBerulang)
+                  const diputuskan = i.statusPersetujuan !== 'Pending'
+                  // Satu izin yang ditolak hanya bisa diajukan ulang sekali
+                  const sudahDiulang = i.statusPersetujuan === 'Ditolak' && izinData.some(x => x.idIzinSebelumnya === i.id)
+                  return (
+                    <div
+                      key={i.id}
+                      id={`izin-${i.id}`}
+                      className={`flex gap-3 p-3 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-all duration-500 ${sorotId === i.id ? 'ring-2 ring-emerald-500/50' : ''}`}
+                    >
+                      <KotakTanggalIzin izin={i} />
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs text-gray-500 pt-0.5">
+                            <span className="font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatRentangTanggal(i.tanggal, i.tanggalSelesai)}</span>
+                            {' · '}{i.sesi ? `Sesi ${i.sesi}` : 'Seharian'}
+                            {rutin && <> · {rutin}</>}
+                            {i.idIzinSebelumnya != null && <> · <span className="font-semibold text-emerald-700">Pengajuan ulang</span></>}
+                          </p>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {berlakuHariIni(i) && (
+                              <span className={`${chipCls} bg-amber-50 border-amber-200 text-amber-800 hidden sm:inline-flex`}>Berlaku hari ini</span>
+                            )}
+                            <span className={`${chipCls} ${tampil.pill}`} style={{ fontFamily: 'Plus Jakarta Sans' }}>{tampil.label}</span>
+                          </div>
+                        </div>
+
+                        <p className="text-sm text-gray-800 leading-snug mt-1 break-words">{i.alasan}</p>
+
+                        {i.catatanApprover && (
+                          <p className={`text-xs mt-1 break-words ${i.statusPersetujuan === 'Ditolak' ? 'text-red-700' : 'text-blue-800'}`}>
+                            <span className="font-semibold">Catatan fasilitator:</span> {i.catatanApprover}
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5 text-[11px] text-gray-500">
+                          {i.fileBukti && (
+                            <BuktiIzin fileBukti={i.fileBukti} className="inline-flex items-center gap-1 font-semibold text-blue-700" />
+                          )}
+                          {diputuskan && (
+                            <span className="inline-flex items-center gap-1">
+                              <User className="w-3 h-3 shrink-0" />
+                              {tampil.label} oleh {i.namaApprover || 'fasilitator'}{i.tanggalApproval ? ` · ${formatTanggal(i.tanggalApproval, 'tanpaHari')}` : ''}
+                            </span>
+                          )}
+
+                          {/* Aksi: batalkan selama belum diputuskan, ajukan ulang bila ditolak */}
+                          {i.statusPersetujuan === 'Pending' && (
+                            <button
+                              type="button"
+                              onClick={() => setBatalTarget(i)}
+                              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-red-700 border border-red-200 bg-white hover:bg-red-50 cursor-pointer transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              Batalkan
+                            </button>
+                          )}
+                          {i.statusPersetujuan === 'Ditolak' && (sudahDiulang ? (
+                            <span className="ml-auto text-[11px] font-semibold text-gray-400">Sudah diajukan ulang</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => bukaForm(i)}
+                              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-white bg-[#0e4b29] hover:bg-[#0b3c20] cursor-pointer transition-colors"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              Ajukan Ulang
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+
+      {formTerbuka && (
+        <FormIzinModal
+          izinData={izinData}
+          user={user}
+          sesiList={sesiList}
+          today={today}
+          dasar={dasarUlang}
+          onClose={() => setFormTerbuka(false)}
+          onTerkirim={handleTerkirim}
+        />
+      )}
+
+      {batalTarget && (
+        <ConfirmDialog
+          title="Batalkan pengajuan izin?"
+          message={`Izin ${formatRentangIzin(batalTarget.tanggal, batalTarget.tanggalSelesai, batalTarget.sesi, batalTarget.hariBerulang)} akan dihapus dan tidak lagi ditinjau fasilitator.`}
+          confirmLabel="Ya, batalkan"
+          loading={membatalkan}
+          onCancel={() => { if (!membatalkan) setBatalTarget(null) }}
+          onConfirm={handleBatal}
+        />
+      )}
+    </div>
+  )
+}
+
+// Pop-up formulir pengajuan izin; di HP tampil satu layar penuh, ketentuan di panel samping (bawah di HP)
+function FormIzinModal({ izinData, user, sesiList, today, dasar, onClose, onTerkirim }: {
+  izinData: IzinRecord[]
+  user: CurrentUser
+  sesiList: Sesi[]
+  today: string
+  // Izin ditolak yang diajukan ulang: isian diisi dari izin ini, izin lama tetap tersimpan apa adanya
+  dasar: IzinRecord | null
+  onClose: () => void
+  onTerkirim: (izinOffline: IzinRecord[] | null) => Promise<void>
+}) {
+  // mode 'rentang' = tanggal mulai–selesai berurutan, 'beberapa' = tanggal terpisah yang dipilih di kalender.
+  // buktiFile = data URL berkas bukti, buktiNama = nama berkas asli (untuk tampilan)
+  const kosong = {
+    mode: 'rentang' as 'rentang' | 'beberapa', tanggal: '', tanggalSelesai: '', tanggalList: [] as string[],
+    sesi: '', alasan: '', buktiFile: '', buktiNama: '', buktiUkuran: 0,
+  }
+  // Pengajuan ulang: tanggal yang sudah lewat tidak bisa diajukan lagi, jadi hanya sisa rentang yang belum lewat
+  const selesaiDasar = dasar ? dasar.tanggalSelesai || dasar.tanggal : ''
+  const tanggalDasarLewat = !!dasar && selesaiDasar < today
+  const [form, setForm] = useState(() => {
+    if (!dasar) return kosong
+    const mulai = dasar.tanggal < today ? today : dasar.tanggal
+    return {
+      ...kosong,
+      tanggal: tanggalDasarLewat ? '' : mulai,
+      tanggalSelesai: tanggalDasarLewat || selesaiDasar === mulai ? '' : selesaiDasar,
+      sesi: dasar.sesi ?? '',
+      alasan: dasar.alasan,
+    }
+  })
+  // Pakai lagi berkas bukti izin lama selama penghuni tidak menggantinya
+  const [pakaiBuktiLama, setPakaiBuktiLama] = useState(!!dasar && adalahBuktiTersimpan(dasar.fileBukti))
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
+  // Ganti key untuk mengosongkan <input type="file"> setelah dihapus / ditolak
+  const [inputBuktiKey, setInputBuktiKey] = useState(0)
+  const [seretBerkas, setSeretBerkas] = useState(false)
+  const [konfirmasiTutup, setKonfirmasiTutup] = useState(false)
+  const noticeRef = useRef<HTMLDivElement>(null)
+
+  const adaIsian = form.alasan.trim() !== '' || form.tanggal !== '' || form.tanggalSelesai !== '' || form.tanggalList.length > 0 || form.sesi !== '' || form.buktiNama !== ''
+
+  // Isian yang belum dikirim tidak langsung dibuang: minta konfirmasi dulu
+  const mintaTutup = () => {
+    if (submitting) return
+    if (adaIsian) setKonfirmasiTutup(true)
+    else onClose()
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (konfirmasiTutup) setKonfirmasiTutup(false)
+      else mintaTutup()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  // Pesan error berada di bawah isian yang bisa digulir: pastikan terlihat
+  useEffect(() => {
+    if (notice) noticeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [notice])
+
+  const pilihBukti = (file: File | undefined) => {
+    setNotice(null)
+    if (!file) return
+    if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
+      setNotice({ type: 'error', text: 'Berkas bukti harus PDF, JPG, atau PNG.' })
+      setInputBuktiKey(k => k + 1)
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setNotice({ type: 'error', text: 'Ukuran berkas bukti maksimal 2 MB.' })
+      setInputBuktiKey(k => k + 1)
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setForm(p => ({ ...p, buktiFile: String(reader.result), buktiNama: file.name, buktiUkuran: file.size }))
+    reader.onerror = () => setNotice({ type: 'error', text: 'Berkas bukti gagal dibaca.' })
+    reader.readAsDataURL(file)
+  }
+
+  const hapusBukti = () => {
+    setForm(p => ({ ...p, buktiFile: '', buktiNama: '', buktiUkuran: 0 }))
+    setInputBuktiKey(k => k + 1)
+  }
+
+  // Tanggal izin sebagai daftar rentang berurutan (mode beberapa tanggal bisa menghasilkan lebih dari satu)
+  const rentang: [string, string][] = form.mode === 'beberapa'
+    ? kelompokkanTanggal(form.tanggalList)
+    : form.tanggal ? [[form.tanggal, form.tanggalSelesai || form.tanggal]] : []
+  const jumlahHari = form.mode === 'beberapa'
+    ? form.tanggalList.length
+    : rentang.length && rentang[0][1] >= rentang[0][0] ? dateRangeDesc(rentang[0][0], rentang[0][1]).length : 0
 
   const handleSubmit = async () => {
     setNotice(null)
-    const tanggalSelesai = form.tanggalSelesai || form.tanggal
     const sesi = form.sesi || null
-    if (!form.alasan.trim() || !form.tanggal) {
-      setNotice({ type: 'error', text: 'Tanggal mulai dan alasan izin wajib diisi.' })
+    if (rentang.length === 0) {
+      setNotice({ type: 'error', text: form.mode === 'beberapa' ? 'Pilih minimal satu tanggal izin.' : 'Tanggal mulai izin wajib diisi.' })
       return
     }
-    if (form.tanggal < today) {
+    if (!form.alasan.trim()) {
+      setNotice({ type: 'error', text: 'Alasan izin wajib diisi.' })
+      return
+    }
+    if (rentang[0][0] < today) {
       setNotice({ type: 'error', text: 'Izin tidak dapat diajukan untuk tanggal yang sudah lewat.' })
       return
     }
-    if (tanggalSelesai < form.tanggal) {
+    if (rentang.some(([dari, sampai]) => sampai < dari)) {
       setNotice({ type: 'error', text: 'Tanggal selesai tidak boleh sebelum tanggal mulai.' })
       return
-    }
-    // Izin rutin: hari terpilih (7 hari = sama dengan izin biasa)
-    const hariBerulang: HariIso[] | null = form.rutin && form.hari.length < 7 ? [...form.hari].sort() : null
-    if (form.rutin) {
-      if (form.hari.length === 0) {
-        setNotice({ type: 'error', text: 'Pilih minimal satu hari untuk izin rutin.' })
-        return
-      }
-      if (tanggalSelesai === form.tanggal) {
-        setNotice({ type: 'error', text: 'Izin rutin membutuhkan tanggal selesai setelah tanggal mulai.' })
-        return
-      }
-      if (!adaHariDalamRentang(form.tanggal, tanggalSelesai, form.hari)) {
-        setNotice({ type: 'error', text: 'Tidak ada hari terpilih di dalam rentang tanggal izin.' })
-        return
-      }
     }
     // Cegah pengajuan ganda pada tanggal/sesi yang sudah diajukan atau disetujui
     const bentrok = izinData.find(i => {
       if (i.statusPersetujuan === 'Ditolak' || (i.sesi && sesi && i.sesi !== sesi)) return false
-      const dari = form.tanggal > i.tanggal ? form.tanggal : i.tanggal
-      const sampai = tanggalSelesai < (i.tanggalSelesai || i.tanggal) ? tanggalSelesai : (i.tanggalSelesai || i.tanggal)
-      const irisan = (hariBerulang ?? SEMUA_HARI).filter(h => !i.hariBerulang?.length || i.hariBerulang.includes(h))
-      return dari <= sampai && irisan.length > 0 && adaHariDalamRentang(dari, sampai, irisan)
+      const akhirLama = i.tanggalSelesai || i.tanggal
+      return rentang.some(([dari0, sampai0]) => {
+        const dari = dari0 > i.tanggal ? dari0 : i.tanggal
+        const sampai = sampai0 < akhirLama ? sampai0 : akhirLama
+        // Izin rutin lama hanya berlaku pada hari tertentu dalam rentangnya
+        return dari <= sampai && adaHariDalamRentang(dari, sampai, i.hariBerulang?.length ? i.hariBerulang : SEMUA_HARI)
+      })
     })
     if (bentrok) {
-      setNotice({ type: 'error', text: `Sudah ada izin ${bentrok.statusPersetujuan.toLowerCase()} pada ${formatRentangIzin(bentrok.tanggal, bentrok.tanggalSelesai, bentrok.sesi, bentrok.hariBerulang)}.` })
+      setNotice({ type: 'error', text: `Sudah ada izin ${TAMPILAN_STATUS_IZIN[bentrok.statusPersetujuan].label.toLowerCase()} pada ${formatRentangIzin(bentrok.tanggal, bentrok.tanggalSelesai, bentrok.sesi, bentrok.hariBerulang)}.` })
       return
     }
 
     setSubmitting(true)
-    const newIzin: IzinRecord = {
-      id: Date.now(), nim: user.nim, namaPenghuni: user.nama, nomorKamar: user.nomorKamar || '', namaGedung: user.namaGedung || '',
-      alasan: form.alasan, tanggal: form.tanggal, tanggalSelesai, sesi, fileBukti: form.fileBukti, statusPersetujuan: 'Pending', hariBerulang,
+    const umum = {
+      nim: user.nim, alasan: form.alasan, sesi, buktiFile: form.buktiFile || null,
+      idIzinSebelumnya: dasar?.id ?? null, pakaiBuktiLama: pakaiBuktiLama && !form.buktiFile,
     }
-    const result = await submitIzinApi({ nim: user.nim, alasan: form.alasan, tanggal: form.tanggal, tanggalSelesai, sesi, fileBukti: form.fileBukti, hariBerulang })
-    if (result.ok || result.offline) {
-      setIzinData(prev => [newIzin, ...prev])
-      setForm(kosong)
-      setNotice({ type: 'success', text: 'Permohonan izin terkirim dan menunggu persetujuan fasilitator.' })
-    } else {
-      setNotice({ type: 'error', text: result.message })
+    const result = await submitIzinApi(form.mode === 'beberapa'
+      ? { ...umum, tanggalList: form.tanggalList }
+      : { ...umum, tanggal: rentang[0][0], tanggalSelesai: rentang[0][1] })
+    if (result.ok) {
+      await onTerkirim(null)
+      return
     }
+    if (result.offline) {
+      await onTerkirim(rentang.map(([dari, sampai], n) => ({
+        id: Date.now() + n, nim: user.nim, namaPenghuni: user.nama, nomorKamar: user.nomorKamar || '', namaGedung: user.namaGedung || '',
+        alasan: form.alasan, tanggal: dari, tanggalSelesai: sampai, sesi, statusPersetujuan: 'Pending',
+        fileBukti: form.buktiNama || (umum.pakaiBuktiLama && dasar ? dasar.fileBukti : ''), idIzinSebelumnya: dasar?.id ?? null,
+      })))
+      return
+    }
+    setNotice({ type: 'error', text: result.message })
     setSubmitting(false)
   }
 
-  const inputCls = 'w-full px-3 py-2 rounded-lg border border-gray-300 text-xs text-gray-800 outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 transition-colors placeholder:text-gray-400'
-  const labelCls = 'block text-xs font-semibold text-gray-700 mb-1'
+  // hover:border-* juga membuat tombol DateInput lolos dari aturan tema kaca yang memutihkan garis tepi
+  const inputCls = 'w-full px-3 py-2.5 rounded-lg border border-gray-300 hover:border-gray-400 text-sm text-gray-800 bg-white outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 transition-colors placeholder:text-gray-400'
+  const labelCls = 'block text-xs font-semibold text-gray-700 mb-1.5'
+  const wajib = <span className="text-red-500">*</span>
+  // Scrollbar tipis abu-abu (scrollbar global berwarna hijau terang tampak seperti garis pemisah)
+  const scrollTipisCls = '[scrollbar-width:thin] [scrollbar-color:#d1d5db_transparent] [&::-webkit-scrollbar-thumb]:bg-gray-300'
 
   return (
-    <div className="w-full space-y-4">
-      {/* Banner info ringkas */}
-      <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center gap-2.5">
-        <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
-        <p className="text-xs text-emerald-800">Izin yang disetujui fasilitator otomatis mengubah status presensi menjadi <strong>Izin</strong>. Ajukan sebelum sesi dimulai.</p>
-      </div>
-
-      <div className="grid lg:grid-cols-5 gap-4 items-start">
-        {/* Kolom Kiri: Form Pengajuan */}
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60">
-              <p className="text-sm font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>Formulir Pengajuan Izin</p>
-            </div>
-            <div className="p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tgl Mulai</label>
-                  <DateInput min={today} className={inputCls} value={form.tanggal} onChange={e => setForm(p => ({ ...p, tanggal: e.target.value }))} />
-                </div>
-                <div>
-                  <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tgl Selesai</label>
-                  <DateInput clearable min={form.tanggal || today} className={inputCls} value={form.tanggalSelesai} onChange={e => setForm(p => ({ ...p, tanggalSelesai: e.target.value }))} />
-                </div>
-              </div>
-              <p className="text-[10px] text-gray-400 -mt-1">Kosongkan jika izin hanya satu hari.</p>
-
-              <div className="rounded-lg border border-gray-200 p-2.5 space-y-2">
-                <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                  <input type="checkbox" className="accent-emerald-700" checked={form.rutin} onChange={e => setForm(p => ({ ...p, rutin: e.target.checked }))} />
-                  Izin rutin (berulang tiap minggu)
-                </label>
-                {form.rutin && (
-                  <>
-                    <div className="flex flex-wrap gap-1">
-                      {SEMUA_HARI.map(h => {
-                        const pilih = form.hari.includes(h)
-                        return (
-                          <button
-                            key={h}
-                            type="button"
-                            aria-pressed={pilih}
-                            onClick={() => setForm(p => ({ ...p, hari: pilih ? p.hari.filter(x => x !== h) : [...p.hari, h] }))}
-                            className={`px-2 py-1 rounded-md text-[11px] font-bold border cursor-pointer transition-colors ${pilih ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
-                          >
-                            {NAMA_HARI[h].slice(0, 3)}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    <p className="text-[10px] text-gray-400">Contoh: kuliah malam tiap Selasa &amp; Kamis selama satu semester. Cukup sekali diajukan dan disetujui.</p>
-                  </>
-                )}
-              </div>
-
-              <div>
-                <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi</label>
-                <select className={`${inputCls} bg-white`} value={form.sesi} onChange={e => setForm(p => ({ ...p, sesi: e.target.value }))}>
-                  <option value="">Seharian (semua sesi)</option>
-                  {sesiList.map(s => <option key={s.id} value={s.nama}>Sesi {s.nama} ({s.jamMulai}–{s.jamSelesai})</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Alasan / Keperluan</label>
-                <textarea
-                  className={inputCls}
-                  rows={3}
-                  placeholder="Misal: sakit, kuliah malam, keperluan keluarga..."
-                  value={form.alasan}
-                  onChange={e => setForm(p => ({ ...p, alasan: e.target.value }))}
-                />
-              </div>
-
-              <div>
-                <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Berkas Bukti (opsional)</label>
-                <div className="relative flex items-center">
-                  <Paperclip className="w-3.5 h-3.5 absolute left-3 text-gray-400 pointer-events-none" />
-                  <input type="text" placeholder="surat_dokter.pdf" className={`${inputCls} pl-8`} value={form.fileBukti} onChange={e => setForm(p => ({ ...p, fileBukti: e.target.value }))} />
-                </div>
-              </div>
-
-              {notice && <NoticeBox notice={notice} />}
-
-              <button
-                type="button"
-                disabled={submitting}
-                className="w-full py-2 px-4 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                onClick={handleSubmit}
-                style={{ fontFamily: 'Plus Jakarta Sans' }}
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{submitting ? 'Mengirim...' : 'Kirim Permohonan Izin'}</span>
-              </button>
-            </div>
+    <div
+      className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center bg-black/50 backdrop-blur-xs sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="judul-form-izin"
+      onMouseDown={e => { if (e.target === e.currentTarget) mintaTutup() }}
+    >
+      {/* Sengaja bg-[#fff], bukan bg-white: tema kaca (index.css) membuat .bg-white di modal tembus pandang
+          sehingga form tampak abu-abu kusam di atas latar gelap */}
+      <div className="bg-[#fff] w-full sm:max-w-3xl h-full sm:h-auto sm:max-h-[90vh] sm:rounded-2xl shadow-2xl sm:border border-emerald-100 overflow-hidden flex flex-col">
+        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-emerald-800 to-emerald-950 text-white flex items-center justify-between gap-3 shrink-0">
+          <div>
+            <h3 id="judul-form-izin" className="text-lg font-extrabold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>{dasar ? 'Ajukan Ulang Izin' : 'Ajukan Izin'}</h3>
+            <p className="text-xs text-emerald-200 mt-0.5">Pengajuan akan ditinjau oleh fasilitator gedung Anda</p>
           </div>
+          <button
+            type="button"
+            onClick={mintaTutup}
+            aria-label="Tutup"
+            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Kolom Kanan: Riwayat */}
-        <div className="lg:col-span-3">
-          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between">
-              <p className="text-sm font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>Riwayat Permohonan Izin</p>
-              <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{izinData.length} pengajuan</span>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {izinData.length === 0 && (
-                <div className="py-8 text-center">
-                  <FileText className="w-8 h-8 text-gray-200 mx-auto mb-2" />
-                  <p className="text-xs text-gray-400 font-medium">Belum ada riwayat pengajuan izin</p>
-                </div>
+        {/* Di HP seluruh isi digulir bersama; di layar lebar form & ketentuan bergulir masing-masing */}
+        <div className={`flex-1 min-h-0 overflow-y-auto md:overflow-hidden md:flex ${scrollTipisCls}`}>
+          <div className={`md:flex-1 md:min-w-0 md:overflow-y-auto p-5 sm:p-6 space-y-4 ${scrollTipisCls}`}>
+            {dasar && (
+              <div className="px-3.5 py-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+                <p className="font-bold" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                  Izin {formatRentangTanggal(dasar.tanggal, dasar.tanggalSelesai)} sebelumnya ditolak
+                </p>
+                {dasar.catatanApprover && <p><span className="font-semibold">Catatan fasilitator:</span> {dasar.catatanApprover}</p>}
+                <p className="text-amber-800">
+                  Perbaiki isian sesuai catatan, lalu kirim ulang. Izin yang ditolak tetap tersimpan di riwayat.
+                  {tanggalDasarLewat && ' Tanggal izin sebelumnya sudah lewat, pilih tanggal baru.'}
+                </p>
+              </div>
+            )}
+            <div>
+              <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tanggal Izin {wajib}</label>
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-gray-100 mb-3" role="radiogroup" aria-label="Cara memilih tanggal">
+                {([['rentang', 'Rentang tanggal'], ['beberapa', 'Beberapa tanggal']] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.mode === mode}
+                    onClick={() => setForm(p => ({ ...p, mode }))}
+                    className={`py-2 rounded-md text-xs font-semibold cursor-pointer transition-colors ${form.mode === mode ? 'bg-white text-emerald-800 shadow-2xs' : 'text-gray-600 hover:text-gray-900'}`}
+                    style={{ fontFamily: 'Plus Jakarta Sans' }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {form.mode === 'rentang' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="block text-[11px] font-semibold text-gray-500 mb-1">Mulai</span>
+                      <DateInput min={today} className={inputCls} value={form.tanggal} onChange={e => setForm(p => ({ ...p, tanggal: e.target.value }))} />
+                    </div>
+                    <div>
+                      <span className="block text-[11px] font-semibold text-gray-500 mb-1">Selesai</span>
+                      <DateInput clearable min={form.tanggal || today} className={inputCls} value={form.tanggalSelesai} onChange={e => setForm(p => ({ ...p, tanggalSelesai: e.target.value }))} />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1.5">Untuk izin beberapa hari berturut-turut. Kosongkan tanggal selesai jika hanya satu hari.</p>
+                </>
+              ) : (
+                <PilihBeberapaTanggal value={form.tanggalList} onChange={tanggalList => setForm(p => ({ ...p, tanggalList }))} min={today} />
               )}
-              {izinData.map(i => (
-                <div key={i.id} className="px-4 py-3 hover:bg-gray-50/70 transition-colors">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <div className="flex items-center gap-2">
-                      <Badge status={i.statusPersetujuan} />
-                      {i.statusPersetujuan === 'Disetujui' && i.tanggal <= today && today <= (i.tanggalSelesai || i.tanggal) && (!i.hariBerulang?.length || i.hariBerulang.includes(hariIso(today))) && (
-                        <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Berlaku hari ini</span>
-                      )}
-                    </div>
-                    <span className="text-[11px] font-medium text-gray-400 shrink-0">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}</span>
-                  </div>
-                  <p className="text-xs text-gray-700 leading-relaxed">{i.alasan}</p>
-                  <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px]">
-                    {i.fileBukti && (
-                      <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
-                        <Paperclip className="w-3 h-3" />
-                        <span>{i.fileBukti}</span>
-                      </span>
-                    )}
-                    {i.namaApprover && (
-                      <span className="inline-flex items-center gap-1 text-gray-500">
-                        <User className="w-3 h-3" />
-                        <span>{i.statusPersetujuan === 'Ditolak' ? 'Ditolak' : 'Disetujui'} oleh {i.namaApprover}{i.tanggalApproval ? ` · ${formatTanggal(i.tanggalApproval, 'tanpaHari')}` : ''}</span>
-                      </span>
-                    )}
-                  </div>
-                  {i.catatanApprover && (
-                    <p className={`text-[11px] mt-2 px-2.5 py-1.5 rounded border ${i.statusPersetujuan === 'Ditolak' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-blue-50 text-blue-800 border-blue-100'}`}>
-                      💬 {i.catatanApprover}
-                    </p>
-                  )}
-                </div>
-              ))}
             </div>
+
+            <div>
+              <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi</label>
+              <select className={inputCls} value={form.sesi} onChange={e => setForm(p => ({ ...p, sesi: e.target.value }))}>
+                <option value="">Seharian (semua sesi)</option>
+                {sesiList.map(s => <option key={s.id} value={s.nama}>Sesi {s.nama} ({s.jamMulai}–{s.jamSelesai})</option>)}
+              </select>
+            </div>
+
+            {jumlahHari > 0 && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-700">
+                <CalendarDays className="w-4 h-4 text-emerald-700 shrink-0 mt-px" />
+                <span>
+                  <strong>{jumlahHari} hari</strong> izin · {rentang.map(([dari, sampai]) => formatRentangTanggal(dari, sampai)).join(', ')} · {form.sesi ? `Sesi ${form.sesi}` : 'Seharian'}
+                </span>
+              </div>
+            )}
+
+            <div>
+              <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Alasan / Keperluan {wajib}</label>
+              <textarea
+                className={`${inputCls} resize-y min-h-[88px]`}
+                rows={3}
+                placeholder="Misal: sakit, kuliah malam, keperluan keluarga..."
+                value={form.alasan}
+                onChange={e => setForm(p => ({ ...p, alasan: e.target.value }))}
+              />
+            </div>
+
+            <div>
+              <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                Berkas Bukti <span className="font-normal text-gray-400">(opsional)</span>
+              </label>
+              {pakaiBuktiLama && !form.buktiNama && dasar ? (
+                <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-blue-200 bg-blue-50/60">
+                  <div className="w-9 h-9 rounded-md bg-white border border-blue-200 flex items-center justify-center shrink-0">
+                    <Paperclip className="w-4 h-4 text-blue-700" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-blue-900">Memakai bukti dari izin sebelumnya</p>
+                    <BuktiIzin fileBukti={dasar.fileBukti} className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700" />
+                  </div>
+                  <button type="button" onClick={() => setPakaiBuktiLama(false)} className="text-xs font-semibold text-gray-600 hover:underline cursor-pointer shrink-0">Ganti</button>
+                </div>
+              ) : form.buktiNama ? (
+                <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50/60">
+                  <div className="w-9 h-9 rounded-md bg-white border border-emerald-200 flex items-center justify-center shrink-0">
+                    <Paperclip className="w-4 h-4 text-emerald-700" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-emerald-900 truncate" title={form.buktiNama}>{form.buktiNama}</p>
+                    <p className="text-[11px] text-emerald-700">{formatUkuranBerkas(form.buktiUkuran)}</p>
+                  </div>
+                  <button type="button" onClick={hapusBukti} className="text-xs font-semibold text-red-600 hover:underline cursor-pointer shrink-0">Hapus</button>
+                </div>
+              ) : (
+                <label
+                  onDragOver={e => { e.preventDefault(); setSeretBerkas(true) }}
+                  onDragLeave={() => setSeretBerkas(false)}
+                  onDrop={e => { e.preventDefault(); setSeretBerkas(false); pilihBukti(e.dataTransfer.files?.[0]) }}
+                  className={`flex flex-col items-center justify-center gap-1 px-3 py-5 rounded-lg border-2 border-dashed text-center cursor-pointer transition-colors ${seretBerkas ? 'border-emerald-600 bg-emerald-50' : 'border-gray-300 hover:border-emerald-600 hover:bg-gray-50'}`}
+                >
+                  <Paperclip className="w-5 h-5 text-gray-400" />
+                  <span className="text-xs font-semibold text-gray-700">Klik untuk memilih atau seret berkas ke sini</span>
+                  <span className="text-[11px] text-gray-500">Surat dokter, tiket, dll. · PDF, JPG, PNG · maks. 2 MB</span>
+                  <input key={inputBuktiKey} type="file" accept="application/pdf,image/jpeg,image/png" className="sr-only" onChange={e => pilihBukti(e.target.files?.[0])} />
+                </label>
+              )}
+            </div>
+
+            {notice && <div ref={noticeRef}><NoticeBox notice={notice} /></div>}
           </div>
 
-          {/* Panduan Singkat & Ringkasan Izin */}
-          <div className="p-4 rounded-xl bg-gray-50/80 border border-gray-200 text-xs text-gray-700 space-y-2 mt-4">
-            <h5 className="font-bold text-gray-900 flex items-center gap-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+          <aside className={`md:w-64 shrink-0 border-t md:border-t-0 md:border-l border-emerald-100 bg-[#f4f8f6] p-5 sm:p-6 md:overflow-y-auto ${scrollTipisCls}`}>
+            <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-3" style={{ fontFamily: 'Plus Jakarta Sans' }}>
               <ShieldCheck className="w-4 h-4 text-emerald-700" />
-              <span>Ketentuan Pengajuan Izin Asrama</span>
-            </h5>
-            <ul className="text-[11px] text-gray-600 space-y-1 list-disc list-inside leading-relaxed">
-              <li>Permohonan izin diajukan sebelum sesi presensi yang bersangkutan dimulai.</li>
-              <li>Izin sakit atau pulang kampung lebih dari 1 hari wajib menyertakan bukti/surat keterangan.</li>
-              <li>Keputusan persetujuan izin sepenuhnya ditentukan oleh Fasilitator Gedung Anda.</li>
-              <li>Izin yang disetujui otomatis mengubah status presensi menjadi <strong>Izin</strong> (bebas alpa).</li>
-            </ul>
-          </div>
+              <span>Ketentuan Izin</span>
+            </h4>
+            <ol className="space-y-3">
+              {[
+                'Ajukan izin sebelum sesi presensi yang bersangkutan dimulai.',
+                'Izin sakit atau pulang kampung lebih dari 1 hari wajib menyertakan bukti/surat keterangan.',
+                'Keputusan persetujuan sepenuhnya ditentukan oleh fasilitator gedung Anda.',
+                'Izin yang disetujui otomatis mengubah status presensi menjadi Izin (bebas alpa).',
+              ].map((teks, n) => (
+                <li key={n} className="flex gap-2.5 text-xs text-gray-600 leading-relaxed">
+                  <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold flex items-center justify-center shrink-0">{n + 1}</span>
+                  <span>{teks}</span>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-4 pt-3 border-t border-gray-200 text-[11px] text-gray-500 leading-relaxed">
+              Berhalangan di tanggal yang tidak berurutan? Pilih <strong>Beberapa tanggal</strong> agar cukup sekali mengajukan.
+            </p>
+          </aside>
+        </div>
+
+        <div className="px-5 sm:px-6 py-4 border-t border-gray-100 bg-[#fff] flex justify-end gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={mintaTutup}
+            disabled={submitting}
+            className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-200 cursor-pointer disabled:opacity-60"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="flex-1 sm:flex-none rounded-xl px-4 py-2.5 font-bold text-sm text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+            style={{ fontFamily: 'Plus Jakarta Sans' }}
+          >
+            <Send className="w-4 h-4" />
+            <span>{submitting ? 'Mengirim...' : 'Kirim Permohonan'}</span>
+          </button>
         </div>
       </div>
+
+      {konfirmasiTutup && (
+        <ConfirmDialog
+          title="Tutup formulir izin?"
+          message="Isian formulir belum dikirim dan akan hilang jika ditutup."
+          confirmLabel="Ya, tutup"
+          onCancel={() => setKonfirmasiTutup(false)}
+          onConfirm={onClose}
+        />
+      )}
     </div>
   )
 }

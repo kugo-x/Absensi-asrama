@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
-import { RekapStats, RekapTable, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
+import { BuktiIzin, RekapStats, RekapTableBerhalaman, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
+import { BarisSaringIzin, KosongSaringIzin, useSaringIzin } from '../components/SaringIzin'
 import {
   penghuniList as initialPenghuni,
   gedungList as initialGedung,
@@ -1839,6 +1840,9 @@ function AdminEvent({
 // Presensi & Izin (rekap lintas gedung, hanya baca)
 // ---------------------------------------------------------------------------
 
+// Jumlah baris izin yang ditampilkan per "halaman" (ditambah dengan tombol "Tampilkan lebih banyak")
+const PER_HALAMAN_IZIN = 25
+
 function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
   penghuni: Penghuni[]
   gedungList: Gedung[]
@@ -1852,17 +1856,17 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
   const [tanggal, setTanggal] = useState(today)
   const [sesi, setSesi] = useState(aktif[0]?.nama || '')
   const [gedung, setGedung] = useState('')
-  const [filterIzin, setFilterIzin] = useState('Semua')
+  // Data perizinan punya filter sendiri (termasuk gedung), terpisah dari filter rekap presensi di atas
+  const saring = useSaringIzin(data.izin)
+  const [batasTampil, setBatasTampil] = useState(PER_HALAMAN_IZIN)
 
   // Tiap penghuni dinilai dengan jadwal sesi gedungnya; gedung yang belum mengatur absen malam tidak ikut
   const rows: RekapRow[] = penghuniWajibAbsen(penghuni, gedung || undefined).flatMap(p => {
     const s = sesiUntuk(sesiList, sesi, p.namaGedung, tanggal)
     return s ? [{ penghuni: p, detail: statusSesi(p.nim, tanggal, s, data, now) }] : []
   })
-  const izinRows = data.izin
-    .filter(i => !gedung || i.namaGedung === gedung)
-    .filter(i => filterIzin === 'Semua' || i.statusPersetujuan === filterIzin)
-    .sort((a, b) => b.tanggal.localeCompare(a.tanggal))
+  const izinRows = [...saring.hasil].sort((a, b) => b.tanggal.localeCompare(a.tanggal) || b.id - a.id)
+  const izinTampil = izinRows.slice(0, batasTampil)
 
   return (
     <div className="space-y-6">
@@ -1881,23 +1885,13 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
         <div className="px-6 py-4 border-b border-emerald-100">
           <SectionTitle subtitle="Koreksi presensi dilakukan oleh fasil gedung masing-masing">Rekap Presensi — {formatTanggal(tanggal)} · Sesi {sesi}</SectionTitle>
         </div>
-        <RekapTable rows={rows} showGedung />
+        <RekapTableBerhalaman rows={rows} showGedung kunciReset={`${tanggal}|${sesi}|${gedung}`} />
       </div>
 
       <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs">
-        <div className="px-6 py-4 border-b border-emerald-100 flex flex-wrap items-center justify-between gap-3">
-          <SectionTitle subtitle="Seluruh pengajuan izin lintas gedung">Data Perizinan</SectionTitle>
-          <div className="flex gap-2 flex-wrap">
-            {['Semua', 'Pending', 'Disetujui', 'Ditolak'].map(f => (
-              <button
-                key={f}
-                onClick={() => setFilterIzin(f)}
-                className={`px-3 py-1 rounded-full text-xs font-bold cursor-pointer ${filterIzin === f ? 'bg-emerald-800 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
+        <div className="px-6 py-4 border-b border-emerald-100">
+          <SectionTitle subtitle="Seluruh pengajuan izin lintas gedung. Keputusan izin dilakukan oleh fasil gedung masing-masing.">Data Perizinan</SectionTitle>
+          <BarisSaringIzin saring={saring} gedungList={gedungList} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -1910,18 +1904,24 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {izinRows.length === 0 && (
-                <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">Tidak ada data izin</td></tr>
+                <tr><td colSpan={7}><KosongSaringIzin saring={saring} teksKosong="Belum ada data izin" /></td></tr>
               )}
-              {izinRows.map(i => (
+              {izinTampil.map(i => (
                 <tr key={i.id} className="hover:bg-emerald-50/30">
                   <td className="px-5 py-3.5">
                     <p className="font-bold text-gray-900">{i.namaPenghuni}</p>
-                    <p className="mono text-[11px] text-gray-500">{i.nim}</p>
+                    <p className="mono text-[11px] text-gray-500">{i.nim}{i.nomorKamar ? ` · Kamar ${i.nomorKamar}` : ''}</p>
                   </td>
                   <td className="px-5 py-3.5 text-xs text-gray-600">{i.namaGedung}</td>
                   <td className="px-5 py-3.5 text-xs text-gray-700 whitespace-nowrap">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}</td>
-                  <td className="px-5 py-3.5 text-xs text-gray-700 max-w-[240px]">{i.alasan}</td>
-                  <td className="px-5 py-3.5"><Badge status={i.statusPersetujuan} /></td>
+                  <td className="px-5 py-3.5 text-xs text-gray-700 max-w-[240px]">
+                    {i.alasan}
+                    {i.fileBukti && <BuktiIzin fileBukti={i.fileBukti} className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700" />}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <Badge status={i.statusPersetujuan} />
+                    {i.idIzinSebelumnya != null && <p className="text-[10px] font-semibold text-amber-700 mt-1 whitespace-nowrap">Pengajuan ulang</p>}
+                  </td>
                   <td className="px-5 py-3.5 text-xs text-gray-600">{i.namaApprover ? `${i.namaApprover} · ${formatTanggal(i.tanggalApproval || '', 'tanpaHari')}` : '–'}</td>
                   <td className="px-5 py-3.5 text-xs text-gray-500 max-w-[200px]">{i.catatanApprover || '–'}</td>
                 </tr>
@@ -1929,6 +1929,23 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
             </tbody>
           </table>
         </div>
+        {izinRows.length > PER_HALAMAN_IZIN && (
+          <div className="px-6 py-3 border-t border-emerald-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+            <span>Menampilkan {izinTampil.length} dari {izinRows.length} izin</span>
+            <div className="flex gap-2">
+              {izinTampil.length < izinRows.length && (
+                <button type="button" onClick={() => setBatasTampil(b => b + PER_HALAMAN_IZIN)} className="px-3 py-1.5 rounded-lg font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 cursor-pointer">
+                  Tampilkan lebih banyak
+                </button>
+              )}
+              {batasTampil > PER_HALAMAN_IZIN && (
+                <button type="button" onClick={() => setBatasTampil(PER_HALAMAN_IZIN)} className="px-3 py-1.5 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer">
+                  Ringkas
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

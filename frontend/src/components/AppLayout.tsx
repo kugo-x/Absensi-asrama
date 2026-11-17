@@ -438,10 +438,12 @@ export function Badge({ status }: { status: string }) {
   }
 
   const current = map[status] || { bg: 'bg-gray-100 border-gray-300 text-gray-700' }
+  // Nilai status di database tetap 'Pending'; yang tampil ke pengguna berbahasa Indonesia
+  const label: Record<string, string> = { Pending: 'Menunggu' }
 
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${current.bg}`} style={{ fontFamily: 'Plus Jakarta Sans' }}>
-      {status}
+      {label[status] ?? status}
     </span>
   )
 }

@@ -1251,6 +1251,7 @@ class DataController extends BaseController
             $hasTglApp       = in_array('Tanggal_approval', $cols, true);
             $hasApprover     = in_array('NIM_approver', $cols, true);
             $hasBukti        = in_array('File_bukti', $cols, true);
+            $hasSebelumnya   = in_array('Id_izin_sebelumnya', $cols, true);
 
             $tglSelesaiCol   = $hasTglSelesai ? "COALESCE(i.Tanggal_selesai, i.Tanggal) as tanggalSelesai" : "i.Tanggal as tanggalSelesai";
             $sesiCol         = $hasSesi ? "i.Sesi as sesi" : "NULL as sesi";
@@ -1258,6 +1259,9 @@ class DataController extends BaseController
             $catatanAppCol   = $hasCatatanApp ? "COALESCE(i.Catatan_approver, '') as catatanApprover" : "'' as catatanApprover";
             $tglAppCol       = $hasTglApp ? "COALESCE(DATE_FORMAT(i.Tanggal_approval, '%Y-%m-%d'), '') as tanggalApproval" : "'' as tanggalApproval";
             $buktiCol        = $hasBukti ? "COALESCE(i.File_bukti, '') as fileBukti" : "'' as fileBukti";
+            // Pengajuan ulang: izin lama yang ditolak beserta catatan penolakannya
+            $sebelumnyaCol   = $hasSebelumnya ? "i.Id_izin_sebelumnya as idIzinSebelumnya, COALESCE(sebelumnya.Catatan_approver, '') as catatanSebelumnya" : "NULL as idIzinSebelumnya, '' as catatanSebelumnya";
+            $joinSebelumnya  = $hasSebelumnya ? "LEFT JOIN izin sebelumnya ON sebelumnya.Id_izin = i.Id_izin_sebelumnya" : "";
 
             $approverCol     = $hasApprover ? "i.NIM_approver as nimApprover, approver.Nama as namaApprover" : "NULL as nimApprover, '' as namaApprover";
             $joinApprover    = $hasApprover ? "LEFT JOIN user approver ON BINARY approver.NIM = BINARY i.NIM_approver" : "";
@@ -1273,6 +1277,30 @@ class DataController extends BaseController
             $joinUser  = $hasUser ? "LEFT JOIN user u ON BINARY u.NIM = BINARY i.NIM" : "";
             $joinKamar = ($hasUser && $hasKamar) ? "LEFT JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar" : "";
             $joinGedung = ($hasKamar && $hasGedung) ? "LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung" : "";
+
+            // Lingkup data mengikuti peran: penghuni = miliknya sendiri, fasil = penghuni gedung yang ia pegang,
+            // admin = semua. Mencegah alasan izin & berkas bukti penghuni lain ikut terkirim ke browser.
+            $token = $this->tokenUser();
+            $binds = [];
+            switch ($token['role'] ?? '') {
+                case 'admin':
+                    $where = '';
+                    break;
+                case 'fasil':
+                    // Tanpa tabel gedung/kamar tidak bisa dipastikan gedungnya: jangan tampilkan apa pun
+                    if (!($hasUser && $hasKamar && $hasGedung)) {
+                        return $this->respond([]);
+                    }
+                    $where   = 'WHERE BINARY g.NIM_Pj = BINARY ?';
+                    $binds[] = $token['nim'] ?? '';
+                    break;
+                case 'penghuni':
+                    $where   = 'WHERE BINARY i.NIM = BINARY ?';
+                    $binds[] = $token['nim'] ?? '';
+                    break;
+                default:
+                    return $this->failForbidden('Akses data izin tidak diizinkan.');
+            }
 
             $query = $this->db->query("
                 SELECT
@@ -1290,18 +1318,22 @@ class DataController extends BaseController
                     {$sesiCol},
                     {$hariBerulangCol},
                     {$catatanAppCol},
-                    {$tglAppCol}
+                    {$tglAppCol},
+                    {$sebelumnyaCol}
                 FROM izin i
+                {$joinSebelumnya}
                 {$joinUser}
                 {$joinApprover}
                 {$joinKamar}
                 {$joinGedung}
+                {$where}
                 ORDER BY i.Tanggal DESC, i.Id_izin DESC
-            ");
+            ", $binds);
 
             $data = $query->getResultArray();
             foreach ($data as &$row) {
                 $row['id'] = (int) $row['id'];
+                $row['idIzinSebelumnya'] = $row['idIzinSebelumnya'] === null ? null : (int) $row['idIzinSebelumnya'];
                 // Izin rutin: daftar hari ISO (1 = Senin … 7 = Minggu); null = setiap hari dalam rentang
                 $row['hariBerulang'] = $row['hariBerulang'] === null ? null : array_map('intval', explode(',', $row['hariBerulang']));
             }
@@ -1316,83 +1348,280 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function addIzin()
     {
+        $token = $this->tokenUser();
+        if (($token['role'] ?? '') !== 'penghuni') {
+            return $this->failForbidden('Hanya penghuni yang dapat mengajukan izin.');
+        }
         $input = $this->request->getJSON(true) ?? $this->request->getPost();
-        $nim = $input['nim'] ?? '';
+        // NIM dari token login, bukan dari body, agar tidak bisa mengajukan izin atas nama orang lain
+        $nim = $token['nim'] ?? '';
         $alasan = trim($input['alasan'] ?? '');
-        $tanggal = $input['tanggal'] ?? '';
-        $tanggalSelesai = $input['tanggalSelesai'] ?? $tanggal;
-        $sesi = $input['sesi'] ?? null;
-        $fileBukti = $input['fileBukti'] ?? '';
+        $sesi = ($input['sesi'] ?? null) ?: null;
 
-        if (!$nim || !$alasan || !$tanggal) {
-            return $this->fail('NIM, tanggal, dan alasan izin wajib diisi.', 400);
+        // Tanggal izin: satu rentang (tanggal–tanggalSelesai) atau beberapa tanggal terpisah (tanggalList).
+        // Tanggal terpisah dikelompokkan menjadi rentang berurutan; tiap rentang = satu baris izin.
+        if (isset($input['tanggalList'])) {
+            $daftar = $input['tanggalList'];
+            if (!is_array($daftar) || $daftar === []) {
+                return $this->fail('Pilih minimal satu tanggal izin.', 400);
+            }
+            $daftar = array_values(array_unique(array_map('strval', $daftar)));
+            if (count($daftar) > 31) {
+                return $this->fail('Maksimal 31 tanggal dalam satu pengajuan.', 400);
+            }
+            foreach ($daftar as $t) {
+                if (!$this->tanggalValid($t)) {
+                    return $this->fail('Tanggal izin tidak valid.', 400);
+                }
+            }
+            sort($daftar);
+            $rentang = $this->kelompokkanTanggal($daftar);
+        } else {
+            $tanggal = $input['tanggal'] ?? '';
+            $tanggalSelesai = ($input['tanggalSelesai'] ?? '') ?: $tanggal;
+            if (!$this->tanggalValid($tanggal) || !$this->tanggalValid($tanggalSelesai)) {
+                return $this->fail('Tanggal izin wajib diisi dengan benar.', 400);
+            }
+            if ($tanggalSelesai < $tanggal) {
+                return $this->fail('Tanggal selesai tidak boleh sebelum tanggal mulai.', 400);
+            }
+            $rentang = [[$tanggal, $tanggalSelesai]];
         }
-        if ($tanggal < date('Y-m-d')) {
+
+        // Berkas bukti opsional (data URL PDF/JPG/PNG, maks. 2 MB)
+        $bukti = null;
+        if (!empty($input['buktiFile'])) {
+            $bukti = $this->dekodeBuktiIzin($input['buktiFile']);
+            if ($bukti === null) {
+                return $this->fail('Berkas bukti harus PDF, JPG, atau PNG dengan ukuran maksimal 2 MB.', 400);
+            }
+        }
+
+        if (!$nim || !$alasan) {
+            return $this->fail('Tanggal dan alasan izin wajib diisi.', 400);
+        }
+        if ($rentang[0][0] < date('Y-m-d')) {
             return $this->fail('Izin tidak dapat diajukan untuk tanggal yang sudah lewat.', 400);
-        }
-        if ($tanggalSelesai < $tanggal) {
-            return $this->fail('Tanggal selesai tidak boleh sebelum tanggal mulai.', 400);
         }
         if ($sesi !== null && !$this->presensiService->namaSesiDikenal($sesi)) {
             return $this->fail('Sesi tidak dikenal.', 400);
         }
 
-        // Izin rutin berulang (opsional): hari dalam seminggu, 1 = Senin … 7 = Minggu
-        $hariBerulang = null;
-        if (isset($input['hariBerulang']) && $input['hariBerulang'] !== null) {
-            $hari = $input['hariBerulang'];
-            if (!is_array($hari) || $hari === []) {
-                return $this->fail('Pilih minimal satu hari untuk izin rutin.', 400);
+        // Pengajuan ulang izin yang ditolak (opsional): izin lama tidak diubah, baris baru menunjuk ke sana
+        // sehingga riwayat penolakan & catatan fasil tetap tersimpan
+        $idSebelumnya = null;
+        $buktiLama    = null;
+        if (!empty($input['idIzinSebelumnya'])) {
+            if (!$this->db->fieldExists('Id_izin_sebelumnya', 'izin')) {
+                return $this->failServerError('Database belum diperbarui. Jalankan: php spark migrate');
             }
-            $hari = array_values(array_unique(array_map('intval', $hari)));
-            sort($hari);
-            if ($hari[0] < 1 || end($hari) > 7) {
-                return $this->fail('Hari izin rutin tidak valid.', 400);
+            $lama = $this->db->table('izin')->where('Id_izin', (int) $input['idIzinSebelumnya'])->get()->getRowArray();
+            if (!$lama || $lama['NIM'] !== $nim) {
+                return $this->failNotFound('Izin sebelumnya tidak ditemukan.');
             }
-            if ($tanggalSelesai === $tanggal) {
-                return $this->fail('Izin rutin membutuhkan rentang tanggal (tanggal selesai setelah tanggal mulai).', 400);
+            if ($lama['Status_persetujuan'] !== 'Ditolak') {
+                return $this->fail('Hanya izin yang ditolak yang dapat diajukan ulang.', 400);
             }
-            if (!$this->adaHariDalamRentang($tanggal, $tanggalSelesai, $hari)) {
-                return $this->fail('Tidak ada hari terpilih di dalam rentang tanggal izin.', 400);
+            if ($this->db->table('izin')->where('Id_izin_sebelumnya', $lama['Id_izin'])->countAllResults() > 0) {
+                return $this->fail('Izin ini sudah pernah diajukan ulang.', 409);
             }
-            // Ketujuh hari = setiap hari, sama dengan izin biasa
-            $hariBerulang = count($hari) === 7 ? null : $hari;
+            $idSebelumnya = (int) $lama['Id_izin'];
+            // Bukti lama boleh dipakai lagi bila penghuni tidak mengunggah bukti baru
+            if ($bukti === null && !empty($input['pakaiBuktiLama']) && !empty($lama['File_bukti'])) {
+                $buktiLama = $lama['File_bukti'];
+            }
         }
 
         // Tolak pengajuan yang bertumpuk dengan izin pending/disetujui
-        $bentrok = $this->db->table('izin')
-            ->where('NIM', $nim)
-            ->where('Status_persetujuan !=', 'Ditolak')
-            ->where('Tanggal <=', $tanggalSelesai)
-            ->where('COALESCE(Tanggal_selesai, Tanggal) >= ' . $this->db->escape($tanggal), null, false);
-        if ($sesi !== null) {
-            $bentrok->groupStart()->where('Sesi', null)->orWhere('Sesi', $sesi)->groupEnd();
-        }
-        // Dua izin rutin di rentang yang sama tidak bentrok bila harinya berbeda
-        foreach ($bentrok->get()->getResultArray() as $lama) {
-            $hariLama = $lama['Hari_berulang'] === null ? range(1, 7) : array_map('intval', explode(',', $lama['Hari_berulang']));
-            $irisan   = array_values(array_intersect($hariBerulang ?? range(1, 7), $hariLama));
-            $dari     = max($tanggal, $lama['Tanggal']);
-            $sampai   = min($tanggalSelesai, $lama['Tanggal_selesai'] ?? $lama['Tanggal']);
-            if ($irisan !== [] && $this->adaHariDalamRentang($dari, $sampai, $irisan)) {
+        foreach ($rentang as [$dari, $sampai]) {
+            if ($this->izinBentrok($nim, $dari, $sampai, $sesi)) {
                 return $this->fail('Sudah ada pengajuan izin pada tanggal/sesi tersebut.', 409);
             }
         }
 
-        $this->db->table('izin')->insert([
-            'NIM'                => $nim,
-            'Alasan'             => $alasan,
-            'Status_persetujuan' => 'Pending',
-            'File_bukti'         => $fileBukti,
-            'Tanggal'            => $tanggal,
-            'Tanggal_selesai'    => $tanggalSelesai,
-            'Sesi'               => $sesi,
-            'Hari_berulang'      => $hariBerulang === null ? null : implode(',', $hariBerulang),
-            'created_at'         => date('Y-m-d H:i:s'),
-            'updated_at'         => date('Y-m-d H:i:s'),
-        ]);
+        // Simpan bukti di writable/ (tidak bisa diakses langsung dari URL publik), setelah semua validasi lolos
+        $fileBukti = null;
+        if ($bukti !== null) {
+            $dir = WRITEPATH . 'uploads/izin/';
+            if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
+                return $this->failServerError('Folder penyimpanan bukti tidak dapat dibuat.');
+            }
+            $fileBukti = sprintf('izin_%s_%s_%s.%s', preg_replace('/[^A-Za-z0-9]/', '', $nim), date('Ymd'), bin2hex(random_bytes(4)), $bukti['ext']);
+            if (file_put_contents($dir . $fileBukti, $bukti['data']) === false) {
+                return $this->failServerError('Berkas bukti gagal disimpan.');
+            }
+        }
 
-        return $this->respondCreated(['status' => 'success', 'message' => 'Pengajuan izin berhasil dikirim']);
+        // Semua rentang disimpan sekaligus: gagal satu = batal semua
+        $this->db->transStart();
+        foreach ($rentang as [$dari, $sampai]) {
+            $baris = [
+                'NIM'                => $nim,
+                'Alasan'             => $alasan,
+                'Status_persetujuan' => 'Pending',
+                'File_bukti'         => $fileBukti ?? $buktiLama,
+                'Tanggal'            => $dari,
+                'Tanggal_selesai'    => $sampai,
+                'Sesi'               => $sesi,
+                'created_at'         => date('Y-m-d H:i:s'),
+                'updated_at'         => date('Y-m-d H:i:s'),
+            ];
+            if ($idSebelumnya !== null) {
+                $baris['Id_izin_sebelumnya'] = $idSebelumnya;
+            }
+            $this->db->table('izin')->insert($baris);
+        }
+        $this->db->transComplete();
+        if (!$this->db->transStatus()) {
+            // Hanya berkas yang baru diunggah yang dihapus; bukti lama masih dipakai izin sebelumnya
+            if ($fileBukti !== null) {
+                @unlink(WRITEPATH . 'uploads/izin/' . $fileBukti);
+            }
+            return $this->failServerError('Pengajuan izin gagal disimpan.');
+        }
+
+        $pesan = count($rentang) === 1 ? 'Pengajuan izin berhasil dikirim' : count($rentang) . ' pengajuan izin berhasil dikirim';
+        return $this->respondCreated(['status' => 'success', 'message' => $pesan]);
+    }
+
+    // ----------------------------------------------------
+    // POST /api/izin/batal
+    // Penghuni membatalkan izinnya sendiri yang belum diputuskan. Izin yang belum diputuskan
+    // belum memiliki keputusan fasil yang perlu dijaga, jadi barisnya dihapus.
+    // ----------------------------------------------------
+    public function batalIzin()
+    {
+        $token = $this->tokenUser();
+        if (($token['role'] ?? '') !== 'penghuni') {
+            return $this->failForbidden('Hanya penghuni yang dapat membatalkan izin.');
+        }
+        $input = $this->request->getJSON(true) ?? $this->request->getPost();
+        $id = (int) ($input['id'] ?? 0);
+
+        $izin = $this->db->table('izin')->where('Id_izin', $id)->get()->getRowArray();
+        // Izin milik orang lain dijawab "tidak ditemukan" agar keberadaannya tidak terungkap
+        if (!$izin || $izin['NIM'] !== ($token['nim'] ?? '')) {
+            return $this->failNotFound('Pengajuan izin tidak ditemukan.');
+        }
+        if ($izin['Status_persetujuan'] !== 'Pending') {
+            return $this->fail('Izin yang sudah diputuskan fasilitator tidak dapat dibatalkan.', 409);
+        }
+
+        $this->db->table('izin')->where('Id_izin', $id)->delete();
+
+        // Hapus berkas bukti bila tidak dipakai izin lain (bukti bisa dipakai bersama oleh pengajuan ulang
+        // atau oleh beberapa rentang dari satu pengajuan)
+        $berkas = $izin['File_bukti'] ?? '';
+        if ($berkas !== '' && $this->db->table('izin')->where('File_bukti', $berkas)->countAllResults() === 0) {
+            @unlink(WRITEPATH . 'uploads/izin/' . basename($berkas));
+        }
+
+        return $this->respond(['status' => 'success', 'message' => 'Pengajuan izin dibatalkan']);
+    }
+
+    private function tanggalValid($tanggal): bool
+    {
+        return is_string($tanggal) && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $tanggal, $m) === 1 && checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
+    }
+
+    /** Kelompokkan tanggal terurut menjadi rentang berurutan, mis. 1,2,3,5 Des → [1–3 Des], [5–5 Des] */
+    private function kelompokkanTanggal(array $tanggal): array
+    {
+        $hasil = [];
+        foreach ($tanggal as $t) {
+            $akhir = count($hasil) - 1;
+            if ($akhir >= 0 && date('Y-m-d', strtotime($hasil[$akhir][1] . ' +1 day')) === $t) {
+                $hasil[$akhir][1] = $t;
+            } else {
+                $hasil[] = [$t, $t];
+            }
+        }
+
+        return $hasil;
+    }
+
+    /** Ada izin pending/disetujui milik $nim yang mencakup salah satu tanggal di [$dari, $sampai] untuk sesi tersebut */
+    private function izinBentrok(string $nim, string $dari, string $sampai, ?string $sesi): bool
+    {
+        $query = $this->db->table('izin')
+            ->where('NIM', $nim)
+            ->where('Status_persetujuan !=', 'Ditolak')
+            ->where('Tanggal <=', $sampai)
+            ->where('COALESCE(Tanggal_selesai, Tanggal) >= ' . $this->db->escape($dari), null, false);
+        if ($sesi !== null) {
+            $query->groupStart()->where('Sesi', null)->orWhere('Sesi', $sesi)->groupEnd();
+        }
+        foreach ($query->get()->getResultArray() as $lama) {
+            // Izin rutin lama hanya berlaku pada hari tertentu dalam rentangnya
+            $hariLama = empty($lama['Hari_berulang']) ? range(1, 7) : array_map('intval', explode(',', $lama['Hari_berulang']));
+            $irisanDari   = max($dari, $lama['Tanggal']);
+            $irisanSampai = min($sampai, $lama['Tanggal_selesai'] ?? $lama['Tanggal']);
+            if ($this->adaHariDalamRentang($irisanDari, $irisanSampai, $hariLama)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Dekode data URL berkas bukti izin; null jika bukan PDF/JPEG/PNG yang valid atau melebihi 2 MB
+     *
+     * @return array{data: string, ext: string}|null
+     */
+    private function dekodeBuktiIzin($dataUrl): ?array
+    {
+        if (!is_string($dataUrl) || !preg_match('#^data:[a-z/+.-]*;base64,#i', $dataUrl, $m)) {
+            return null;
+        }
+        $data = base64_decode(substr($dataUrl, strlen($m[0])), true);
+        if ($data === false || $data === '' || strlen($data) > 2 * 1024 * 1024) {
+            return null;
+        }
+        // Jenis berkas dari isinya, bukan dari label data URL / nama berkas
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime  = finfo_buffer($finfo, $data);
+        finfo_close($finfo);
+        $ext = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/png' => 'png'][$mime] ?? null;
+
+        return $ext === null ? null : ['data' => $data, 'ext' => $ext];
+    }
+
+    // ----------------------------------------------------
+    // GET /api/izin/bukti/{nama}
+    // ----------------------------------------------------
+    public function buktiIzin(string $nama)
+    {
+        // Hanya nama berkas yang dibuat addIzin; mencegah akses ke berkas lain (path traversal)
+        if (!preg_match('/^izin_[A-Za-z0-9_]+\.(pdf|jpg|png)$/', $nama, $m)) {
+            return $this->failNotFound('Bukti izin tidak ditemukan.');
+        }
+        $path = WRITEPATH . 'uploads/izin/' . $nama;
+        if (!is_file($path)) {
+            return $this->failNotFound('Bukti izin tidak ditemukan.');
+        }
+
+        // Hanya pemilik, fasil PJ gedungnya, dan admin; selain itu 404 agar keberadaan berkas tidak terungkap
+        $token   = $this->tokenUser();
+        $pemilik = $this->db->table('izin')->select('NIM')->where('File_bukti', $nama)->get()->getRowArray();
+        $boleh = $pemilik && match ($token['role'] ?? '') {
+            'admin'    => true,
+            'penghuni' => $pemilik['NIM'] === ($token['nim'] ?? ''),
+            'fasil'    => $this->adalahPjPenghuni($token['nim'] ?? '', $pemilik['NIM']),
+            default    => false,
+        };
+        if (!$boleh) {
+            return $this->failNotFound('Bukti izin tidak ditemukan.');
+        }
+
+        $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'png' => 'image/png'][$m[1]];
+
+        // Charset kosong: berkas biner (PDF/gambar) tidak punya charset
+        return $this->response
+            ->setContentType($mime, '')
+            ->setHeader('Content-Disposition', 'inline; filename="' . $nama . '"')
+            ->setHeader('Cache-Control', 'private, max-age=86400')
+            ->setBody(file_get_contents($path));
     }
 
     /** Ada tanggal di [$dari, $sampai] yang jatuh pada salah satu hari ISO di $hari */
@@ -1413,10 +1642,15 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function updateIzinStatus()
     {
+        $token = $this->tokenUser();
+        if (($token['role'] ?? '') !== 'fasil') {
+            return $this->failForbidden('Hanya fasil yang dapat memutuskan izin.');
+        }
         $input = $this->request->getJSON(true) ?? $this->request->getPost();
         $id = $input['id'] ?? 0;
         $status = $input['status'] ?? ''; // 'Disetujui' or 'Ditolak'
-        $approverNim = $input['approverNim'] ?? '';
+        // NIM approver dari token login, bukan dari body, agar tidak bisa memutuskan izin gedung lain
+        $approverNim = $token['nim'] ?? '';
         $catatan = trim($input['catatan'] ?? '');
 
         if (!$id || !in_array($status, ['Disetujui', 'Ditolak'], true)) {

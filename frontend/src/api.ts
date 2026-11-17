@@ -137,6 +137,7 @@ const JUDUL_AKTIVITAS: Record<string, string> = {
   'presensi/validasi-foto-massal': 'Foto presensi diterima',
   'izin': 'Pengajuan izin terkirim',
   'izin/status': 'Keputusan izin disimpan',
+  'izin/batal': 'Pengajuan izin dibatalkan',
   'penghuni': 'Penghuni ditambahkan',
   'penghuni/update': 'Data penghuni diperbarui',
   'penghuni/toggle-status': 'Status penghuni diubah',
@@ -342,9 +343,38 @@ export const validasiFotoMassalApi = (ids: number[]) => postJson('presensi/valid
 
 export const fetchIzin = () => getList<IzinRecord>('izin', initialIzin)
 
-export const submitIzinApi = (data: { nim: string; alasan: string; tanggal: string; tanggalSelesai: string; sesi: string | null; fileBukti?: string; hariBerulang?: HariIso[] | null }) =>
+// `nim` hanya dipakai mode offline; server mengambil NIM dari token login.
+// Tanggal: satu rentang (tanggal–tanggalSelesai) ATAU beberapa tanggal terpisah (tanggalList).
+// `buktiFile` = data URL berkas bukti (PDF/JPG/PNG, maks. 2 MB)
+// Pengajuan ulang: `idIzinSebelumnya` = izin yang ditolak; `pakaiBuktiLama` = pakai lagi berkas buktinya
+export const submitIzinApi = (data: {
+  nim: string; alasan: string; sesi: string | null; buktiFile?: string | null
+  idIzinSebelumnya?: number | null; pakaiBuktiLama?: boolean
+} & (
+  { tanggal: string; tanggalSelesai: string } | { tanggalList: string[] }
+)) =>
   postJson('izin', data)
 
+/** Nama berkas bukti yang benar-benar tersimpan di server (data lama hanya berisi teks nama berkas) */
+export function adalahBuktiTersimpan(fileBukti: string | null | undefined): boolean {
+  return !!fileBukti && /^izin_[A-Za-z0-9_]+\.(pdf|jpg|png)$/.test(fileBukti)
+}
+
+// Endpoint bukti wajib token, jadi berkas diambil lewat fetch lalu dijadikan blob URL (pemanggil wajib revokeObjectURL)
+export async function fetchBuktiIzin(fileBukti: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/izin/bukti/${encodeURIComponent(fileBukti)}`, { headers: authHeaders() })
+    if (!res.ok) return null
+    return URL.createObjectURL(await res.blob())
+  } catch {
+    return null
+  }
+}
+
+// Penghuni membatalkan izinnya yang masih menunggu keputusan
+export const batalIzinApi = (id: number) => postJson('izin/batal', { id })
+
+// `approverNim` hanya dipakai mode offline; server mengambil approver dari token login
 export const updateIzinStatusApi = (id: number, status: 'Disetujui' | 'Ditolak', approverNim: string, catatan: string) =>
   postJson('izin/status', { id, status, approverNim, catatan })
 
