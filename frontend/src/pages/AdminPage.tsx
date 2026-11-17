@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, type ReactNode } from 'react'
 import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, PresensiStatus, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { BuktiIzin, KotakTanggalIzin, RekapStats, RekapTableBerhalaman, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
@@ -34,6 +34,8 @@ import DateInput from '../components/DateInput'
 import TimeInput from '../components/TimeInput'
 import { notifikasiAdmin } from '../notifikasiPeran'
 import { JadwalMalamAdmin } from '../components/JadwalMalam'
+import { KartuProfil } from '../components/ProfilAkun'
+import KartuEvent, { UbinBuatEvent } from '../components/KartuEvent'
 import { unduhLaporan, type ExportFormat, type LaporanFormal } from '../ekspor'
 import * as XLSX from 'xlsx'
 import {
@@ -44,6 +46,10 @@ import {
   LayoutDashboard,
   Users,
   Building2,
+  ChevronDown,
+  ChevronLeft,
+  KeyRound,
+  UserX,
   FileBarChart,
   UserPlus,
   Search,
@@ -416,13 +422,9 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
       {activeTab === 'presensi' && <AdminPresensiIzin penghuni={penghuni} gedungList={gedungList} sesiList={sesiList} data={data} now={now} />}
       {activeTab === 'pengaturan' && (
         <div className="space-y-5">
-          <div className="grid lg:grid-cols-12 gap-5 items-stretch">
-            <div className="lg:col-span-7">
-              <AturanPresensiCard aturan={aturan} onSave={handleSaveAturan} />
-            </div>
-            <div className="lg:col-span-5">
-              <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
-            </div>
+          <div className="grid lg:grid-cols-2 gap-5 items-stretch">
+            <AturanPresensiCard aturan={aturan} onSave={handleSaveAturan} />
+            <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
           </div>
           <AdminPengaturan sesiList={sesiList} gedungList={gedungList} libur={libur} onSaveSesi={handleSaveSesi} onAddLibur={handleAddLibur} onDeleteLibur={handleDeleteLibur} />
         </div>
@@ -598,8 +600,8 @@ function AdminDashboard({
     sesiHariIni.length === 0 && !liburHariIni && { kunci: 'sesi', ikon: <Clock className="w-4 h-4 text-amber-700" />, judul: 'Tidak ada sesi presensi hari ini', ket: 'Periksa jadwal sesi aktif', tab: 'pengaturan' },
     tanpaPj.length > 0 && { kunci: 'pj', ikon: <UserCheck className="w-4 h-4 text-rose-600" />, judul: `${tanpaPj.length} gedung belum punya fasilitator`, ket: 'Izin & foto penghuninya tidak dapat diproses', tab: 'gedung' },
     tanpaKoordinat.length > 0 && { kunci: 'gps', ikon: <Building className="w-4 h-4 text-rose-600" />, judul: `${tanpaKoordinat.length} gedung belum diatur koordinatnya`, ket: 'Penghuninya belum dapat presensi mandiri', tab: 'gedung' },
-    izinMenunggu.length > 0 && { kunci: 'izin', ikon: <FileBarChart className="w-4 h-4 text-orange-600" />, judul: `${izinMenunggu.length} izin menunggu fasilitator`, ket: 'Diputuskan oleh fasil gedung masing-masing', tab: 'presensi' },
-    fotoMenunggu > 0 && { kunci: 'foto', ikon: <UserCheck className="w-4 h-4 text-orange-600" />, judul: `${fotoMenunggu} foto presensi belum divalidasi`, ket: 'Divalidasi oleh fasil gedung masing-masing', tab: 'presensi' },
+    izinMenunggu.length > 0 && { kunci: 'izin', ikon: <FileBarChart className="w-4 h-4 text-amber-600" />, judul: `${izinMenunggu.length} izin menunggu fasilitator`, ket: 'Diputuskan oleh fasil gedung masing-masing', tab: 'presensi' },
+    fotoMenunggu > 0 && { kunci: 'foto', ikon: <UserCheck className="w-4 h-4 text-amber-600" />, judul: `${fotoMenunggu} foto presensi belum divalidasi`, ket: 'Divalidasi oleh fasil gedung masing-masing', tab: 'presensi' },
   ].filter(Boolean) as { kunci: string; ikon: React.ReactNode; judul: string; ket: string; tab: string }[]
 
 
@@ -628,7 +630,7 @@ function AdminDashboard({
       )}
 
       {/* Header: identitas asrama & angka utama */}
-      <div className="rounded-2xl bg-gradient-to-br from-emerald-800 to-emerald-950 text-white p-5 sm:p-6 shadow-md">
+      <div className="rounded-2xl bg-gradient-to-br from-[#0f3e2d] via-[#17603d] to-[#27a150] text-white p-5 sm:p-6 shadow-md">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl bg-white/95 p-1.5 shrink-0 shadow-sm flex items-center justify-center">
@@ -641,7 +643,7 @@ function AdminDashboard({
               </h2>
               <p className="text-sm text-emerald-100/90 mt-0.5">Pengelola Asrama Mahasiswa · Universitas Andalas</p>
               {liburHariIni && (
-                <span className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-100 text-sky-900">
+                <span className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-900">
                   Hari ini libur: {liburHariIni.keterangan}
                 </span>
               )}
@@ -707,7 +709,7 @@ function AdminDashboard({
                     {sesiHariIni.map(s => {
                       const fase = faseSesi(s, today, now)
                       return (
-                        <span key={`${s.id}-${s.namaGedung ?? ''}`} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border ${fase === 'dibuka' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : fase === 'ditutup' ? 'bg-gray-50 border-gray-200 text-gray-500' : 'bg-blue-50 border-blue-100 text-blue-800'}`}>
+                        <span key={`${s.id}-${s.namaGedung ?? ''}`} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border ${fase === 'dibuka' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : fase === 'ditutup' ? 'bg-gray-50 border-gray-200 text-gray-500' : 'bg-slate-50 border-slate-100 text-slate-800'}`}>
                           {fase === 'dibuka' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
                           {s.nama}{s.namaGedung ? ` · ${s.namaGedung.replace('Asrama ', '')}` : ''}
                           <span className="mono font-normal opacity-75">{s.jamMulai}–{s.jamSelesai}</span>
@@ -854,89 +856,148 @@ function AdminPenghuni({ penghuni, onAddClick, onKelola, onResetPassword }: {
     reader.readAsArrayBuffer(file)
   }
 
+  const jumlah = {
+    aktif: penghuni.filter(p => p.statusAktif).length,
+    nonaktif: penghuni.filter(p => !p.statusAktif).length,
+    semua: penghuni.length,
+  }
+  const fasilAktif = penghuni.filter(p => p.statusAktif && p.role === 'fasil').length
+  const ubin: { nilai: typeof filterStatus; label: string; ket: string; ikon: ReactNode; warna: string; aktifCls: string }[] = [
+    { nilai: 'aktif', label: 'Aktif', ket: `${jumlah.aktif - fasilAktif} penghuni · ${fasilAktif} fasil`, ikon: <UserCheck className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700', aktifCls: 'border-emerald-500 ring-2 ring-emerald-500/20' },
+    { nilai: 'nonaktif', label: 'Nonaktif / keluar', ket: 'Tidak lagi tinggal di asrama', ikon: <UserX className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-500 ring-2 ring-gray-500/15' },
+    { nilai: 'semua', label: 'Semua', ket: 'Seluruh akun terdaftar', ikon: <Users className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700', aktifCls: 'border-slate-500 ring-2 ring-slate-500/15' },
+  ]
+  const inisialNama = (nama: string) => nama.split(' ').filter(Boolean).slice(0, 2).map(k => k[0]).join('').toUpperCase()
+  const saringCls = 'px-3.5 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm font-medium text-gray-700 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15'
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        <div className="flex flex-1 gap-3 flex-wrap">
-          <div className="relative flex-1 max-w-md min-w-[220px]">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+    <div className="space-y-5">
+      {/* Ubin status = ringkasan sekaligus penyaring */}
+      <div className="grid grid-cols-3 gap-3" role="tablist" aria-label="Saring status penghuni">
+        {ubin.map(u => {
+          const aktif = filterStatus === u.nilai
+          return (
+            <button
+              key={u.nilai}
+              type="button"
+              role="tab"
+              aria-selected={aktif}
+              onClick={() => { setFilterStatus(u.nilai); setPage(1) }}
+              className={`text-left bg-[#fff] rounded-2xl border p-4 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-gray-600 truncate">{u.label}</span>
+                <span className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+              </div>
+              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{jumlah[u.nilai]}</p>
+              <p className="text-[11px] text-gray-400 truncate">{u.ket}</p>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
+        {/* Pencarian, filter & aksi */}
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center gap-3">
+          <div className="relative flex-1 min-w-0">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all font-medium placeholder:text-gray-400"
+              className={`${saringCls} w-full pl-10 placeholder:text-gray-400`}
               placeholder="Cari nama, NIM, kamar, gedung, atau asal..."
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
             />
           </div>
-          <select className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700" value={filterStatus} onChange={e => setFilterStatus(e.target.value as typeof filterStatus)}>
-            <option value="aktif">Penghuni Aktif</option>
-            <option value="nonaktif">Nonaktif / Keluar</option>
-            <option value="semua">Semua</option>
-          </select>
-          <select className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700" value={filterGedung} onChange={e => { setFilterGedung(e.target.value); setPage(1) }}>
-            <option value="semua">Semua Gedung</option>
-            {[...new Set(penghuni.map(p => p.namaGedung).filter(Boolean))].sort().map(gedung => <option key={gedung} value={gedung}>{gedung}</option>)}
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className={saringCls} value={filterGedung} onChange={e => { setFilterGedung(e.target.value); setPage(1) }} aria-label="Gedung">
+              <option value="semua">Semua gedung</option>
+              {[...new Set(penghuni.map(p => p.namaGedung).filter(Boolean))].sort().map(gedung => <option key={gedung} value={gedung}>{gedung}</option>)}
+            </select>
+            <label className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-emerald-800 bg-[#fff] hover:bg-emerald-50 border border-emerald-200 cursor-pointer">
+              <FileSpreadsheet className="w-4 h-4" /> Impor
+              <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={e => importSpreadsheet(e.target.files?.[0])} />
+            </label>
+            <button
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-sm cursor-pointer"
+              onClick={onAddClick}
+              style={{ fontFamily: 'Plus Jakarta Sans' }}
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Tambah Penghuni</span>
+            </button>
+          </div>
         </div>
-        <button
-          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white bg-emerald-700 hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer"
-          onClick={onAddClick}
-          style={{ fontFamily: 'Plus Jakarta Sans' }}
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Tambah Penghuni</span>
-        </button>
-        <label className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer">
-          <FileSpreadsheet className="w-4 h-4" /> Impor Excel / CSV
-          <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={e => importSpreadsheet(e.target.files?.[0])} />
-        </label>
-      </div>
-      {importMessage && <p className="text-xs font-semibold text-emerald-700">{importMessage}</p>}
+        {importMessage && <p className="px-5 pt-3 text-xs font-semibold text-emerald-700">{importMessage}</p>}
 
-      <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-emerald-50/60 border-b border-emerald-100">
-                {['NIM', 'Nama Lengkap', 'Gedung', 'Kamar', 'Asal Daerah', 'Peran', 'Status', 'Aksi'].map(h => (
-                  <th key={h} className="text-left px-5 py-3.5 text-xs font-bold uppercase tracking-wider text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>{h}</th>
+              <tr className="border-b border-gray-100 bg-gray-50/70">
+                {['Penghuni', 'Kamar', 'Asal Daerah', 'Peran', 'Status', ''].map((h, i) => (
+                  <th key={h || i} className={`px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 ${h ? 'text-left' : 'text-right'}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-5 py-12 text-center">
+                    <Users className="w-7 h-7 text-gray-300 mx-auto" />
+                    <p className="mt-2 text-sm font-semibold text-gray-600">Tidak ada data yang cocok</p>
+                    <p className="text-xs text-gray-400">Ubah kata kunci atau filter di atas.</p>
+                  </td>
+                </tr>
+              )}
               {rows.map(p => (
-                <tr key={p.nim} className="hover:bg-emerald-50/30 transition-colors">
-                  <td className="px-5 py-3.5 mono text-xs font-semibold text-gray-600">{p.nim}</td>
-                  <td className="px-5 py-3.5 font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{p.nama}</td>
-                  <td className="px-5 py-3.5 text-xs text-gray-600">{p.namaGedung || '-'}</td>
-                  <td className="px-5 py-3.5 mono text-xs font-bold text-emerald-800">{p.nomorKamar || '-'}</td>
-                  <td className="px-5 py-3.5 text-xs text-gray-600">{p.asal || '-'}</td>
-                  <td className="px-5 py-3.5"><Badge status={p.role === 'fasil' ? 'Fasil' : 'Penghuni'} /></td>
-                  <td className="px-5 py-3.5"><Badge status={p.statusAktif ? 'Aktif' : 'Non-aktif'} /></td>
-                  <td className="px-5 py-3.5">
-                    <button
-                      onClick={() => onKelola(p)}
-                      className="text-xs font-bold px-2.5 py-1 rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer"
-                      style={{ fontFamily: 'Plus Jakarta Sans' }}
-                    >
-                      Kelola
-                    </button>
-                    <button
-                      onClick={() => onResetPassword(p.nim)}
-                      className="ml-1 text-xs font-bold px-2.5 py-1 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer"
-                    >Reset sandi</button>
+                <tr key={p.nim} className={`hover:bg-gray-50/80 transition-colors ${p.statusAktif ? '' : 'opacity-70'}`}>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-[11px] font-bold ${p.role === 'fasil' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`}>{inisialNama(p.nama)}</span>
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{p.nama}</p>
+                        <p className="mono text-[11px] text-gray-500">{p.nim}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 whitespace-nowrap">
+                    <p className="mono text-xs font-bold text-emerald-800">{p.nomorKamar || '–'}</p>
+                    <p className="text-[11px] text-gray-500">{p.namaGedung || 'Belum ada kamar'}</p>
+                  </td>
+                  <td className="px-5 py-3 text-xs text-gray-600">{p.asal || '–'}</td>
+                  <td className="px-5 py-3"><Badge status={p.role === 'fasil' ? 'Fasil' : 'Penghuni'} /></td>
+                  <td className="px-5 py-3"><Badge status={p.statusAktif ? 'Aktif' : 'Non-aktif'} /></td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => onKelola(p)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg text-emerald-800 bg-[#fff] border border-emerald-200 hover:bg-emerald-50 transition-colors cursor-pointer"
+                        style={{ fontFamily: 'Plus Jakarta Sans' }}
+                      >
+                        <Edit className="w-3.5 h-3.5" />Kelola
+                      </button>
+                      <button
+                        onClick={() => onResetPassword(p.nim)}
+                        title="Reset sandi"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg text-amber-800 bg-[#fff] border border-amber-200 hover:bg-amber-50 transition-colors cursor-pointer"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />Reset sandi
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="px-5 py-3 text-xs text-gray-500 border-t border-gray-100 font-medium bg-gray-50/50 flex flex-wrap gap-2 items-center justify-between">
-          <span>Menampilkan {rows.length} dari {filtered.length} data</span>
-          <div className="flex items-center gap-2">
-            <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="px-2 py-1 rounded border disabled:opacity-40">Sebelumnya</button>
-            <span>Halaman {page} / {pageCount}</span>
-            <button disabled={page === pageCount} onClick={() => setPage(p => p + 1)} className="px-2 py-1 rounded border disabled:opacity-40">Berikutnya</button>
-          </div>
+        <div className="px-5 py-3 text-xs text-gray-500 border-t border-gray-100 flex flex-wrap gap-2 items-center justify-between">
+          <span>Menampilkan {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1}–{(page - 1) * pageSize + rows.length} dari {filtered.length} data</span>
+          {pageCount > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-semibold border border-gray-200 bg-[#fff] hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"><ChevronLeft className="w-3.5 h-3.5" />Sebelumnya</button>
+              <span className="px-2 font-semibold text-gray-700">{page} / {pageCount}</span>
+              <button disabled={page === pageCount} onClick={() => setPage(p => p + 1)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-semibold border border-gray-200 bg-[#fff] hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">Berikutnya<ChevronRight className="w-3.5 h-3.5" /></button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -986,11 +1047,11 @@ function ModalShell({ title, subtitle, icon, onClose, children }: { title: strin
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-emerald-100">
-        <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-5">
+        <div className="modal-header flex items-center justify-between gap-3 -mx-6 -mt-6 px-6 py-4 border-b border-gray-100 mb-5">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">{icon}</div>
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center">{icon}</div>
             <div>
-              <h3 className="font-extrabold text-base text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>{title}</h3>
+              <h3 className="font-extrabold text-base text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{title}</h3>
               <p className="text-xs text-gray-400">{subtitle}</p>
             </div>
           </div>
@@ -1110,7 +1171,7 @@ function TambahPenghuniModal({ penghuni, gedungList, kamarList, onClose, onSave 
           onKamar={v => setForm(p => ({ ...p, nomorKamar: v }))}
         />
         <p className="text-[11px] text-gray-500">Password awal akun: <span className="mono font-semibold">penghuni123</span> (minta penghuni menggantinya).</p>
-        {error && <p className="text-xs text-red-700 font-semibold">{error}</p>}
+        {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
       </div>
       <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100">
         <button className="flex-1 py-2.5 rounded-xl font-bold text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer" onClick={onClose}>Batal</button>
@@ -1195,7 +1256,7 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
           )}
         </div>
 
-        {error && <p className="text-xs text-red-700 font-semibold">{error}</p>}
+        {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
 
         <div className="flex gap-3 pt-2">
           <button className="flex-1 py-2.5 rounded-xl font-bold text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer" onClick={onClose}>Batal</button>
@@ -1266,27 +1327,32 @@ function AdminGedung({
   onHapusKamar: (nomorKamar: string) => void
 }) {
   const fasilList = penghuni.filter(p => p.role === 'fasil' && p.statusAktif)
+  // Detail (PJ, geofence, daftar kamar) hanya dibuka bila perlu agar kartu tetap ringkas
+  const [terbuka, setTerbuka] = useState<Set<number>>(new Set())
+  const toggle = (id: number) => setTerbuka(prev => {
+    const baru = new Set(prev)
+    if (baru.has(id)) baru.delete(id)
+    else baru.add(id)
+    return baru
+  })
+  const semuaTerbuka = gedungList.length > 0 && gedungList.every(g => terbuka.has(g.id))
 
   return (
-    <div className="space-y-6">
-      {/* Action Header */}
+    <div className="space-y-5">
+      {/* Header aksi */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4.5 rounded-2xl border border-emerald-100/90 shadow-xs">
         <div>
-          <h3 className="text-base font-extrabold text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Manajemen Gedung & Kamar
-          </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Tambah, edit, dan hapus gedung/kamar asrama serta atur radius geofencing presensi
-          </p>
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Gedung & Kamar</h3>
+          <p className="text-xs text-gray-500 mt-0.5">{gedungList.length} gedung · {kamarList.length} kamar</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={onTambahGedung}
-            className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-700/20 cursor-pointer transition-all"
+            onClick={() => setTerbuka(semuaTerbuka ? new Set() : new Set(gedungList.map(g => g.id)))}
+            className="px-3.5 py-2 rounded-xl bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tambah Gedung</span>
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${semuaTerbuka ? 'rotate-180' : ''}`} />
+            <span>{semuaTerbuka ? 'Tutup semua detail' : 'Buka semua detail'}</span>
           </button>
           <button
             type="button"
@@ -1296,118 +1362,161 @@ function AdminGedung({
             <Plus className="w-3.5 h-3.5 text-emerald-700" />
             <span>Tambah Kamar</span>
           </button>
+          <button
+            type="button"
+            onClick={onTambahGedung}
+            className="px-3.5 py-2 rounded-xl bg-[#141a17] hover:bg-[#2a332e] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Tambah Gedung</span>
+          </button>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-2 gap-5 items-start">
         {gedungList.map(g => {
           const kamarGedung = kamarList.filter(k => k.idGedung === g.id)
-          const kapasitas = kamarGedung.reduce((s, k) => s + k.kapasitas, 0)
-          const terisi = kamarGedung.reduce((s, k) => s + hunianKamar(k, penghuni), 0)
+          const kapasitas = kamarGedung.reduce((sum, k) => sum + k.kapasitas, 0)
+          const terisi = kamarGedung.reduce((sum, k) => sum + hunianKamar(k, penghuni), 0)
+          const persen = kapasitas > 0 ? Math.round((terisi / kapasitas) * 100) : 0
+          const adaLokasi = g.latitude !== null && g.longitude !== null
+          const buka = terbuka.has(g.id)
           return (
-            <div key={g.id} className="bg-white rounded-2xl p-6 border border-emerald-100/80 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between">
-              <div>
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
+            <div key={g.id} className="bg-white rounded-2xl border border-emerald-100/80 shadow-xs hover:shadow-md transition-shadow overflow-hidden">
+              {/* Ringkasan */}
+              <div className="p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-100 shrink-0">
-                      <Building2 className="w-6 h-6" />
+                      <Building2 className="w-5 h-5" />
                     </div>
-                    <div>
-                      <h4 className="font-extrabold text-base text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>{g.nama}</h4>
-                      <span className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${g.jenis === 'Putra' ? 'bg-emerald-50 text-emerald-800' : 'bg-purple-50 text-purple-800'}`}>
-                        Asrama {g.jenis}
-                      </span>
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-base text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{g.nama}</h4>
+                      <p className="text-xs text-gray-500 truncate">
+                        {g.namaPj ? <>PJ <span className="font-semibold text-gray-700">{g.namaPj}</span></> : <span className="font-semibold text-amber-700">Belum ada PJ</span>}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-gray-600 mr-1">Terisi {terisi}/{kapasitas}</span>
-                    <button
-                      type="button"
-                      onClick={() => onEditGedung(g)}
-                      title="Edit Nama & Data Gedung"
-                      className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors"
-                    >
-                      <Edit className="w-3.5 h-3.5" />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${g.jenis === 'Putra' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-50 text-slate-800'}`}>{g.jenis}</span>
+                    <button type="button" onClick={() => onEditGedung(g)} title="Edit gedung" aria-label={`Edit ${g.nama}`}
+                      className="p-1.5 rounded-lg text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors">
+                      <Edit className="w-4 h-4" />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onHapusGedung(g)}
-                      title="Hapus Gedung"
-                      className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
+                    <button type="button" onClick={() => onHapusGedung(g)} title="Hapus gedung" aria-label={`Hapus ${g.nama}`}
+                      className="p-1.5 rounded-lg text-gray-500 hover:text-rose-700 hover:bg-rose-50 cursor-pointer transition-colors">
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                <div className="border-t border-b border-gray-100 py-3 text-sm">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Fasil Penanggung Jawab</label>
-                  <select
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white outline-none focus:border-emerald-600"
-                    value={g.nimPj || ''}
-                    onChange={e => onSetPj(g.id, e.target.value || null)}
-                  >
-                    <option value="">— Belum ditetapkan —</option>
-                    {fasilList.map(f => {
-                      const pjLain = gedungList.find(x => x.nimPj === f.nim && x.id !== g.id)
-                      return <option key={f.nim} value={f.nim}>{f.nama} ({f.nim}){pjLain ? ` · saat ini PJ ${pjLain.nama}` : ''}</option>
-                    })}
-                  </select>
-                  {!g.nimPj && <p className="text-[11px] text-amber-700 font-semibold mt-1">Tanpa PJ, izin penghuni gedung ini tidak dapat diproses.</p>}
+                {/* Angka utama */}
+                <div className="mt-4 grid grid-cols-3 gap-2.5">
+                  {[
+                    { label: 'Kamar', nilai: kamarGedung.length },
+                    { label: 'Penghuni', nilai: `${terisi}/${kapasitas}` },
+                    { label: 'Radius', nilai: adaLokasi ? `${g.radiusMeter} m` : '—' },
+                  ].map(st => (
+                    <div key={st.label} className="px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-100">
+                      <p className="text-[11px] text-gray-500">{st.label}</p>
+                      <p className="text-base font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{st.nilai}</p>
+                    </div>
+                  ))}
                 </div>
 
-                <GedungLokasiForm gedung={g} onSave={onSaveLokasi} />
-
-                <div className="mt-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                      Daftar Kamar ({kamarGedung.length})
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => onTambahKamar(g.id)}
-                      className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>Tambah Kamar</span>
-                    </button>
+                {/* Keterisian */}
+                <div className="mt-3.5">
+                  <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+                    <span>Keterisian</span>
+                    <span className="font-bold text-gray-700 tabular-nums">{persen}%</span>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {kamarGedung.map(k => {
-                      const isi = hunianKamar(k, penghuni)
-                      const warna = isi >= k.kapasitas ? 'bg-rose-50 text-rose-800 border-rose-200' : isi === 0 ? 'bg-gray-50 text-gray-600 border-gray-200' : 'bg-emerald-50 text-emerald-800 border-emerald-100'
-                      return (
-                        <div
-                          key={k.nomorKamar}
-                          className={`group relative mono text-xs font-semibold pl-2.5 pr-1.5 py-1 rounded-lg border flex items-center gap-1.5 ${warna}`}
-                          title={`Lantai ${k.lantai} · Kapasitas: ${k.kapasitas} orang (terisi ${isi})`}
-                        >
-                          <span>{k.nomorKamar} · {isi}/{k.kapasitas}</span>
-                          <div className="flex items-center gap-0.5 opacity-80 group-hover:opacity-100">
-                            <button
-                              type="button"
-                              onClick={() => onEditKamar(k)}
-                              title="Edit Kamar"
-                              className="p-0.5 hover:bg-black/10 rounded cursor-pointer"
-                            >
-                              <Edit className="w-2.5 h-2.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onHapusKamar(k.nomorKamar)}
-                              title="Hapus Kamar"
-                              className="p-0.5 hover:bg-black/10 rounded cursor-pointer"
-                            >
-                              <Trash2 className="w-2.5 h-2.5" />
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
+                  <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                    <div className={`h-full rounded-full ${persen >= 100 ? 'bg-rose-500' : 'bg-emerald-600'}`} style={{ width: `${Math.min(100, persen)}%` }} />
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-2">Merah = penuh, abu-abu = kosong. Klik ikon pensil untuk ubah kapasitas/lantai.</p>
                 </div>
+
+                {(!g.nimPj || !adaLokasi) && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {!g.nimPj && <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-800">Tetapkan PJ</span>}
+                    {!adaLokasi && <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-800">Atur lokasi presensi</span>}
+                  </div>
+                )}
               </div>
+
+              {/* Tombol detail */}
+              <button
+                type="button"
+                onClick={() => toggle(g.id)}
+                aria-expanded={buka}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 border-t border-gray-100 text-xs font-bold text-emerald-800 hover:bg-emerald-50/60 cursor-pointer transition-colors"
+              >
+                <span>{buka ? 'Sembunyikan detail' : 'Detail: PJ, lokasi & kamar'}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${buka ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Detail */}
+              {buka && (
+                <div className="px-5 pb-5 pt-4 border-t border-gray-100 space-y-4 bg-gray-50/40">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Fasil penanggung jawab</label>
+                    <select
+                      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white outline-none focus:border-emerald-600"
+                      value={g.nimPj || ''}
+                      onChange={e => onSetPj(g.id, e.target.value || null)}
+                    >
+                      <option value="">— Belum ditetapkan —</option>
+                      {fasilList.map(f => {
+                        const pjLain = gedungList.find(x => x.nimPj === f.nim && x.id !== g.id)
+                        return <option key={f.nim} value={f.nim}>{f.nama} ({f.nim}){pjLain ? ` · saat ini PJ ${pjLain.nama}` : ''}</option>
+                      })}
+                    </select>
+                    {!g.nimPj && <p className="text-[11px] text-amber-700 font-semibold mt-1">Tanpa PJ, izin penghuni gedung ini tidak dapat diproses.</p>}
+                  </div>
+
+                  <GedungLokasiForm gedung={g} onSave={onSaveLokasi} />
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-gray-700">Kamar ({kamarGedung.length})</p>
+                      <button type="button" onClick={() => onTambahKamar(g.id)}
+                        className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer">
+                        <Plus className="w-3 h-3" />
+                        <span>Tambah</span>
+                      </button>
+                    </div>
+                    {kamarGedung.length === 0 ? (
+                      <p className="text-xs text-gray-400">Belum ada kamar.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {kamarGedung.map(k => {
+                          const isi = hunianKamar(k, penghuni)
+                          const warna = isi >= k.kapasitas ? 'bg-rose-50 text-rose-800 border-rose-200' : isi === 0 ? 'bg-white text-gray-600 border-gray-200' : 'bg-emerald-50 text-emerald-800 border-emerald-100'
+                          return (
+                            <div
+                              key={k.nomorKamar}
+                              className={`group mono text-xs font-semibold pl-2.5 pr-1 py-1 rounded-lg border flex items-center gap-1.5 ${warna}`}
+                              title={`Lantai ${k.lantai} · kapasitas ${k.kapasitas} orang, terisi ${isi}`}
+                            >
+                              <span>{k.nomorKamar} · {isi}/{k.kapasitas}</span>
+                              <button type="button" onClick={() => onEditKamar(k)} title="Edit kamar" aria-label={`Edit kamar ${k.nomorKamar}`} className="p-0.5 hover:bg-black/10 rounded cursor-pointer">
+                                <Edit className="w-3 h-3" />
+                              </button>
+                              <button type="button" onClick={() => onHapusKamar(k.nomorKamar)} title="Hapus kamar" aria-label={`Hapus kamar ${k.nomorKamar}`} className="p-0.5 hover:bg-black/10 rounded cursor-pointer">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" />penuh</span>
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" />terisi</span>
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300" />kosong</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}
@@ -1444,14 +1553,14 @@ function GedungLokasiForm({ gedung, onSave }: { gedung: Gedung; onSave: (id: num
   }
 
   return (
-    <div className="mt-4 p-3.5 rounded-xl bg-blue-50/40 border border-blue-100">
+    <div className="mt-4 p-3.5 rounded-xl bg-slate-50/40 border border-slate-100">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-          <MapPin className="w-3.5 h-3.5 text-blue-700" />
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center gap-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+          <MapPin className="w-3.5 h-3.5 text-slate-700" />
           Lokasi Geofence Presensi
         </p>
         {!editing && (
-          <button onClick={() => { setEditing(true); setMessage(null); setLat(gedung.latitude); setLng(gedung.longitude); setRadiusMeter(gedung.radiusMeter) }} className="text-xs font-bold text-blue-800 hover:underline cursor-pointer">
+          <button onClick={() => { setEditing(true); setMessage(null); setLat(gedung.latitude); setLng(gedung.longitude); setRadiusMeter(gedung.radiusMeter) }} className="text-xs font-bold text-slate-800 hover:underline cursor-pointer">
             Atur Lokasi di Peta
           </button>
         )}
@@ -1462,19 +1571,19 @@ function GedungLokasiForm({ gedung, onSave }: { gedung: Gedung; onSave: (id: num
           {hasKoordinat ? (
             <div className="flex justify-between items-center">
               <span className="text-gray-500 font-medium">Koordinat</span>
-              <a href={`https://www.google.com/maps?q=${gedung.latitude},${gedung.longitude}`} target="_blank" rel="noreferrer" className="font-semibold mono text-xs text-blue-700 hover:underline">
+              <a href={`https://www.google.com/maps?q=${gedung.latitude},${gedung.longitude}`} target="_blank" rel="noreferrer" className="font-semibold mono text-xs text-slate-700 hover:underline">
                 {Number(gedung.latitude).toFixed(6)}, {Number(gedung.longitude).toFixed(6)}
               </a>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-red-700">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-700">
               <ShieldAlert className="w-3.5 h-3.5" />
               <span>Koordinat belum diatur, penghuni belum bisa presensi</span>
             </div>
           )}
           <div className="flex justify-between items-center">
             <span className="text-gray-500 font-medium">Radius Geofencing</span>
-            <span className="font-bold text-blue-800">{gedung.radiusMeter} Meter</span>
+            <span className="font-bold text-slate-800">{gedung.radiusMeter} Meter</span>
           </div>
         </div>
       ) : (
@@ -1501,7 +1610,7 @@ function GedungLokasiForm({ gedung, onSave }: { gedung: Gedung; onSave: (id: num
       )}
 
       {message && (
-        <p className={`text-[11px] font-semibold mt-2 ${message.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{message.text}</p>
+        <p className={`text-[11px] font-semibold mt-2 ${message.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{message.text}</p>
       )}
     </div>
   )
@@ -1572,10 +1681,10 @@ function AdminEvent({
           label="Total Event"
           value={totalEvent}
           sub="Seluruh asrama & gedung"
-          color="#064e3b"
+          color="#164f25"
         />
         <StatCard
-          icon={<Clock className="w-5 h-5 text-blue-700" />}
+          icon={<Clock className="w-5 h-5 text-slate-700" />}
           label="Akan Datang"
           value={akanDatang}
           sub="Jadwal mendatang"
@@ -1589,11 +1698,11 @@ function AdminEvent({
           color="#b45309"
         />
         <StatCard
-          icon={<CheckCircle2 className="w-5 h-5 text-purple-700" />}
+          icon={<CheckCircle2 className="w-5 h-5 text-slate-700" />}
           label="Event Selesai"
           value={selesai}
           sub="Alpa dicatat otomatis"
-          color="#6b21a8"
+          color="#475569"
         />
       </div>
 
@@ -1642,120 +1751,37 @@ function AdminEvent({
       </div>
 
       {/* Event Cards Grid */}
-      {filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl p-12 text-center border border-gray-100 shadow-xs">
-          <CalendarDays className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <h4 className="font-extrabold text-base text-gray-800 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Belum Ada Event
-          </h4>
-          <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
-            Tidak ada event yang sesuai dengan filter. Klik tombol di bawah untuk membuat event baru.
-          </p>
-          <button
-            type="button"
-            onClick={onTambahEvent}
-            className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Buat Event Baru</span>
-          </button>
-        </div>
-      ) : (
-        <div className="grid md:grid-cols-2 gap-5">
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
           {filtered.map(ev => {
             const st = getStatusEvent(ev)
             return (
-              <div
+              <KartuEvent
                 key={ev.id}
-                className="bg-white rounded-2xl p-5 border border-emerald-100/80 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+                ev={ev}
+                status={st}
+                onEdit={() => onEditEvent(ev)}
+                onHapus={() => onHapusEvent(ev)}
+                penyelenggara={`Oleh: ${ev.namaPembuat || ev.createdBy || 'Admin'}`}
               >
-                <div>
-                  <div className="flex items-start justify-between gap-2 mb-2.5">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          ev.tipe === 'seluruh'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-purple-50 text-purple-800 border border-purple-200'
-                        }`}
-                      >
-                        {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
-                      </span>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          st === 'Sedang Berlangsung'
-                            ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
-                            : st === 'Akan Datang'
-                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                            : 'bg-gray-100 text-gray-700 border border-gray-200'
-                        }`}
-                      >
-                        {st}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onEditEvent(ev)}
-                        title="Edit Event"
-                        className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors"
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onHapusEvent(ev)}
-                        title="Hapus Event"
-                        className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <h4 className="font-extrabold text-base text-gray-900 leading-snug" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                    {ev.judul}
-                  </h4>
-                  {ev.deskripsi && (
-                    <p className="text-xs text-gray-600 mt-1 line-clamp-2 leading-relaxed">
-                      {ev.deskripsi}
-                    </p>
-                  )}
-
-                  <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
-                    <div className="flex items-center gap-2 text-gray-700">
-                      <Calendar className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span className="font-semibold">{ev.tanggal}</span>
-                      <span className="text-gray-400">·</span>
-                      <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span className="font-semibold">{ev.jamMulai}–{ev.jamSelesai} WIB</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <MapPin className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                      <span className="truncate">{ev.lokasi} (Radius: {ev.radiusMeter} m)</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-                  <span className="text-[11px] text-gray-400">
-                    Oleh: {ev.namaPembuat || ev.createdBy || 'Admin'}
-                  </span>
+                <div className="pt-3 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => onLihatRekap(ev)}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    className="w-full py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <Eye className="w-3.5 h-3.5 text-emerald-700" />
                     <span>Rekap Kehadiran</span>
                   </button>
                 </div>
-              </div>
+              </KartuEvent>
             )
           })}
+          <UbinBuatEvent
+            onClick={onTambahEvent}
+            label="Buat event baru"
+            keterangan={filtered.length === 0 ? (eventList.length === 0 ? 'Belum ada event. Buat event untuk seluruh asrama atau satu gedung.' : 'Tidak ada event yang cocok dengan filter.') : 'Untuk seluruh asrama atau satu gedung'}
+          />
         </div>
-      )}
     </div>
   )
 }
@@ -1794,35 +1820,46 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-3 items-center">
-        <DateInput max={today} className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700" value={tanggal} onChange={e => setTanggal(e.target.value)} />
-        <SesiToggle sesiList={aktif} value={sesi} onChange={setSesi} />
-        <select className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700" value={gedung} onChange={e => setGedung(e.target.value)}>
-          <option value="">Seluruh Gedung</option>
-          {gedungList.map(g => <option key={g.id} value={g.nama}>{g.nama}</option>)}
-        </select>
+      {/* Filter rekap dalam satu kartu */}
+      <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs px-5 py-4 flex flex-col xl:flex-row xl:items-center gap-3">
+        <div className="xl:mr-auto">
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Rekap Presensi</h3>
+          <p className="text-xs text-gray-500">{formatTanggal(tanggal)} · Sesi {sesi || '–'}{gedung ? ` · ${gedung}` : ' · seluruh gedung'}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <DateInput max={today} className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm font-medium text-gray-700" value={tanggal} onChange={e => setTanggal(e.target.value)} />
+          <SesiToggle sesiList={aktif} value={sesi} onChange={setSesi} />
+          <select className="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm font-medium text-gray-700" value={gedung} onChange={e => setGedung(e.target.value)} aria-label="Gedung">
+            <option value="">Seluruh gedung</option>
+            {gedungList.map(g => <option key={g.id} value={g.nama}>{g.nama}</option>)}
+          </select>
+        </div>
       </div>
 
       <RekapStats rows={rows} />
 
-      <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs">
-        <div className="px-6 py-4 border-b border-emerald-100">
-          <SectionTitle subtitle="Koreksi presensi dilakukan oleh fasil gedung masing-masing">Rekap Presensi — {formatTanggal(tanggal)} · Sesi {sesi}</SectionTitle>
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Daftar Penghuni</h3>
+          <p className="text-xs text-gray-500">{rows.length} penghuni wajib absen · koreksi dilakukan fasil gedung masing-masing</p>
         </div>
         <RekapTableBerhalaman rows={rows} showGedung kunciReset={`${tanggal}|${sesi}|${gedung}`} />
       </div>
 
-      <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs">
-        <div className="px-6 py-4 border-b border-emerald-100">
-          <SectionTitle subtitle="Seluruh pengajuan izin lintas gedung. Keputusan izin dilakukan oleh fasil gedung masing-masing.">Data Perizinan</SectionTitle>
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
+        <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Data Perizinan</h3>
+            <p className="text-xs text-gray-500">Seluruh gedung · keputusan izin dilakukan fasil gedung masing-masing</p>
+          </div>
           <BarisSaringIzin saring={saring} gedungList={gedungList} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-emerald-50/60 border-b border-emerald-100">
+              <tr className="bg-gray-50/70 border-b border-gray-100">
                 {['Penghuni', 'Gedung', 'Berlaku', 'Alasan', 'Status', 'Diputuskan Oleh', 'Catatan'].map(h => (
-                  <th key={h} className="text-left px-5 py-3.5 text-xs font-bold uppercase tracking-wider text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>{h}</th>
+                  <th key={h} className="text-left px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1840,7 +1877,7 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
                   <td className="px-5 py-3.5 text-xs text-gray-700 whitespace-nowrap">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}</td>
                   <td className="px-5 py-3.5 text-xs text-gray-700 max-w-[240px]">
                     {i.alasan}
-                    {i.fileBukti && <BuktiIzin fileBukti={i.fileBukti} className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700" />}
+                    {i.fileBukti && <BuktiIzin fileBukti={i.fileBukti} className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700" />}
                   </td>
                   <td className="px-5 py-3.5">
                     <Badge status={i.statusPersetujuan} />
@@ -1892,60 +1929,47 @@ function ModeUjiCard({ modeUji, onSave }: { modeUji: ModeUji; onSave: (mode: Mod
     setSaving(false)
   }
 
+  const opsi: { key: keyof ModeUji; judul: string; ket: string }[] = [
+    { key: 'abaikanJam', judul: 'Abaikan jam sesi', ket: 'Penghuni bisa absen kapan saja hari ini' },
+    { key: 'abaikanRadius', judul: 'Abaikan radius GPS', ket: 'Penghuni bisa absen di luar radius gedung' },
+  ]
+
   return (
-    <div className={`h-full rounded-2xl border p-5 shadow-2xs flex flex-col justify-between transition-colors ${aktif ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-gray-200'}`}>
-      <div>
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2.5">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${aktif ? 'bg-amber-200 text-amber-900' : 'bg-gray-100 text-gray-700'}`}>
-              <ShieldAlert className="w-4 h-4" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Mode Uji (Bypass Aturan)</h4>
-              <p className="text-[11px] text-gray-400">Pengecualian aturan untuk simulasi absensi</p>
-            </div>
-          </div>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider ${aktif ? 'bg-amber-200 text-amber-900 animate-pulse' : 'bg-gray-100 text-gray-500'}`}>
-            {aktif ? 'AKTIF' : 'NONAKTIF'}
-          </span>
-        </div>
-
-        <div className="space-y-2 mt-3">
-          <label className={`p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${modeUji.abaikanJam ? 'border-amber-400 bg-white shadow-2xs' : 'border-gray-200 bg-gray-50/50 hover:bg-white'}`}>
-            <div className="min-w-0">
-              <span className="block text-xs font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Abaikan Jam Sesi</span>
-              <span className="block text-[11px] text-gray-500">Bisa absen kapan saja hari ini</span>
-            </div>
-            <input
-              type="checkbox"
-              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-700 accent-emerald-700 cursor-pointer shrink-0"
-              checked={modeUji.abaikanJam}
-              disabled={saving}
-              onChange={e => ubah({ abaikanJam: e.target.checked })}
-            />
-          </label>
-
-          <label className={`p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${modeUji.abaikanRadius ? 'border-amber-400 bg-white shadow-2xs' : 'border-gray-200 bg-gray-50/50 hover:bg-white'}`}>
-            <div className="min-w-0">
-              <span className="block text-xs font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Abaikan Radius GPS</span>
-              <span className="block text-[11px] text-gray-500">Bisa absen di luar radius gedung</span>
-            </div>
-            <input
-              type="checkbox"
-              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-700 accent-emerald-700 cursor-pointer shrink-0"
-              checked={modeUji.abaikanRadius}
-              disabled={saving}
-              onChange={e => ubah({ abaikanRadius: e.target.checked })}
-            />
-          </label>
+    <KartuProfil
+      ikon={<ShieldAlert />}
+      judul="Mode Uji"
+      sub="Melonggarkan aturan untuk mencoba fitur absensi"
+      className={aktif ? 'border-amber-300! ring-2 ring-amber-300/30' : ''}
+      kanan={
+        <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${aktif ? 'bg-amber-100 text-amber-900' : 'bg-gray-100 text-gray-500'}`}>
+          {aktif ? 'Aktif' : 'Nonaktif'}
+        </span>
+      }
+    >
+      <div className="p-5 flex-1 flex flex-col gap-3">
+        {opsi.map(o => {
+          const nyala = modeUji[o.key]
+          return (
+            <label
+              key={o.key}
+              className={`flex items-center justify-between gap-4 p-3.5 rounded-xl border cursor-pointer transition-colors ${nyala ? 'border-amber-300 bg-amber-50/60' : 'border-gray-200 hover:bg-gray-50'}`}
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-gray-900">{o.judul}</span>
+                <span className="block text-xs text-gray-500">{o.ket}</span>
+              </span>
+              {/* Sakelar on/off (checkbox asli tetap ada untuk aksesibilitas) */}
+              <input type="checkbox" className="peer sr-only" checked={nyala} disabled={saving} onChange={e => ubah({ [o.key]: e.target.checked })} />
+              <span className="relative w-11 h-6 shrink-0 rounded-full bg-gray-200 transition-colors peer-checked:bg-amber-500 peer-focus-visible:ring-2 peer-focus-visible:ring-amber-400/50 after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-5" />
+            </label>
+          )
+        })}
+        <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between gap-3 text-xs">
+          <p className="text-gray-400">Presensi uji ditandai label <span className="font-semibold text-gray-600">[Mode Uji]</span></p>
+          {msg && <span className={`font-semibold ${msg.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{msg.text}</span>}
         </div>
       </div>
-
-      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px]">
-        <p className="text-gray-400">Presensi uji ditandai label <span className="font-semibold text-gray-600">[Mode Uji]</span></p>
-        {msg && <span className={`font-semibold ${msg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</span>}
-      </div>
-    </div>
+    </KartuProfil>
   )
 }
 
@@ -1971,56 +1995,46 @@ function AturanPresensiCard({ aturan, onSave }: { aturan: AturanPresensi; onSave
   ]
 
   return (
-    <div className="h-full rounded-2xl p-5 border border-gray-200 bg-white shadow-2xs flex flex-col justify-between">
-      <div>
-        <div className="flex items-center gap-2.5 mb-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-800 flex items-center justify-center shrink-0">
-            <Settings className="w-4 h-4" />
-          </div>
-          <div>
-            <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Parameter Presensi</h4>
-            <p className="text-[11px] text-gray-400">Aturan toleransi GPS dan ambang notifikasi sistem</p>
-          </div>
-        </div>
-
-        <div className="grid sm:grid-cols-3 gap-3 mt-3">
+    <KartuProfil ikon={<Settings />} judul="Parameter Presensi" sub="Toleransi GPS, ambang peringatan, dan pengingat">
+      <div className="p-5 flex-1 flex flex-col gap-4">
+        <div className="grid sm:grid-cols-3 gap-3">
           {fields.map(f => (
-            <div key={f.key} className="p-3 rounded-xl border border-gray-200 bg-gray-50/50">
-              <span className="block text-xs font-bold text-gray-700 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{f.label}</span>
-              <div className="flex items-center gap-1.5 mt-2">
+            <div key={f.key} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/60">
+              <span className="block text-xs font-semibold text-gray-700 truncate">{f.label}</span>
+              <div className="flex items-center gap-2 mt-2">
                 <input
                   type="number"
                   min={f.min}
                   max={f.max}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-900 outline-none focus:border-emerald-700"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-[#fff] text-sm font-bold text-gray-900 tabular-nums outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15"
                   value={form[f.key]}
                   disabled={saving}
                   onChange={e => { setForm(prev => ({ ...prev, [f.key]: Number(e.target.value) })); setMsg(null) }}
                 />
-                <span className="text-[11px] font-semibold text-gray-500 shrink-0">{f.satuan}</span>
+                <span className="text-xs font-semibold text-gray-500 shrink-0">{f.satuan}</span>
               </div>
-              <span className="block text-[10px] text-gray-400 mt-1">{f.hint}</span>
+              <span className="block text-[11px] text-gray-400 mt-1.5">{f.hint}</span>
             </div>
           ))}
         </div>
-      </div>
 
-      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-        {msg ? (
-          <p className={`text-xs font-semibold ${msg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</p>
-        ) : (
-          <span className="text-[11px] text-gray-400">Berlaku untuk seluruh gedung</span>
-        )}
-        <button
-          onClick={simpan}
-          disabled={saving}
-          className="px-4 py-1.5 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
-          style={{ fontFamily: 'Plus Jakarta Sans' }}
-        >
-          {saving ? 'Menyimpan...' : 'Simpan Aturan'}
-        </button>
+        <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between gap-3">
+          {msg ? (
+            <p className={`text-xs font-semibold ${msg.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{msg.text}</p>
+          ) : (
+            <span className="text-xs text-gray-400">Berlaku untuk seluruh gedung</span>
+          )}
+          <button
+            onClick={simpan}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl font-bold text-xs text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+            style={{ fontFamily: 'Plus Jakarta Sans' }}
+          >
+            {saving ? 'Menyimpan...' : 'Simpan Aturan'}
+          </button>
+        </div>
       </div>
-    </div>
+    </KartuProfil>
   )
 }
 
@@ -2087,138 +2101,143 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
     if (berhasil) setLiburForm({ tanggalMulai: '', tanggalSelesai: '', keterangan: '' })
   }
 
-  const fieldCls = 'px-3 py-1.5 rounded-lg border border-gray-300 text-xs outline-none focus:border-emerald-700 bg-white'
+  const fieldCls = 'px-3 py-2 rounded-lg border border-gray-200 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15 bg-[#fff]'
+  const labelCls = 'block text-xs font-semibold text-gray-600 mb-1'
 
   return (
-    <div className="grid lg:grid-cols-2 gap-5 items-start">
-      <div className="space-y-5">
-      {/* Jadwal Sesi */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-          <div>
-            <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Jadwal Sesi Presensi</h4>
-            <p className="text-[11px] text-gray-400">Berlaku untuk semua gedung (mis. absen subuh)</p>
-          </div>
-          <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-            {draft.filter(s => s.aktif).length} sesi aktif
-          </span>
-        </div>
-
-        <div className="space-y-2.5">
-          {draft.map(s => (
-            <div key={s.id} className={`p-3 rounded-xl border transition-colors ${s.aktif ? 'border-emerald-200 bg-emerald-50/20' : 'border-gray-200 bg-gray-50/60 opacity-75'}`}>
-              <div className="grid grid-cols-2 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
-                <div className="col-span-2 sm:col-span-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Nama Sesi</label>
-                  <input className={`${fieldCls} w-full font-semibold text-gray-800`} value={s.nama} onChange={e => updateDraft(s.id, { nama: e.target.value })} />
+    <div className="space-y-5">
+      <div className="grid lg:grid-cols-2 gap-5 items-stretch">
+        {/* Jadwal sesi global */}
+        <KartuProfil
+          ikon={<Clock />}
+          judul="Jadwal Sesi Presensi"
+          sub="Berlaku untuk semua gedung (mis. absen subuh)"
+          kanan={<span className="px-2.5 py-1 rounded-full text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200">{draft.filter(x => x.aktif).length} sesi aktif</span>}
+        >
+          <div className="p-5 flex-1 flex flex-col gap-3">
+            {draft.map(x => (
+              <div key={x.id} className={`p-3.5 rounded-xl border transition-colors ${x.aktif ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 bg-gray-50/60'}`}>
+                <div className="grid grid-cols-2 sm:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className={labelCls}>Nama sesi</label>
+                    <input className={`${fieldCls} w-full font-semibold text-gray-800`} value={x.nama} onChange={e => updateDraft(x.id, { nama: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Mulai</label>
+                    <TimeInput className={fieldCls} value={x.jamMulai} onChange={e => updateDraft(x.id, { jamMulai: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Selesai</label>
+                    <TimeInput className={fieldCls} value={x.jamSelesai} onChange={e => updateDraft(x.id, { jamSelesai: e.target.value })} />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Mulai</label>
-                  <TimeInput className={fieldCls} value={s.jamMulai} onChange={e => updateDraft(s.id, { jamMulai: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Selesai</label>
-                  <TimeInput className={fieldCls} value={s.jamSelesai} onChange={e => updateDraft(s.id, { jamSelesai: e.target.value })} />
-                </div>
-              </div>
-              <div className="mt-2.5 pt-2 border-t border-gray-200/60 flex items-center justify-between">
-                <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-3.5 h-3.5 rounded text-emerald-700 accent-emerald-700 cursor-pointer"
-                    checked={s.aktif}
-                    onChange={e => updateDraft(s.id, { aktif: e.target.checked })}
-                  />
-                  <span>Wajib Presensi</span>
+                <label className="mt-3 flex items-center justify-between gap-3 cursor-pointer">
+                  <span className="text-xs font-semibold text-gray-700">Wajib presensi</span>
+                  <input type="checkbox" className="peer sr-only" checked={x.aktif} onChange={e => updateDraft(x.id, { aktif: e.target.checked })} />
+                  <span className="relative w-10 h-[22px] shrink-0 rounded-full bg-gray-200 transition-colors peer-checked:bg-emerald-600 peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-400/50 after:absolute after:top-0.5 after:left-0.5 after:w-[18px] after:h-[18px] after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-[18px]" />
                 </label>
-                <span className="text-[10px] font-medium text-gray-400">{s.aktif ? 'Aktif' : 'Nonaktif'}</span>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
 
-        <div className="flex gap-2 pt-2 border-t border-gray-100">
-          <button
-            onClick={() => setDraft(prev => [...prev, { id: Date.now(), nama: '', jamMulai: '', jamSelesai: '', aktif: true }])}
-            className="flex-1 py-2 rounded-lg text-xs font-bold text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-            style={{ fontFamily: 'Plus Jakarta Sans' }}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tambah Sesi</span>
-          </button>
-          <button
-            onClick={simpanSesi}
-            className="flex-1 py-2 rounded-lg text-xs font-bold text-white bg-[#0e4b29] hover:bg-[#0b3c20] flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-            style={{ fontFamily: 'Plus Jakarta Sans' }}
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>Simpan Jadwal</span>
-          </button>
-        </div>
-        {sesiMsg && <p className={`text-xs font-semibold ${sesiMsg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{sesiMsg.text}</p>}
-      </div>
-      <JadwalMalamAdmin sesiList={sesiList} gedungList={gedungList} />
-      </div>
-
-      {/* Hari Libur & Kalender */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-2xs space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-          <div>
-            <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Hari Libur & Cuti</h4>
-            <p className="text-[11px] text-gray-400">Periode bebas presensi (tidak dihitung alpa)</p>
-          </div>
-          <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-            {libur.length} periode
-          </span>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 space-y-2.5">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Mulai</label>
-              <DateInput className={`${fieldCls} w-full`} value={liburForm.tanggalMulai} onChange={e => setLiburForm(f => ({ ...f, tanggalMulai: e.target.value }))} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Selesai</label>
-              <DateInput clearable min={liburForm.tanggalMulai} className={`${fieldCls} w-full`} value={liburForm.tanggalSelesai} onChange={e => setLiburForm(f => ({ ...f, tanggalSelesai: e.target.value }))} />
+            <div className="mt-auto pt-4 border-t border-gray-100 space-y-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDraft(prev => [...prev, { id: Date.now(), nama: '', jamMulai: '', jamSelesai: '', aktif: true }])}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-emerald-800 bg-[#fff] border border-emerald-200 hover:bg-emerald-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  style={{ fontFamily: 'Plus Jakarta Sans' }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Sesi</span>
+                </button>
+                <button
+                  onClick={simpanSesi}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  style={{ fontFamily: 'Plus Jakarta Sans' }}
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Jadwal</span>
+                </button>
+              </div>
+              {sesiMsg && <p className={`text-xs font-semibold ${sesiMsg.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{sesiMsg.text}</p>}
             </div>
           </div>
-          <input className={`${fieldCls} w-full`} placeholder="Keterangan libur (cth: Libur Semester Ganjil)" value={liburForm.keterangan} onChange={e => setLiburForm(f => ({ ...f, keterangan: e.target.value }))} />
-          <button
-            onClick={tambahLibur}
-            className="w-full py-2 rounded-lg text-xs font-bold text-white bg-[#0e4b29] hover:bg-[#0b3c20] flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-            style={{ fontFamily: 'Plus Jakarta Sans' }}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tambah Hari Libur</span>
-          </button>
-          {liburMsg && <p className={`text-xs font-semibold ${liburMsg.type === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{liburMsg.text}</p>}
-        </div>
+        </KartuProfil>
 
-        <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-          {libur.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-6 border border-dashed border-gray-200 rounded-xl">
-              Belum ada hari libur yang tercatat
-            </p>
-          )}
-          {libur.map(l => (
-            <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border border-sky-100 bg-sky-50/50 hover:bg-sky-50 transition-colors">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
-                  <Palmtree className="w-3.5 h-3.5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{l.keterangan}</p>
-                  <p className="text-[11px] text-gray-500 mono">{l.tanggalMulai === l.tanggalSelesai ? l.tanggalMulai : `${l.tanggalMulai} s/d ${l.tanggalSelesai}`}</p>
-                </div>
-              </div>
-              <button onClick={async () => { const r = await onDeleteLibur(l.id); if (!r.ok && !r.offline) setLiburMsg({ type: 'error', text: r.message }) }} className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0" title="Hapus">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
+        <JadwalMalamAdmin sesiList={sesiList} gedungList={gedungList} />
       </div>
+
+      {/* Hari libur: form di kiri, daftar di kanan */}
+      <KartuProfil
+        ikon={<Palmtree />}
+        judul="Hari Libur & Cuti"
+        sub="Periode bebas presensi, tidak dihitung alpa"
+        kanan={<span className="px-2.5 py-1 rounded-full text-[11px] font-bold text-gray-600 bg-gray-100">{libur.length} periode</span>}
+      >
+        <div className="p-5 grid lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-5">
+          <div className="p-4 rounded-xl bg-gray-50/70 border border-gray-200 space-y-3 self-start">
+            <p className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Tambah periode libur</p>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className={labelCls}>Mulai</label>
+                <DateInput className={`${fieldCls} w-full`} value={liburForm.tanggalMulai} onChange={e => setLiburForm(v => ({ ...v, tanggalMulai: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Selesai</label>
+                <DateInput clearable min={liburForm.tanggalMulai} className={`${fieldCls} w-full`} value={liburForm.tanggalSelesai} onChange={e => setLiburForm(v => ({ ...v, tanggalSelesai: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Keterangan</label>
+              <input className={`${fieldCls} w-full`} placeholder="cth: Libur Semester Ganjil" value={liburForm.keterangan} onChange={e => setLiburForm(v => ({ ...v, keterangan: e.target.value }))} />
+            </div>
+            <p className="text-[11px] text-gray-400">Kosongkan tanggal selesai untuk libur satu hari.</p>
+            <button
+              onClick={tambahLibur}
+              className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+              style={{ fontFamily: 'Plus Jakarta Sans' }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Tambah Hari Libur</span>
+            </button>
+            {liburMsg && <p className={`text-xs font-semibold ${liburMsg.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{liburMsg.text}</p>}
+          </div>
+
+          <div className="min-w-0">
+            {libur.length === 0 ? (
+              <div className="h-full min-h-40 flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-gray-200 px-6 py-10">
+                <Palmtree className="w-7 h-7 text-gray-300" />
+                <p className="mt-2 text-sm font-semibold text-gray-600">Belum ada hari libur</p>
+                <p className="text-xs text-gray-400">Periode yang ditambahkan akan tampil di sini.</p>
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 gap-2.5 max-h-[320px] overflow-y-auto pr-1">
+                {[...libur].sort((a, b) => b.tanggalMulai.localeCompare(a.tanggalMulai)).map(l => {
+                  const hari = Math.round((new Date(l.tanggalSelesai).getTime() - new Date(l.tanggalMulai).getTime()) / 86400000) + 1
+                  return (
+                    <div key={l.id} className="group flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-[#fff] hover:border-gray-300 transition-colors">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+                        <Palmtree className="w-[18px] h-[18px]" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{l.keterangan}</p>
+                        <p className="text-xs text-gray-500">{formatRentangTanggal(l.tanggalMulai, l.tanggalSelesai)} · {hari} hari</p>
+                      </div>
+                      <button
+                        onClick={async () => { const r = await onDeleteLibur(l.id); if (!r.ok && !r.offline) setLiburMsg({ type: 'error', text: r.message }) }}
+                        className="p-2 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+                        title="Hapus"
+                        aria-label={`Hapus ${l.keterangan}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </KartuProfil>
     </div>
   )
 }
@@ -2373,22 +2392,22 @@ function AdminLaporan({ admin, penghuni, gedungList, sesiList, data, now }: {
   const FORMAT: { format: ExportFormat; label: string; warna: string }[] = [
     { format: 'pdf', label: 'PDF', warna: 'text-rose-700 border-rose-200 hover:bg-rose-600' },
     { format: 'xlsx', label: 'Excel', warna: 'text-emerald-800 border-emerald-200 hover:bg-emerald-700' },
-    { format: 'doc', label: 'Word', warna: 'text-blue-800 border-blue-200 hover:bg-blue-700' },
+    { format: 'doc', label: 'Word', warna: 'text-slate-800 border-slate-200 hover:bg-slate-700' },
     { format: 'csv', label: 'CSV', warna: 'text-gray-700 border-gray-200 hover:bg-gray-700' },
   ]
   const jenisLaporan = [
     { title: 'Presensi Detail', desc: 'Status setiap penghuni per tanggal & sesi, termasuk yang tidak hadir', icon: <FileSpreadsheet className="w-5 h-5 text-emerald-700" />, warna: 'bg-emerald-50', baris: rekap.reduce((n, x) => n + x.riwayat.length, 0) },
     { title: 'Rekap per Penghuni', desc: 'Jumlah hadir, izin, dan tidak hadir tiap penghuni', icon: <TrendingUp className="w-5 h-5 text-rose-700" />, warna: 'bg-rose-50', baris: rekap.length },
-    { title: 'Statistik Gedung', desc: 'Tingkat kehadiran per gedung', icon: <Building className="w-5 h-5 text-blue-700" />, warna: 'bg-blue-50', baris: perGedung.length },
+    { title: 'Statistik Gedung', desc: 'Tingkat kehadiran per gedung', icon: <Building className="w-5 h-5 text-slate-700" />, warna: 'bg-slate-50', baris: perGedung.length },
     { title: 'Rekap Perizinan', desc: 'Pengajuan izin & status persetujuan pada periode', icon: <FileBarChart className="w-5 h-5 text-amber-700" />, warna: 'bg-amber-50', baris: izinPeriode.length },
-    { title: 'Daftar Penghuni', desc: 'Data penghuni terdaftar (mengikuti filter gedung saja)', icon: <Users className="w-5 h-5 text-purple-700" />, warna: 'bg-purple-50', baris: jumlahPenghuniTerdaftar },
+    { title: 'Daftar Penghuni', desc: 'Data penghuni terdaftar (mengikuti filter gedung saja)', icon: <Users className="w-5 h-5 text-slate-700" />, warna: 'bg-slate-50', baris: jumlahPenghuniTerdaftar },
   ]
 
   return (
     <div className="space-y-6">
       {/* Kepala halaman + filter */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
-        <div className="px-6 py-5 bg-gradient-to-r from-emerald-800 to-emerald-950 text-white flex items-center gap-4">
+        <div className="px-6 py-5 bg-gradient-to-r from-[#0f3e2d] via-[#17603d] to-[#27a150] text-white flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-white/95 p-1 shrink-0 flex items-center justify-center">
             <img src={logoUnand} alt="Logo Universitas Andalas" className="h-full w-auto object-contain" />
           </div>
@@ -2425,10 +2444,10 @@ function AdminLaporan({ admin, penghuni, gedungList, sesiList, data, now }: {
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={<CheckCircle2 className="w-6 h-6 text-emerald-700" />} label="Tingkat Kehadiran" value={`${total.persen}%`} sub={`${total.Hadir} dari ${total.wajib} sesi`} color="#047857" />
+            <StatCard icon={<CheckCircle2 className="w-6 h-6 text-emerald-700" />} label="Tingkat Kehadiran" value={`${total.persen}%`} sub={`${total.Hadir} dari ${total.wajib} sesi`} color="#1c7b31" />
             <StatCard icon={<XCircle className="w-6 h-6 text-rose-700" />} label="Tidak Hadir" value={`${pctTidakHadir}%`} sub={`${total['Tidak Hadir']} sesi tanpa keterangan`} color="#be123c" />
             <StatCard icon={<AlertCircle className="w-6 h-6 text-amber-700" />} label="Pengajuan Izin" value={izinPeriode.length} sub="pada periode ini" color="#b45309" />
-            <StatCard icon={<Building className="w-6 h-6 text-purple-700" />} label={gedungPilih ? 'Gedung' : 'Gedung Terbaik'} value={terbaik ? terbaik.gedung.nama.replace('Asrama ', '') : '-'} sub={terbaik ? `Tingkat ${terbaik.c.persen}%` : 'Belum ada data'} color="#6b21a8" />
+            <StatCard icon={<Building className="w-6 h-6 text-slate-700" />} label={gedungPilih ? 'Gedung' : 'Gedung Terbaik'} value={terbaik ? terbaik.gedung.nama.replace('Asrama ', '') : '-'} sub={terbaik ? `Tingkat ${terbaik.c.persen}%` : 'Belum ada data'} color="#475569" />
           </div>
 
           <div className="grid lg:grid-cols-5 gap-5">

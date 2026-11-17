@@ -6,14 +6,14 @@ import { formatTanggal, hariIso, hitungStatus, NAMA_HARI } from '../logic'
  * celah antarsegmen, legenda, dan tooltip; angka lengkap tersedia di tabel/laporan.
  */
 
-export const WARNA_STATUS_GRAFIK = { Hadir: '#059669', Izin: '#d97706', 'Tidak Hadir': '#e11d48' } as const
+export const WARNA_STATUS_GRAFIK = { Hadir: '#22993b', Izin: '#d97706', 'Tidak Hadir': '#e11d48' } as const
 
 /** Target tingkat kehadiran yang dipakai sebagai garis/penanda acuan di grafik */
 export const TARGET_KEHADIRAN = 80
 
 // Tingkat keparahan meter: memenuhi target, mendekati, jauh di bawah
 const KEPARAHAN = {
-  baik: { isi: '#059669', lintasan: '#d1fae5', label: '' },
+  baik: { isi: '#22993b', lintasan: '#dcf7df', label: '' },
   waspada: { isi: '#d97706', lintasan: '#fef3c7', label: 'di bawah target' },
   buruk: { isi: '#e11d48', lintasan: '#ffe4e6', label: 'perlu perhatian' },
 } as const
@@ -214,11 +214,11 @@ const HARI_PENDEK = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
 const NAMA_HARI_LENGKAP = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 // Ramp hijau bertingkat (makin hadir makin gelap); teks putih di 3 tingkat tergelap
 const RAMP_HIJAU = [
-  { batas: 60, warna: '#ecfdf5', teks: '#065f46' },
-  { batas: 70, warna: '#a7f3d0', teks: '#065f46' },
-  { batas: 80, warna: '#34d399', teks: '#064e3b' },
-  { batas: 90, warna: '#059669', teks: '#ffffff' },
-  { batas: 101, warna: '#065f46', teks: '#ffffff' },
+  { batas: 60, warna: '#f0fcf1', teks: '#1a612b' },
+  { batas: 70, warna: '#b9eec0', teks: '#1a612b' },
+  { batas: 80, warna: '#4fcc63', teks: '#164f25' },
+  { batas: 90, warna: '#22993b', teks: '#ffffff' },
+  { batas: 101, warna: '#1a612b', teks: '#ffffff' },
 ]
 const warnaRamp = (persen: number) => RAMP_HIJAU.find(r => persen < r.batas) ?? RAMP_HIJAU[RAMP_HIJAU.length - 1]
 
@@ -318,7 +318,7 @@ export function HistogramSebaran({ persen }: { persen: number[] }) {
               <span className={`text-xs font-bold tabular-nums mb-1 ${sorot ? 'text-rose-700' : 'text-gray-800'}`}>{n}</span>
               <div
                 className="w-full max-w-10 rounded-t-[4px] transition-all duration-500"
-                style={{ height: `${(n / maks) * 85}%`, minHeight: n > 0 ? 3 : 0, background: sorot ? WARNA_STATUS_GRAFIK['Tidak Hadir'] : i >= 3 ? '#059669' : '#6ee7b7' }}
+                style={{ height: `${(n / maks) * 85}%`, minHeight: n > 0 ? 3 : 0, background: sorot ? WARNA_STATUS_GRAFIK['Tidak Hadir'] : i >= 3 ? '#22993b' : '#86e094' }}
               />
             </div>
           )

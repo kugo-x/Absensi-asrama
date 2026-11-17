@@ -4,7 +4,7 @@ import type { Gedung, HariIso, JadwalHari, Sesi } from '../types'
 import { saveSesiGedungApi } from '../api'
 import { NAMA_HARI, SEMUA_HARI, hariIso, todayLocal } from '../logic'
 import TimeInput from './TimeInput'
-import { SectionTitle } from './AppLayout'
+import { KartuProfil } from './ProfilAkun'
 
 /**
  * Absen malam per gedung.
@@ -104,7 +104,7 @@ export function JadwalMalamFasil({ gedung, sesiList, onTersimpan }: {
     <div className="mb-6 rounded-2xl bg-white p-5 border border-emerald-100/80 shadow-xs">
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <span className="w-10 h-10 shrink-0 rounded-xl bg-[#0c2a1c] text-emerald-300 flex items-center justify-center"><Moon className="w-5 h-5" /></span>
+          <span className="w-10 h-10 shrink-0 rounded-xl bg-[#0f3e2d] text-emerald-300 flex items-center justify-center"><Moon className="w-5 h-5" /></span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Absen Malam {gedung.nama}</p>
@@ -192,7 +192,7 @@ export function JadwalMalamFasil({ gedung, sesiList, onTersimpan }: {
           </div>
         </div>
       )}
-      {pesan && <p className={`mt-3 text-xs font-semibold ${pesan.ok ? 'text-emerald-700' : 'text-red-700'}`}>{pesan.teks}</p>}
+      {pesan && <p className={`mt-3 text-xs font-semibold ${pesan.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{pesan.teks}</p>}
       <p className="mt-3 flex items-start gap-1.5 text-[11px] text-gray-400">
         <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
         Absen subuh diatur admin untuk semua gedung. Penghuni yang tidak absen hingga sesi ditutup tercatat Tidak Hadir.
@@ -205,16 +205,17 @@ export function JadwalMalamFasil({ gedung, sesiList, onTersimpan }: {
 
 export function JadwalMalamAdmin({ sesiList, gedungList }: { sesiList: Sesi[]; gedungList: Gedung[] }) {
   return (
-    <div className="rounded-2xl bg-white p-6 border border-emerald-100/80 shadow-xs">
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <SectionTitle subtitle="Jam absen malam berbeda tiap gedung dan diatur oleh fasil PJ masing-masing.">Absen Malam per Gedung</SectionTitle>
-        <span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 text-[11px] font-semibold text-gray-600"><Eye className="w-3.5 h-3.5" />Lihat saja</span>
-      </div>
-      <div className="divide-y divide-gray-100">
+    <KartuProfil
+      ikon={<Moon />}
+      judul="Absen Malam per Gedung"
+      sub="Diatur fasil PJ masing-masing gedung"
+      kanan={<span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-[11px] font-semibold text-gray-600"><Eye className="w-3.5 h-3.5" />Lihat saja</span>}
+    >
+      <div className="flex-1 divide-y divide-gray-100">
         {gedungList.map(g => {
           const s = sesiMalam(sesiList, g.nama)
           return (
-            <div key={g.id} className="flex items-center justify-between gap-3 py-2.5">
+            <div key={g.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-gray-900 truncate">{g.nama}</p>
                 <p className="text-[11px] text-gray-500 truncate">
@@ -235,6 +236,6 @@ export function JadwalMalamAdmin({ sesiList, gedungList }: { sesiList: Sesi[]; g
           )
         })}
       </div>
-    </div>
+    </KartuProfil>
   )
 }

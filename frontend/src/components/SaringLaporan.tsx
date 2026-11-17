@@ -77,7 +77,7 @@ export function PilihPeriodeLaporan({ nilai, onChange, today, className }: {
             <DateInput max={today} min={nilai.dari || undefined} placeholder="Sampai tanggal" className={className} value={nilai.sampai} onChange={e => onChange({ ...nilai, sampai: e.target.value })} />
           </div>
           {salah && (
-            <p role="alert" className="basis-full text-xs font-semibold text-red-700">
+            <p role="alert" className="basis-full text-xs font-semibold text-rose-700">
               Pilih tanggal awal dan akhir yang valid, maksimal {MAKS_HARI_LAPORAN} hari.
             </p>
           )}

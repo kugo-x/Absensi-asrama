@@ -88,6 +88,30 @@ class PresensiService
         return '(Hari_berulang IS NULL OR FIND_IN_SET(' . self::hariIso($tanggal) . ', Hari_berulang) > 0)';
     }
 
+    /**
+     * Penandaan Tidak Hadir otomatis tanpa bergantung cron: dipanggil dari API (mis. saat daftar presensi dimuat),
+     * paling sering sekali tiap $jedaDetik, untuk kemarin dan hari ini. Aman diulang karena tandaiTidakHadir idempoten.
+     * Cron presensi:tandai-alpa tetap boleh dipasang di server produksi.
+     */
+    public function tandaiOtomatisBerkala(int $jedaDetik = 300): void
+    {
+        $cache    = \Config\Services::cache();
+        $kunci    = 'presensi_tandai_alpa_terakhir';
+        $terakhir = (int) ($cache->get($kunci) ?? 0);
+        if ($jedaDetik > 0 && time() - $terakhir < $jedaDetik) {
+            return;
+        }
+        $cache->save($kunci, time(), 86400);
+
+        foreach ([date('Y-m-d', strtotime('-1 day')), date('Y-m-d')] as $tanggal) {
+            try {
+                $this->tandaiTidakHadir($tanggal);
+            } catch (\Throwable $e) {
+                log_message('error', 'Penandaan Tidak Hadir otomatis gagal untuk ' . $tanggal . ': ' . $e->getMessage());
+            }
+        }
+    }
+
     /** Nama sesi dikenal di sistem (global maupun per gedung), mis. untuk validasi pengajuan izin */
     public function namaSesiDikenal(string $nama): bool
     {

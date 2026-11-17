@@ -21,7 +21,8 @@ import {
   fetchEvent, absenEventApi,
 } from '../api'
 import KalenderKehadiran from '../components/KalenderKehadiran'
-import { AvatarProfil, KartuGantiPassword } from '../components/ProfilAkun'
+import KartuEvent from '../components/KartuEvent'
+import { KartuGantiPassword, KartuProfil, ProfilHeader } from '../components/ProfilAkun'
 import { EventPresensiModal } from '../components/EventModals'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
@@ -163,7 +164,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     const timer = setInterval(() => {
       fetchPresensi().then(setPresensi)
       fetchIzin().then(data => setIzinData(data.filter(i => i.nim === user.nim)))
-      fetchEvent().then(res => { if (res && res.length > 0) setEventList(res) })
+      fetchEvent().then(setEventList)
     }, 60000)
     return () => clearInterval(timer)
   }, [user.nim])
@@ -175,11 +176,8 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     fetchLibur().then(setLibur)
     fetchModeUji().then(setModeUji)
     fetchAturanPresensi().then(setAturan)
-    fetchEvent().then(res => {
-      if (res && res.length > 0) {
-        setEventList(res)
-      }
-    })
+    // Daftar kosong dari server juga dipakai, agar event yang sudah dihapus ikut hilang
+    fetchEvent().then(setEventList)
     fetchGedung().then(list => {
       const g = findGedung(list, user)
       setGedung(g)
@@ -422,9 +420,9 @@ function NoticeBox({ notice }: { notice: Notice | null }) {
   const isError = notice.type === 'error'
   return (
     <div className={`p-3 rounded-lg border text-xs font-semibold flex items-start gap-2 ${
-      isError ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+      isError ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
     }`}>
-      {isError ? <XCircle className="w-4 h-4 shrink-0 text-red-600" /> : <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />}
+      {isError ? <XCircle className="w-4 h-4 shrink-0 text-rose-600" /> : <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />}
       <span>{notice.text}</span>
     </div>
   )
@@ -492,7 +490,7 @@ function PenghuniDashboard({
       {/* Welcome Banner Ringkas */}
       <div
         className="rounded-2xl p-5 lg:p-6 text-white relative overflow-hidden shadow-xs"
-        style={{ background: 'linear-gradient(135deg, #064e3b 0%, #065f46 60%, #047857 100%)' }}
+        style={{ background: 'linear-gradient(135deg, #0f3e2d 0%, #17603d 55%, #27a150 100%)' }}
       >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
           <div>
@@ -555,7 +553,7 @@ function PenghuniDashboard({
             <button
               type="button"
               onClick={() => onBukaPresensiEvent(eventSedangBerlangsung)}
-              className="px-4 py-2 rounded-xl bg-[#0e4b29] hover:bg-[#0b3c20] text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+              className="px-4 py-2 rounded-xl bg-[#141a17] hover:bg-[#2a332e] text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
               style={{ fontFamily: 'Plus Jakarta Sans' }}
             >
               <UserCheck className="w-3.5 h-3.5" />
@@ -567,14 +565,14 @@ function PenghuniDashboard({
 
       {/* Pemberitahuan keputusan izin / foto ditolak */}
       {fotoDitolak.length > 0 && (
-        <div className="bg-white rounded-xl p-3.5 border border-red-200 shadow-2xs">
+        <div className="bg-white rounded-xl p-3.5 border border-rose-200 shadow-2xs">
           <div className="flex items-center gap-2 mb-2">
-            <Camera className="w-4 h-4 text-red-700" />
+            <Camera className="w-4 h-4 text-rose-700" />
             <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Foto Presensi Ditolak</h4>
           </div>
           <div className="space-y-1.5">
             {fotoDitolak.map(p => (
-              <div key={p.id} className="p-2.5 rounded-lg border text-xs bg-red-50/60 border-red-100 flex items-center justify-between">
+              <div key={p.id} className="p-2.5 rounded-lg border text-xs bg-rose-50/60 border-rose-100 flex items-center justify-between">
                 <span>{formatTanggal(p.tanggal)} · Sesi {p.sesi} divalidasi tidak sah{p.catatanValidasi ? `: ${p.catatanValidasi}` : ''}</span>
               </div>
             ))}
@@ -583,14 +581,14 @@ function PenghuniDashboard({
       )}
 
       {pemberitahuan.length > 0 && (
-        <div className="bg-white rounded-xl p-3.5 border border-blue-100 shadow-2xs">
+        <div className="bg-white rounded-xl p-3.5 border border-slate-100 shadow-2xs">
           <div className="flex items-center gap-2 mb-2">
-            <Bell className="w-4 h-4 text-blue-700" />
+            <Bell className="w-4 h-4 text-slate-700" />
             <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pemberitahuan Izin</h4>
           </div>
           <div className="space-y-1.5">
             {pemberitahuan.map(i => (
-              <div key={i.id} className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 ${i.statusPersetujuan === 'Disetujui' ? 'bg-blue-50/60 border-blue-100' : 'bg-red-50/60 border-red-100'}`}>
+              <div key={i.id} className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 ${i.statusPersetujuan === 'Disetujui' ? 'bg-slate-50/60 border-slate-100' : 'bg-rose-50/60 border-rose-100'}`}>
                 <div className="flex items-center gap-2">
                   <Badge status={i.statusPersetujuan} />
                   <span className="font-medium text-gray-800">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)} — {i.alasan}</span>
@@ -612,8 +610,8 @@ function PenghuniDashboard({
                 Status Presensi Hari Ini
               </h3>
               {liburHariIni && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-sky-800 flex items-center gap-1">
-                  <Palmtree className="w-3 h-3 text-sky-600" />
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800 flex items-center gap-1">
+                  <Palmtree className="w-3 h-3 text-slate-600" />
                   <span>Libur: {liburHariIni.keterangan}</span>
                 </span>
               )}
@@ -668,7 +666,7 @@ function PenghuniDashboard({
                     {boleh ? (
                       <button
                         onClick={() => onBukaPresensi(sesi.nama)}
-                        className="w-full mt-3 py-2 px-3 rounded-lg text-xs font-bold text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="w-full mt-3 py-2 px-3 rounded-lg text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
                         style={{ fontFamily: 'Plus Jakarta Sans' }}
                       >
                         <UserCheck className="w-3.5 h-3.5" />
@@ -741,7 +739,7 @@ function PenghuniDashboard({
                       {detail.presensi?.statusFoto && (
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                           detail.presensi.statusFoto === 'Diterima' ? 'text-emerald-700 bg-emerald-50' :
-                          detail.presensi.statusFoto === 'Ditolak' ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'
+                          detail.presensi.statusFoto === 'Ditolak' ? 'text-rose-700 bg-rose-50' : 'text-amber-700 bg-amber-50'
                         }`}>
                           Foto: {detail.presensi.statusFoto}
                         </span>
@@ -826,7 +824,7 @@ function PenghuniDashboard({
                           className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                             ev.tipe === 'seluruh'
                               ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                              : 'bg-purple-50 text-purple-800 border border-purple-200'
+                              : 'bg-slate-50 text-slate-800 border border-slate-200'
                           }`}
                         >
                           {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
@@ -835,7 +833,7 @@ function PenghuniDashboard({
                           className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                             st === 'Sedang Berlangsung'
                               ? 'bg-amber-100 text-amber-900 animate-pulse'
-                              : 'bg-blue-50 text-blue-800'
+                              : 'bg-slate-50 text-slate-800'
                           }`}
                         >
                           {st}
@@ -948,167 +946,193 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
   const diluarRadius = gps.status === 'ok' && !inRadius && !abaikanRadius
 
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-6 w-full items-start lg:grid-cols-12">
-      {/* Kolom Kiri: Form & Aksi Presensi */}
-      <div className="lg:col-span-7 space-y-6">
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-2xs">
-          <SectionTitle subtitle="Presensi hanya dapat dilakukan saat sesi sedang dibuka">
-            Lakukan Presensi Mandiri
-          </SectionTitle>
-
-          <div className="grid sm:grid-cols-2 gap-3 mb-6">
-            {sesiHariIni.map(({ sesi, detail }) => {
-              const isSelected = selectedSesi === sesi.nama
-              return (
-                <button
-                  key={sesi.id}
-                  type="button"
-                  onClick={() => setSelectedSesi(sesi.nama)}
-                  className={`p-4 rounded-xl text-left border transition-all cursor-pointer ${
-                    isSelected ? 'border-emerald-700 bg-emerald-50/50 shadow-2xs ring-1 ring-emerald-700' : 'border-gray-200 bg-white hover:border-emerald-300'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="w-9 h-9 rounded-lg bg-gray-50 flex items-center justify-center border border-gray-200 mb-2.5">
+    <div className="space-y-5 w-full min-w-0">
+      {/* Baris 1: pilih sesi (selebar halaman) */}
+      <KartuProfil ikon={<Clock />} judul="Lakukan Presensi Mandiri" sub="Presensi hanya dapat dilakukan saat sesi sedang dibuka">
+        <div className="p-5">
+          {sesiHariIni.length === 0 ? (
+            <p className="text-xs text-gray-500">Belum ada sesi presensi yang berlaku untuk gedung Anda hari ini.</p>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-3">
+              {sesiHariIni.map(({ sesi, detail }) => {
+                const isSelected = selectedSesi === sesi.nama
+                return (
+                  <button
+                    key={sesi.id}
+                    type="button"
+                    onClick={() => setSelectedSesi(sesi.nama)}
+                    className={`flex items-center gap-4 p-4 rounded-xl text-left border transition-all cursor-pointer ${
+                      isSelected ? 'border-emerald-600 bg-emerald-50/60 ring-1 ring-emerald-600' : 'border-gray-200 bg-white hover:border-emerald-300'
+                    }`}
+                  >
+                    <div className="w-11 h-11 shrink-0 rounded-xl bg-white flex items-center justify-center border border-gray-200">
                       <SesiIcon nama={sesi.nama} className="w-5 h-5" />
                     </div>
-                    {detail.fase === 'dibuka' && <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">DIBUKA</span>}
-                  </div>
-                  <div className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi {sesi.nama}</div>
-                  <div className="text-xs text-gray-500 font-medium">{sesi.jamMulai} – {sesi.jamSelesai} WIB</div>
-                  <div className="mt-2"><Badge status={detail.status} /></div>
-                </button>
-              )
-            })}
-          </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi {sesi.nama}</span>
+                        {detail.fase === 'dibuka' && <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">DIBUKA</span>}
+                      </div>
+                      <div className="text-xs text-gray-500 font-medium">{sesi.jamMulai} – {sesi.jamSelesai} WIB</div>
+                    </div>
+                    <Badge status={detail.status} />
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </KartuProfil>
 
-          {/* Lokasi GPS perangkat vs titik koordinat gedung */}
-          <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 mb-4">
-            <div className="flex items-center justify-between mb-2 gap-2">
-              <div className="flex items-center gap-2">
-                <Compass className="w-4 h-4 text-emerald-700" />
-                <span className="text-xs font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>Lokasi GPS Anda</span>
+      {/* Baris 2: foto wajah | lokasi + ketentuan (tinggi sama) */}
+      <div className="grid lg:grid-cols-2 gap-5 items-stretch">
+        <KartuProfil
+          ikon={<Camera />}
+          judul="Foto Wajah"
+          sub="Diambil langsung dari kamera sebagai bukti kehadiran"
+          kanan={foto ? <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-800 border-emerald-200">Foto siap dikirim</span> : undefined}
+        >
+          <div className="p-5 flex-1 flex flex-col">
+            {bisa ? (
+              <KameraWajah foto={foto} onChange={onFotoChange} disabled={checkingIn} polos />
+            ) : (
+              <div className="flex-1 min-h-56 rounded-xl border border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center text-center px-6 py-10">
+                <Camera className="w-8 h-8 text-gray-300" />
+                <p className="mt-3 text-sm font-semibold text-gray-600">Kamera belum tersedia</p>
+                <p className="mt-1 text-xs text-gray-400 max-w-xs">
+                  {selected ? alasanTidakBisaPresensi(selected.detail, selected.sesi) : 'Belum ada sesi aktif yang diatur.'}
+                </p>
               </div>
+            )}
+          </div>
+        </KartuProfil>
+
+        <div className="flex flex-col gap-5">
+          <KartuProfil
+            ikon={<Compass />}
+            judul="Lokasi GPS Anda"
+            sub={gedung?.nama || 'Gedung belum terdaftar'}
+            className="h-auto! shrink-0"
+            kanan={
               <div className="flex items-center gap-2">
                 {gps.status === 'ok' && gps.distance !== undefined && (
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
-                    inRadius ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-red-100 text-red-800 border-red-200'
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                    inRadius ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
                   }`}>
-                    {inRadius ? 'Dalam Radius' : 'Di Luar Radius'} ({Math.round(gps.distance)} m)
+                    {inRadius ? 'Dalam radius' : 'Di luar radius'} · {Math.round(gps.distance)} m
                   </span>
                 )}
                 <button
                   type="button"
                   onClick={onRefreshLocation}
                   disabled={gps.status === 'loading'}
-                  className="p-1 rounded text-gray-500 hover:text-emerald-700 hover:bg-white transition-colors cursor-pointer disabled:opacity-50"
+                  className="p-1.5 rounded-lg text-gray-500 hover:text-emerald-700 hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-50"
                   title="Perbarui lokasi"
+                  aria-label="Perbarui lokasi"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${gps.status === 'loading' ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 ${gps.status === 'loading' ? 'animate-spin' : ''}`} />
                 </button>
               </div>
-            </div>
-
-            <p className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{gedung?.nama || 'Gedung belum terdaftar'}</p>
-            {koordinatSiap ? (
-              <p className="mono text-xs text-gray-500 mt-0.5">
-                Titik gedung: {gedung.latitude!.toFixed(6)}, {gedung.longitude!.toFixed(6)} · Batas: {radius} m
-              </p>
-            ) : (
-              <p className="text-xs text-red-700 mt-0.5 font-medium">Koordinat gedung belum diatur admin, presensi belum dapat dilakukan.</p>
-            )}
-
-            {gps.status === 'loading' && (
-              <div className="text-xs text-gray-500 mt-2.5 flex items-center gap-1.5">
-                <div className="w-3 h-3 border-2 border-emerald-700 border-t-transparent rounded-full animate-spin" />
-                <span>Membaca lokasi perangkat...</span>
-              </div>
-            )}
-            {gps.status === 'error' && <p className="text-xs text-red-700 mt-2.5 font-medium">{gps.error}</p>}
-            {gps.status === 'ok' && gps.position && (
-              <>
-                <p className="mono text-xs text-gray-500 mt-2.5">
-                  Posisi Anda: {gps.position.latitude.toFixed(6)}, {gps.position.longitude.toFixed(6)} · Akurasi ±{Math.round(gps.position.accuracy)} m
-                </p>
-                {akurasiMaks > 0 && gps.position.accuracy > akurasiMaks && (
-                  <p className="text-xs text-red-700 mt-1 font-semibold">
-                    Akurasi lokasi melebihi batas {akurasiMaks} m. Aktifkan GPS/mode akurasi tinggi atau pindah ke area terbuka, lalu klik perbarui lokasi.
-                  </p>
-                )}
-                {gps.distance !== undefined && (
-                  <div className="mt-2.5 relative h-2 rounded-full bg-gray-200 overflow-hidden">
-                    <div className={`h-full rounded-full ${inRadius ? 'bg-emerald-700' : 'bg-red-600'}`} style={{ width: `${barPct}%` }} />
-                    {/* Penanda batas radius (di tengah bar) */}
-                    <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-gray-500" />
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {bisa && <div className="mb-4"><KameraWajah foto={foto} onChange={onFotoChange} disabled={checkingIn} /></div>}
-
-          {notice && <div className="mb-4"><NoticeBox notice={notice} /></div>}
-
-          <button
-            type="button"
-            onClick={() => selected && onCheckIn(selected.sesi.nama)}
-            disabled={!bisa || checkingIn || !koordinatSiap || diluarRadius || !foto}
-            className="w-full py-3 px-4 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{ fontFamily: 'Plus Jakarta Sans' }}
+            }
           >
-            {!selected ? (
-              <span>Belum ada sesi aktif yang diatur</span>
-            ) : !bisa ? (
-              <>
-                <AlertCircle className="w-4 h-4" />
-                <span>{alasanTidakBisaPresensi(selected.detail, selected.sesi)}</span>
-              </>
-            ) : checkingIn ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Memvalidasi Lokasi GPS...</span>
-              </>
-            ) : diluarRadius ? (
-              <>
-                <XCircle className="w-4 h-4" />
-                <span>Anda Berada di Luar Radius Asrama</span>
-              </>
-            ) : !foto ? (
-              <>
-                <Camera className="w-4 h-4" />
-                <span>Ambil Foto Wajah Terlebih Dahulu</span>
-              </>
-            ) : (
-              <>
-                <MapPin className="w-4 h-4" />
-                <span>Kirim Presensi Sekarang (Sesi {selected.sesi.nama})</span>
-              </>
-            )}
-          </button>
+            <div className="p-5 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-gray-50 border border-gray-100 min-w-0">
+                  <p className="text-[11px] text-gray-500">Titik gedung</p>
+                  <p className="mono text-xs font-semibold text-gray-800 mt-0.5 truncate">
+                    {koordinatSiap ? `${gedung.latitude!.toFixed(5)}, ${gedung.longitude!.toFixed(5)}` : 'Belum diatur'}
+                  </p>
+                </div>
+                <div className="p-3 rounded-xl bg-gray-50 border border-gray-100 min-w-0">
+                  <p className="text-[11px] text-gray-500">Posisi Anda</p>
+                  <p className="mono text-xs font-semibold text-gray-800 mt-0.5 truncate">
+                    {gps.status === 'ok' && gps.position ? `${gps.position.latitude.toFixed(5)}, ${gps.position.longitude.toFixed(5)}` : gps.status === 'loading' ? 'Membaca…' : '-'}
+                  </p>
+                </div>
+              </div>
+
+              {!koordinatSiap && <p className="text-xs text-rose-700 font-medium">Koordinat gedung belum diatur admin, presensi belum dapat dilakukan.</p>}
+              {gps.status === 'error' && <p className="text-xs text-rose-700 font-medium">{gps.error}</p>}
+              {gps.status === 'ok' && gps.position && akurasiMaks > 0 && gps.position.accuracy > akurasiMaks && (
+                <p className="text-xs text-rose-700 font-semibold">
+                  Akurasi lokasi melebihi batas {akurasiMaks} m. Aktifkan GPS/mode akurasi tinggi atau pindah ke area terbuka, lalu perbarui lokasi.
+                </p>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1.5">
+                  <span>Jarak ke gedung{gps.status === 'ok' && gps.position ? ` · akurasi ±${Math.round(gps.position.accuracy)} m` : ''}</span>
+                  <span>batas {radius || '-'} m</span>
+                </div>
+                <div className="relative h-2 rounded-full bg-gray-200 overflow-hidden">
+                  {gps.distance !== undefined && (
+                    <div className={`h-full rounded-full ${inRadius ? 'bg-emerald-600' : 'bg-rose-600'}`} style={{ width: `${barPct}%` }} />
+                  )}
+                  {/* Penanda batas radius (di tengah bar) */}
+                  <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-gray-500" />
+                </div>
+              </div>
+            </div>
+          </KartuProfil>
+
+          <KartuProfil ikon={<AlertCircle />} judul="Ketentuan Presensi" sub="Baca sebelum melakukan presensi" className="h-auto! flex-1">
+            <ul className="p-5 flex-1 flex flex-col justify-between gap-2.5 text-xs text-gray-600 leading-relaxed">
+              {[
+                <>Presensi hanya sah jika lokasi GPS berada dalam radius <strong className="text-gray-900">{radius || '-'} m</strong> dari gedung.</>,
+                <>Setiap presensi wajib disertai foto wajah yang diambil langsung dari kamera.</>,
+                <>Jam sesi hari ini: <strong className="text-gray-900">{sesiHariIni.map(x => `${x.sesi.nama} ${x.sesi.jamMulai}–${x.sesi.jamSelesai}`).join(', ') || '-'}</strong> WIB.</>,
+                <>Sesi yang terlewat tanpa izin otomatis tercatat <strong className="text-gray-900">Tidak Hadir</strong>.</>,
+                <>Dilarang menitipkan absensi atau memakai pemalsu lokasi.</>,
+                <>Berhalangan? Ajukan izin di menu <strong className="text-gray-900">Pengajuan Izin</strong> sebelum sesi dimulai.</>,
+              ].map((isi, i) => (
+                <li key={i} className="flex items-start gap-2.5">
+                  <span className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+                  <span>{isi}</span>
+                </li>
+              ))}
+            </ul>
+          </KartuProfil>
         </div>
       </div>
 
-      {/* Kolom Kanan: Ketentuan */}
-      <div className="lg:col-span-5 space-y-6">
-        <div className="p-5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-950 space-y-2">
-          <p className="font-bold flex items-center gap-1.5 text-amber-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            <AlertCircle className="w-4 h-4 text-amber-700" />
-            Ketentuan & Kebijakan Absensi Asrama:
-          </p>
-          <ul className="space-y-1.5 text-amber-900 leading-relaxed list-disc list-inside">
-            <li>Presensi hanya sah jika koordinat GPS berada dalam radius {radius || '-'} m dari gedung.</li>
-            <li>Setiap presensi wajib disertai foto wajah yang diambil langsung dari kamera.</li>
-            <li>
-              Presensi hanya dapat dilakukan pada jam sesi:{' '}
-              {sesiHariIni.map(s => `${s.sesi.nama} ${s.sesi.jamMulai}–${s.sesi.jamSelesai}`).join(', ')} WIB.
-            </li>
-            <li>Sesi yang terlewat tanpa izin otomatis tercatat <strong>Tidak Hadir</strong>.</li>
-            <li>Dilarang keras menitipkan absensi atau menggunakan pemalsu lokasi.</li>
-            <li>Jika berhalangan, ajukan izin pada menu <strong>Pengajuan Izin</strong> sebelum sesi dimulai.</li>
-          </ul>
-        </div>
-      </div>
+      {/* Baris 3: kirim (selebar halaman) */}
+      {notice && <NoticeBox notice={notice} />}
+      <button
+        type="button"
+        onClick={() => selected && onCheckIn(selected.sesi.nama)}
+        disabled={!bisa || checkingIn || !koordinatSiap || diluarRadius || !foto}
+        className="w-full py-3.5 px-4 rounded-xl font-bold text-sm text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{ fontFamily: 'Plus Jakarta Sans' }}
+      >
+        {!selected ? (
+          <span>Belum ada sesi aktif yang diatur</span>
+        ) : !bisa ? (
+          <>
+            <AlertCircle className="w-4 h-4" />
+            <span>{alasanTidakBisaPresensi(selected.detail, selected.sesi)}</span>
+          </>
+        ) : checkingIn ? (
+          <>
+            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span>Memvalidasi Lokasi GPS...</span>
+          </>
+        ) : diluarRadius ? (
+          <>
+            <XCircle className="w-4 h-4" />
+            <span>Anda Berada di Luar Radius Asrama</span>
+          </>
+        ) : !foto ? (
+          <>
+            <Camera className="w-4 h-4" />
+            <span>Ambil Foto Wajah Terlebih Dahulu</span>
+          </>
+        ) : (
+          <>
+            <MapPin className="w-4 h-4" />
+            <span>Kirim Presensi Sekarang (Sesi {selected.sesi.nama})</span>
+          </>
+        )}
+      </button>
     </div>
   )
 }
@@ -1119,10 +1143,10 @@ function PenghuniRiwayat({ riwayat, children }: { riwayat: ReturnType<typeof riw
   return (
     <div className="space-y-6 w-full">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-emerald-700" />} label="Total Hadir" value={c.Hadir} color="#0e4b29" />
-        <StatCard icon={<XCircle className="w-5 h-5 text-rose-700" />} label="Tidak Hadir" value={c['Tidak Hadir']} color="#dc2626" />
+        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-emerald-700" />} label="Total Hadir" value={c.Hadir} color="#141a17" />
+        <StatCard icon={<XCircle className="w-5 h-5 text-rose-700" />} label="Tidak Hadir" value={c['Tidak Hadir']} color="#e11d48" />
         <StatCard icon={<FileText className="w-5 h-5 text-amber-700" />} label="Izin" value={c.Izin} color="#b45309" />
-        <StatCard icon={<Palmtree className="w-5 h-5 text-sky-700" />} label="Libur" value={c.Libur} color="#0369a1" />
+        <StatCard icon={<Palmtree className="w-5 h-5 text-slate-700" />} label="Libur" value={c.Libur} color="#475569" />
       </div>
 
       <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-2xs">
@@ -1325,7 +1349,7 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
     <button
       type="button"
       onClick={() => bukaForm(null)}
-      className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg font-bold text-sm text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer shrink-0"
+      className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg font-bold text-sm text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs cursor-pointer shrink-0"
       style={{ fontFamily: 'Plus Jakarta Sans' }}
     >
       <Plus className="w-4 h-4" />
@@ -1337,9 +1361,9 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
     <div className="w-full space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={<FileText className="w-5 h-5 text-gray-600" />} label="Total Pengajuan" value={jumlah.Semua} />
-        <StatCard icon={<Clock className="w-5 h-5 text-orange-600" />} label="Menunggu" value={jumlah.Pending} color="#c2410c" />
-        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-blue-700" />} label="Disetujui" value={jumlah.Disetujui} color="#1d4ed8" />
-        <StatCard icon={<XCircle className="w-5 h-5 text-red-600" />} label="Ditolak" value={jumlah.Ditolak} color="#dc2626" />
+        <StatCard icon={<Clock className="w-5 h-5 text-amber-600" />} label="Menunggu" value={jumlah.Pending} color="#b45309" />
+        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-slate-700" />} label="Disetujui" value={jumlah.Disetujui} color="#334155" />
+        <StatCard icon={<XCircle className="w-5 h-5 text-rose-600" />} label="Ditolak" value={jumlah.Ditolak} color="#e11d48" />
       </div>
 
       {notice && <NoticeBox notice={notice} />}
@@ -1348,7 +1372,7 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
         <div className="px-5 pt-4 pb-4 border-b border-gray-100">
           <div className="flex items-start justify-between gap-3">
             <SectionTitle subtitle="Status terbaru setiap pengajuan izin Anda">Riwayat Pengajuan Izin</SectionTitle>
-            {tombolAjukan}
+            {izinData.length > 0 && tombolAjukan}
           </div>
 
           {izinData.length > 0 && (
@@ -1389,7 +1413,7 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
                   role="tab"
                   aria-selected={aktif}
                   onClick={() => setFilter(f)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${aktif ? 'bg-[#0e4b29] text-white border-[#0e4b29]' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${aktif ? 'bg-[#141a17] text-white border-[#141a17]' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
                   style={{ fontFamily: 'Plus Jakarta Sans' }}
                 >
                   {f === 'Semua' ? 'Semua' : TAMPILAN_STATUS_IZIN[f].label}
@@ -1465,14 +1489,14 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
                         <p className="text-sm text-gray-800 leading-snug mt-1 break-words">{i.alasan}</p>
 
                         {i.catatanApprover && (
-                          <p className={`text-xs mt-1 break-words ${i.statusPersetujuan === 'Ditolak' ? 'text-red-700' : 'text-blue-800'}`}>
+                          <p className={`text-xs mt-1 break-words ${i.statusPersetujuan === 'Ditolak' ? 'text-rose-700' : 'text-slate-800'}`}>
                             <span className="font-semibold">Catatan fasilitator:</span> {i.catatanApprover}
                           </p>
                         )}
 
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5 text-[11px] text-gray-500">
                           {i.fileBukti && (
-                            <BuktiIzin fileBukti={i.fileBukti} className="inline-flex items-center gap-1 font-semibold text-blue-700" />
+                            <BuktiIzin fileBukti={i.fileBukti} className="inline-flex items-center gap-1 font-semibold text-slate-700" />
                           )}
                           {diputuskan && (
                             <span className="inline-flex items-center gap-1">
@@ -1486,7 +1510,7 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
                             <button
                               type="button"
                               onClick={() => setBatalTarget(i)}
-                              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-red-700 border border-red-200 bg-white hover:bg-red-50 cursor-pointer transition-colors"
+                              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-rose-700 border border-rose-200 bg-white hover:bg-rose-50 cursor-pointer transition-colors"
                             >
                               <X className="w-3.5 h-3.5" />
                               Batalkan
@@ -1498,7 +1522,7 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
                             <button
                               type="button"
                               onClick={() => bukaForm(i)}
-                              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-white bg-[#0e4b29] hover:bg-[#0b3c20] cursor-pointer transition-colors"
+                              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-white bg-[#141a17] hover:bg-[#2a332e] cursor-pointer transition-colors"
                             >
                               <RefreshCw className="w-3.5 h-3.5" />
                               Ajukan Ulang
@@ -1700,7 +1724,7 @@ function FormIzinModal({ izinData, user, sesiList, today, dasar, onClose, onTerk
   // hover:border-* juga membuat tombol DateInput lolos dari aturan tema kaca yang memutihkan garis tepi
   const inputCls = 'w-full px-3 py-2.5 rounded-lg border border-gray-300 hover:border-gray-400 text-sm text-gray-800 bg-white outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 transition-colors placeholder:text-gray-400'
   const labelCls = 'block text-xs font-semibold text-gray-700 mb-1.5'
-  const wajib = <span className="text-red-500">*</span>
+  const wajib = <span className="text-rose-500">*</span>
   // Scrollbar tipis abu-abu (scrollbar global berwarna hijau terang tampak seperti garis pemisah)
   const scrollTipisCls = '[scrollbar-width:thin] [scrollbar-color:#d1d5db_transparent] [&::-webkit-scrollbar-thumb]:bg-gray-300'
 
@@ -1715,16 +1739,19 @@ function FormIzinModal({ izinData, user, sesiList, today, dasar, onClose, onTerk
       {/* Sengaja bg-[#fff], bukan bg-white: tema kaca (index.css) membuat .bg-white di modal tembus pandang
           sehingga form tampak abu-abu kusam di atas latar gelap */}
       <div className="bg-[#fff] w-full sm:max-w-3xl h-full sm:h-auto sm:max-h-[90vh] sm:rounded-2xl shadow-2xl sm:border border-emerald-100 overflow-hidden flex flex-col">
-        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-emerald-800 to-emerald-950 text-white flex items-center justify-between gap-3 shrink-0">
-          <div>
-            <h3 id="judul-form-izin" className="text-lg font-extrabold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>{dasar ? 'Ajukan Ulang Izin' : 'Ajukan Izin'}</h3>
-            <p className="text-xs text-emerald-200 mt-0.5">Pengajuan akan ditinjau oleh fasilitator gedung Anda</p>
+        <div className="px-5 sm:px-6 py-4 modal-header bg-white border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center"><FileText className="w-5 h-5" /></span>
+            <div className="min-w-0">
+              <h3 id="judul-form-izin" className="text-base font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>{dasar ? 'Ajukan Ulang Izin' : 'Ajukan Izin'}</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Pengajuan akan ditinjau oleh fasilitator gedung Anda</p>
+            </div>
           </div>
           <button
             type="button"
             onClick={mintaTutup}
             aria-label="Tutup"
-            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -1815,13 +1842,13 @@ function FormIzinModal({ izinData, user, sesiList, today, dasar, onClose, onTerk
                 Berkas Bukti <span className="font-normal text-gray-400">(opsional)</span>
               </label>
               {pakaiBuktiLama && !form.buktiNama && dasar ? (
-                <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-blue-200 bg-blue-50/60">
-                  <div className="w-9 h-9 rounded-md bg-white border border-blue-200 flex items-center justify-center shrink-0">
-                    <Paperclip className="w-4 h-4 text-blue-700" />
+                <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50/60">
+                  <div className="w-9 h-9 rounded-md bg-white border border-slate-200 flex items-center justify-center shrink-0">
+                    <Paperclip className="w-4 h-4 text-slate-700" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-blue-900">Memakai bukti dari izin sebelumnya</p>
-                    <BuktiIzin fileBukti={dasar.fileBukti} className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700" />
+                    <p className="text-xs font-semibold text-slate-900">Memakai bukti dari izin sebelumnya</p>
+                    <BuktiIzin fileBukti={dasar.fileBukti} className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700" />
                   </div>
                   <button type="button" onClick={() => setPakaiBuktiLama(false)} className="text-xs font-semibold text-gray-600 hover:underline cursor-pointer shrink-0">Ganti</button>
                 </div>
@@ -1834,7 +1861,7 @@ function FormIzinModal({ izinData, user, sesiList, today, dasar, onClose, onTerk
                     <p className="text-xs font-semibold text-emerald-900 truncate" title={form.buktiNama}>{form.buktiNama}</p>
                     <p className="text-[11px] text-emerald-700">{formatUkuranBerkas(form.buktiUkuran)}</p>
                   </div>
-                  <button type="button" onClick={hapusBukti} className="text-xs font-semibold text-red-600 hover:underline cursor-pointer shrink-0">Hapus</button>
+                  <button type="button" onClick={hapusBukti} className="text-xs font-semibold text-rose-600 hover:underline cursor-pointer shrink-0">Hapus</button>
                 </div>
               ) : (
                 <label
@@ -1891,7 +1918,7 @@ function FormIzinModal({ izinData, user, sesiList, today, dasar, onClose, onTerk
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="flex-1 sm:flex-none rounded-xl px-4 py-2.5 font-bold text-sm text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+            className="flex-1 sm:flex-none rounded-xl px-4 py-2.5 font-bold text-sm text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
             style={{ fontFamily: 'Plus Jakarta Sans' }}
           >
             <Send className="w-4 h-4" />
@@ -1916,125 +1943,69 @@ function FormIzinModal({ izinData, user, sesiList, today, dasar, onClose, onTerk
 function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) {
   const [pesanFoto, setPesanFoto] = useState('')
 
+  const dataPribadi = [
+    { label: 'Alamat Email', value: user.email || '-', icon: <Mail className="w-4 h-4" /> },
+    { label: 'Nomor WhatsApp / HP', value: user.noHp || '-', icon: <User className="w-4 h-4" /> },
+    { label: 'Asal Daerah', value: user.asal || '-', icon: <MapPin className="w-4 h-4" /> },
+    { label: 'Gedung Asrama', value: user.namaGedung || '-', icon: <Building className="w-4 h-4" /> },
+    { label: 'Nomor Kamar', value: user.nomorKamar || '-', icon: <DoorClosed className="w-4 h-4" /> },
+    { label: 'Status Akun', value: 'Terverifikasi (NIM aktif)', icon: <ShieldCheck className="w-4 h-4" /> },
+  ]
+  const ketentuan = [
+    { label: 'Kapasitas standar', value: '2 orang / kamar' },
+    { label: 'Kunci gerbang malam', value: '22:00 WIB', sorot: true },
+    { label: 'Izin menginap di luar', value: 'Wajib lewat menu Izin' },
+    { label: 'Layanan darurat', value: 'Pos Pengelola Asrama' },
+  ]
+
   return (
-    <div className="grid lg:grid-cols-12 gap-5 w-full items-start">
-      {/* Kolom Kiri: Kartu Identitas Digital Penghuni & Status Layanan */}
-      <div className="lg:col-span-4 space-y-4">
-        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-          {/* Banner Kartu */}
-          <div className="bg-gradient-to-br from-[#0e4b29] via-[#125832] to-[#176d3e] p-6 text-white text-center relative">
-            <div className="absolute top-3 right-3 opacity-20">
-              <Building className="w-16 h-16 text-white" />
-            </div>
+    <div className="space-y-5 w-full">
+      {/* Baris 1: identitas selebar halaman */}
+      <ProfilHeader
+        user={user}
+        peran="Penghuni Asrama Aktif"
+        keterangan={user.namaGedung || undefined}
+        onPesan={setPesanFoto}
+        stats={[
+          { label: 'Kamar', nilai: user.nomorKamar || '-' },
+          { label: 'Terdaftar sejak', nilai: <span className="text-base">{user.tanggalMasuk ? formatTanggal(user.tanggalMasuk, 'tanpaHari') : '-'}</span> },
+          { label: 'Status akun', nilai: 'Aktif' },
+        ]}
+      />
 
-            <div className="mb-3">
-              <AvatarProfil user={user} onPesan={setPesanFoto} />
-            </div>
-
-            <h3 className="font-bold text-base text-white truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {user.nama}
-            </h3>
-            <p className="mono text-xs text-emerald-100/90 mt-0.5 tracking-wide">{user.nim}</p>
-
-            <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-xs font-semibold text-emerald-50">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Penghuni Asrama Aktif</span>
-            </div>
-          </div>
-
-          {/* Info Lokasi & Detail Kamar */}
-          <div className="p-4 space-y-3 bg-gray-50/50">
-            <div className="grid grid-cols-2 gap-2 text-center">
-              <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Gedung</p>
-                <p className="text-xs font-bold text-emerald-950 mt-0.5 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                  {user.namaGedung || '-'}
-                </p>
-              </div>
-              <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Kamar</p>
-                <p className="text-xs font-bold text-emerald-950 mt-0.5 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                  {user.nomorKamar || '-'}
-                </p>
-              </div>
-            </div>
-
-            <div className="px-3 py-2 bg-emerald-50/80 border border-emerald-100 rounded-xl flex items-center justify-between text-xs text-emerald-900">
-              <span className="font-medium text-[11px]">Terdaftar sejak</span>
-              <span className="font-bold mono text-[11px]">{user.tanggalMasuk || '-'}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Info Layanan Asrama */}
-        <div className="bg-white rounded-2xl p-4 border border-gray-200/90 shadow-2xs space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-            <h5 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              Ketentuan & Fasilitas Kamar
-            </h5>
-            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              TA 2026/2027
-            </span>
-          </div>
-          <div className="space-y-2 text-xs">
-            <div className="flex items-center justify-between py-1 border-b border-gray-50">
-              <span className="text-gray-500">Kapasitas Standar</span>
-              <span className="font-semibold text-gray-800">2 Orang / Kamar</span>
-            </div>
-            <div className="flex items-center justify-between py-1 border-b border-gray-50">
-              <span className="text-gray-500">Kunci Gerbang Malam</span>
-              <span className="font-bold text-emerald-800">22:00 WIB</span>
-            </div>
-            <div className="flex items-center justify-between py-1 border-b border-gray-50">
-              <span className="text-gray-500">Izin Menginap Luar</span>
-              <span className="font-semibold text-gray-800">Wajib Menu Izin</span>
-            </div>
-            <div className="flex items-center justify-between py-1">
-              <span className="text-gray-500">Layanan Darurat</span>
-              <span className="font-semibold text-gray-800">Pos Pengelola Asrama</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Kolom Kanan: Rincian Data Pribadi & Form Keamanan */}
-      <div className="lg:col-span-8 space-y-4">
-        {/* Data Informasi Akun */}
-        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
-            <div>
-              <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                Informasi Data Pribadi
-              </h4>
-              <p className="text-[11px] text-gray-400">Detail identitas penghuni terdaftar di sistem asrama</p>
-            </div>
-            <Badge status="Aktif" />
-          </div>
-
-          <div className="divide-y divide-gray-100 text-xs">
-            {[
-              { label: 'Alamat Email', value: user.email, icon: <Mail className="w-4 h-4 text-emerald-700" /> },
-              { label: 'Nomor WhatsApp / HP', value: user.noHp || '-', icon: <User className="w-4 h-4 text-emerald-700" /> },
-              { label: 'Asal Daerah', value: user.asal || '-', icon: <MapPin className="w-4 h-4 text-emerald-700" /> },
-              { label: 'Gedung Asrama', value: user.namaGedung || '-', icon: <Building className="w-4 h-4 text-emerald-700" /> },
-              { label: 'Nomor Kamar', value: user.nomorKamar || '-', icon: <DoorClosed className="w-4 h-4 text-emerald-700" /> },
-              { label: 'Status Verifikasi Akun', value: 'Terverifikasi (NIM Aktif)', icon: <ShieldCheck className="w-4 h-4 text-emerald-700" /> },
-            ].map((row, idx) => (
-              <div key={idx} className="flex items-center px-5 py-3 hover:bg-gray-50/60 transition-colors">
-                <div className="flex items-center gap-2.5 w-48 shrink-0 text-gray-500 font-medium">
-                  {row.icon}
-                  <span>{row.label}</span>
-                </div>
-                <div className="flex-1 min-w-0 font-semibold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                  {row.value}
-                </div>
+      {/* Baris 2: data pribadi | ketentuan (tinggi sama) */}
+      <div className="grid lg:grid-cols-2 gap-5 items-stretch">
+        <KartuProfil ikon={<User />} judul="Informasi Data Pribadi" sub="Identitas penghuni yang terdaftar di sistem" kanan={<Badge status="Aktif" />}>
+          <div className="flex-1 flex flex-col divide-y divide-gray-100">
+            {dataPribadi.map(row => (
+              <div key={row.label} className="flex-1 flex items-center gap-3 px-5 py-3 text-xs">
+                <span className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 border border-gray-100 text-emerald-700 flex items-center justify-center">{row.icon}</span>
+                <span className="w-40 shrink-0 text-gray-500 font-medium">{row.label}</span>
+                <span className="flex-1 min-w-0 text-right font-semibold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{row.value}</span>
               </div>
             ))}
           </div>
-        </div>
+        </KartuProfil>
 
-        <KartuGantiPassword user={user} onLogout={onLogout} pesanLuar={pesanFoto} />
+        <KartuProfil
+          ikon={<Building />}
+          judul="Ketentuan & Fasilitas Kamar"
+          sub="Aturan yang berlaku untuk penghuni"
+          kanan={<span className="px-2.5 py-1 rounded-full text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200">TA 2026/2027</span>}
+        >
+          <div className="flex-1 flex flex-col divide-y divide-gray-100">
+            {ketentuan.map(k => (
+              <div key={k.label} className="flex-1 flex items-center justify-between gap-3 px-5 py-3 text-xs">
+                <span className="text-gray-500 font-medium">{k.label}</span>
+                <span className={`font-semibold text-right ${k.sorot ? 'text-emerald-800' : 'text-gray-900'}`} style={{ fontFamily: 'Plus Jakarta Sans' }}>{k.value}</span>
+              </div>
+            ))}
+          </div>
+        </KartuProfil>
       </div>
+
+      {/* Baris 3: keamanan selebar halaman */}
+      <KartuGantiPassword user={user} onLogout={onLogout} pesanLuar={pesanFoto} />
     </div>
   )
 }
@@ -2090,7 +2061,7 @@ function PenghuniEvent({
       {/* Header Banner */}
       <div
         className="rounded-2xl p-6 text-white relative overflow-hidden shadow-xs"
-        style={{ background: 'linear-gradient(135deg, #064e3b 0%, #065f46 60%, #047857 100%)' }}
+        style={{ background: 'linear-gradient(135deg, #0f3e2d 0%, #17603d 55%, #27a150 100%)' }}
       >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
           <div>
@@ -2197,7 +2168,7 @@ function PenghuniEvent({
           </p>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 gap-5">
+        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
           {filtered.map(ev => {
             const st = getStatusEvent(ev, today, now)
             const sudahHadir = ev.statusKehadiranSaya === 'Hadir'
@@ -2205,92 +2176,28 @@ function PenghuniEvent({
             const bisaAbsen = st === 'Sedang Berlangsung' && !sudahHadir
 
             return (
-              <div
+              <KartuEvent
                 key={ev.id}
-                className={`bg-white rounded-2xl p-5 border shadow-2xs hover:shadow-md transition-shadow flex flex-col justify-between ${
-                  st === 'Sedang Berlangsung' && !sudahHadir
-                    ? 'border-amber-300 ring-2 ring-amber-300/30'
-                    : 'border-gray-200'
-                }`}
+                ev={ev}
+                status={st}
+                sorot={st === 'Sedang Berlangsung' && !sudahHadir}
+                penyelenggara={`Penyelenggara: ${ev.namaPembuat || (ev.tipe === 'seluruh' ? 'Pengelola Asrama' : 'Fasilitator Gedung')}`}
+                kehadiran={
+                  sudahHadir ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-600 text-white shadow-sm">
+                      <CheckCircle2 className="w-3.5 h-3.5" />Hadir
+                    </span>
+                  ) : tidakHadir ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-600 text-white shadow-sm">
+                      <XCircle className="w-3.5 h-3.5" />Tidak Hadir
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#fff] text-amber-800 border border-amber-200 shadow-sm">
+                      <AlertCircle className="w-3.5 h-3.5" />Belum absen
+                    </span>
+                  )
+                }
               >
-                <div>
-                  {/* Top Badges */}
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          ev.tipe === 'seluruh'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-purple-50 text-purple-800 border border-purple-200'
-                        }`}
-                      >
-                        {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
-                      </span>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          st === 'Sedang Berlangsung'
-                            ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
-                            : st === 'Akan Datang'
-                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                            : 'bg-gray-100 text-gray-700 border border-gray-200'
-                        }`}
-                      >
-                        {st}
-                      </span>
-                    </div>
-
-                    {/* Attendance Badge */}
-                    <div>
-                      {sudahHadir ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Hadir</span>
-                        </span>
-                      ) : tidakHadir ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-rose-50 text-rose-800 border border-rose-200">
-                          <XCircle className="w-3.5 h-3.5 text-rose-600" />
-                          <span>Tidak Hadir</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                          <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Belum Absen</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Title and Description */}
-                  <h4 className="font-extrabold text-base text-gray-900 mb-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                    {ev.judul}
-                  </h4>
-                  {ev.deskripsi && (
-                    <p className="text-xs text-gray-600 mb-4 line-clamp-2 leading-relaxed">
-                      {ev.deskripsi}
-                    </p>
-                  )}
-
-                  {/* Details Grid */}
-                  <div className="space-y-2 p-3 bg-gray-50/70 rounded-xl border border-gray-100 text-xs mb-4">
-                    <div className="flex items-center gap-2 text-gray-700">
-                      <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span className="font-semibold">{formatTanggal(ev.tanggal)}</span>
-                      <span className="text-gray-400">•</span>
-                      <span className="mono font-bold text-gray-900">{ev.jamMulai} – {ev.jamSelesai} WIB</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-700">
-                      <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span className="font-medium text-gray-900">{ev.lokasi}</span>
-                      <span className="text-gray-400">•</span>
-                      <span className="text-[11px] text-gray-500 font-semibold">Radius: {ev.radiusMeter}m</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-500 text-[11px]">
-                      <User className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      <span>Penyelenggara: <strong className="text-gray-700">{ev.namaPembuat || (ev.tipe === 'seluruh' ? 'Pengelola Asrama' : 'Fasilitator Gedung')}</strong></span>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Bottom CTA / Status Info */}
                 <div className="pt-2 border-t border-gray-100">
                   {sudahHadir ? (
@@ -2309,15 +2216,15 @@ function PenghuniEvent({
                     <button
                       type="button"
                       onClick={() => onBukaAbsen(ev)}
-                      className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
                       style={{ fontFamily: 'Plus Jakarta Sans' }}
                     >
                       <UserCheck className="w-4 h-4" />
                       <span>Presensi Event Sekarang (GPS & Selfie)</span>
                     </button>
                   ) : st === 'Akan Datang' ? (
-                    <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-100 text-blue-900 text-xs font-medium flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-blue-600 shrink-0" />
+                    <div className="p-2.5 rounded-xl bg-slate-50/60 border border-slate-100 text-slate-900 text-xs font-medium flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-slate-600 shrink-0" />
                       <span>Presensi akan dibuka pada hari pelaksanaan pukul {ev.jamMulai} WIB</span>
                     </div>
                   ) : (
@@ -2327,7 +2234,7 @@ function PenghuniEvent({
                     </div>
                   )}
                 </div>
-              </div>
+              </KartuEvent>
             )
           })}
         </div>

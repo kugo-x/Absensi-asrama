@@ -463,9 +463,9 @@ body{font-family:Arial,sans-serif;font-size:10pt;color:#1f2937}
 .kop h1{font-size:14pt;margin:0}.kop h2{font-size:12pt;margin:2px 0}.kop p{font-size:10pt;margin:0;color:#6b7280}
 h3{text-align:center;font-family:'Times New Roman',serif;font-size:13pt;text-decoration:underline;margin:0 0 12px}
 .ket td{padding:1px 6px 1px 0;font-size:9.5pt}.ket .lbl{color:#6b7280}
-.ringkas{width:100%;margin:10px 0}.ringkas td{border:1px solid #cdd5d1;background:#f5faf7;padding:6px}.ringkas span{display:block;font-size:8pt;color:#6b7280}.ringkas b{font-size:12pt;color:#0e4b29}
+.ringkas{width:100%;margin:10px 0}.ringkas td{border:1px solid #cdd5d1;background:#f5faf7;padding:6px}.ringkas span{display:block;font-size:8pt;color:#6b7280}.ringkas b{font-size:12pt;color:#141a17}
 .data{border-collapse:collapse;width:100%;margin-top:10px}.data th,.data td{border:1px solid #cdd5d1;padding:4px 6px;font-size:9pt;vertical-align:middle}
-.data th{background:#0e4b29;color:#fff;text-align:center}.data tr:nth-child(even) td{background:#f5faf7}
+.data th{background:#141a17;color:#fff;text-align:center}.data tr:nth-child(even) td{background:#f5faf7}
 .ttd{margin-top:28px;margin-left:60%;font-family:'Times New Roman',serif;font-size:11pt}.ttd .nama{margin-top:56px;font-weight:bold;text-decoration:underline}
 .cat{font-style:italic;font-size:8.5pt;color:#6b7280;margin-top:8px}
 </style></head><body>

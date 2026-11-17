@@ -95,7 +95,7 @@ export default function LoginPage({ onLogin }: Props) {
 
           <div className={`px-6 sm:px-10 lg:px-14 xl:px-20 mt-6 lg:mt-auto lg:pt-10 ${naik}`} style={jeda(100)}>
             <div className="flex items-center gap-3 lg:gap-4">
-              <LogoSIP className="w-11 h-11 sm:w-12 sm:h-12 lg:w-[60px] lg:h-[60px] xl:w-[68px] xl:h-[68px] shrink-0 drop-shadow-[0_10px_24px_rgb(16_185_129/0.35)]" />
+              <LogoSIP className="w-11 h-11 sm:w-12 sm:h-12 lg:w-[60px] lg:h-[60px] xl:w-[68px] xl:h-[68px] shrink-0 drop-shadow-[0_10px_24px_rgb(47_184_74/0.35)]" />
               <h1 className="text-[30px] sm:text-[36px] lg:text-[52px] xl:text-[60px] font-extrabold leading-none tracking-[-0.035em]">
                 SIP <span className="text-emerald-300">Asrama</span>
               </h1>
@@ -201,7 +201,7 @@ export default function LoginPage({ onLogin }: Props) {
             <button
               type="submit"
               disabled={loading}
-              className={`group w-full h-11 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#0f5132] to-[#0c2a1c] hover:from-[#13633e] hover:to-[#123b28] shadow-[0_10px_20px_-10px_rgb(12_42_28/0.7)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 ${fokus}`}
+              className={`group w-full h-11 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#1f2924] to-[#111713] hover:from-[#13633e] hover:to-[#123b28] shadow-[0_10px_20px_-10px_rgb(12_42_28/0.7)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 ${fokus}`}
             >
               {loading ? (
                 <>
@@ -231,7 +231,7 @@ export default function LoginPage({ onLogin }: Props) {
                     title={`${a.nim} / ${a.password}`}
                     aria-pressed={terpilih}
                     className={`flex items-center justify-center gap-1.5 h-10 rounded-xl border text-[12px] font-semibold cursor-pointer transition-colors ${fokus} ${
-                      terpilih ? 'bg-[#0c2a1c] border-[#0c2a1c] text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300 hover:bg-emerald-50/50'
+                      terpilih ? 'bg-[#111713] border-[#111713] text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300 hover:bg-emerald-50/50'
                     }`}
                   >
                     <a.ikon className={`w-4 h-4 ${terpilih ? 'text-emerald-300' : 'text-emerald-700'}`} />
@@ -319,12 +319,12 @@ function IlustrasiAsrama({ className }: { className?: string }) {
       `}</style>
 
       {/* Langit: bintang, bulan, awan tipis */}
-      {bintang.map((b, i) => <circle key={i} cx={b.x} cy={b.y} r={b.r} fill="#ecfdf5" className="ia-kelip" style={{ animationDelay: `${b.d}s` }} />)}
+      {bintang.map((b, i) => <circle key={i} cx={b.x} cy={b.y} r={b.r} fill="#f0fcf1" className="ia-kelip" style={{ animationDelay: `${b.d}s` }} />)}
       <circle cx="505" cy="62" r="58" fill="url(#cahaya-bulan)" />
       <circle cx="505" cy="62" r="20" fill="#fef3c7" mask="url(#sabit)" />
       <g className="ia-awan" opacity="0.12">
-        <ellipse cx="60" cy="88" rx="46" ry="9" fill="#ecfdf5" />
-        <ellipse cx="88" cy="82" rx="28" ry="8" fill="#ecfdf5" />
+        <ellipse cx="60" cy="88" rx="46" ry="9" fill="#f0fcf1" />
+        <ellipse cx="88" cy="82" rx="28" ry="8" fill="#f0fcf1" />
       </g>
 
       {/* Bukit belakang */}
@@ -365,9 +365,9 @@ function IlustrasiAsrama({ className }: { className?: string }) {
 
       {/* Penanda lokasi (presensi GPS) di atas gedung utama */}
       <g transform="translate(185 92)">
-        <circle r="9" fill="#34d399" className="ia-denyut" />
-        <circle r="9" fill="#34d399" className="ia-denyut" style={{ animationDelay: '1.2s' }} />
-        <path d="M0 6 C -6 -1, -7 -5, -7 -8 A 7 7 0 0 1 7 -8 C 7 -5, 6 -1, 0 6 Z" fill="#34d399" transform="translate(0 -6)" />
+        <circle r="9" fill="#4fcc63" className="ia-denyut" />
+        <circle r="9" fill="#4fcc63" className="ia-denyut" style={{ animationDelay: '1.2s' }} />
+        <path d="M0 6 C -6 -1, -7 -5, -7 -8 A 7 7 0 0 1 7 -8 C 7 -5, 6 -1, 0 6 Z" fill="#4fcc63" transform="translate(0 -6)" />
         <circle cy="-14" r="2.6" fill="#0a2e1e" />
       </g>
 
@@ -375,7 +375,7 @@ function IlustrasiAsrama({ className }: { className?: string }) {
       <path d="M-600 296 L0 296 C 120 290, 260 300, 380 294 S 540 290, 600 296 L1200 296 L1200 320 L-600 320 Z" fill="url(#tanah)" />
       {[{ x: 32, s: 1 }, { x: 312, s: 0.8 }, { x: 588, s: 0.9 }].map((t, i) => (
         <g key={i} className="ia-goyang" style={{ animationDelay: `${i * 0.8}s` }}>
-          <rect x={t.x - 1.5} y={300 - 22 * t.s} width="3" height={22 * t.s} fill="#0b2a1c" />
+          <rect x={t.x - 1.5} y={300 - 22 * t.s} width="3" height={22 * t.s} fill="#111713" />
           <circle cx={t.x} cy={300 - 30 * t.s} r={14 * t.s} fill="#1f7a52" />
           <circle cx={t.x - 7 * t.s} cy={300 - 24 * t.s} r={9 * t.s} fill="#1a6a47" />
         </g>

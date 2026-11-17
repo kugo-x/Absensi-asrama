@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import Cropper, { type Area } from 'react-easy-crop'
-import { Camera, Eye, EyeOff, Lock, Pencil } from 'lucide-react'
+import { Camera, ChevronRight, Eye, EyeOff, Lock, Pencil } from 'lucide-react'
 import type { CurrentUser } from '../types'
 import { ConfirmDialog } from './AppLayout'
 import { changePasswordApi, uploadProfilePhotoApi } from '../api'
@@ -100,7 +100,7 @@ export function AvatarProfil({ user, onPesan }: { user: CurrentUser; onPesan?: (
             <span className="text-[10px] text-white font-medium mt-0.5">Ubah</span>
           </div>
         </label>
-        <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm border-2 border-[#0e4b29]">
+        <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm border-2 border-[#17603d]">
           <Pencil className="h-3 w-3" />
         </span>
       </div>
@@ -148,8 +148,93 @@ export function AvatarProfil({ user, onPesan }: { user: CurrentUser; onPesan?: (
   )
 }
 
+// ------------------------------------------------------------------ tata letak halaman profil
+
+export interface StatProfil {
+  label: string
+  nilai: ReactNode
+  onClick?: () => void
+  sorot?: boolean // diberi penanda (mis. ada yang menunggu tindakan)
+}
+
+/** Banner identitas selebar halaman: foto, nama, NIM, peran, dan ringkasan angka di kanan. */
+export function ProfilHeader({ user, peran, keterangan, stats, onPesan }: {
+  user: CurrentUser
+  peran: string
+  keterangan?: ReactNode
+  stats: StatProfil[]
+  onPesan?: (pesan: string) => void
+}) {
+  return (
+    <div className="rounded-2xl bg-gradient-to-br from-[#0f3e2d] via-[#17603d] to-[#27a150] text-white p-5 sm:p-6 shadow-md">
+      <div className="flex flex-col lg:flex-row lg:items-center gap-5">
+        <div className="flex items-center gap-4 min-w-0 flex-1">
+          <div className="shrink-0"><AvatarProfil user={user} onPesan={onPesan} /></div>
+          <div className="min-w-0">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/15 border border-white/20 text-[11px] font-semibold text-emerald-50">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-300" />
+              {peran}
+            </span>
+            <h2 className="mt-1.5 text-xl sm:text-2xl font-extrabold tracking-tight truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{user.nama}</h2>
+            <p className="text-xs text-emerald-50/80 mt-0.5 truncate">
+              <span className="mono tracking-wide">{user.nim}</span>
+              {keterangan ? <span> · {keterangan}</span> : null}
+            </p>
+          </div>
+        </div>
+        <div className={`grid gap-2.5 ${stats.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          {stats.map(s => {
+            const isi = (
+              <>
+                <p className="text-[11px] font-semibold text-emerald-50/75 truncate">{s.label}</p>
+                <p className="mt-0.5 text-lg font-extrabold tabular-nums flex items-center gap-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                  {s.nilai}
+                  {s.sorot && <span className="w-2 h-2 rounded-full bg-amber-300" aria-label="perlu tindakan" />}
+                </p>
+              </>
+            )
+            const kelas = 'min-w-0 lg:w-36 text-left px-4 py-3 rounded-xl bg-white/10 border border-white/15'
+            return s.onClick ? (
+              <button key={s.label} type="button" onClick={s.onClick} className={`${kelas} hover:bg-white/20 transition-colors cursor-pointer relative group`}>
+                {isi}
+                <ChevronRight className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40 group-hover:text-white/80" />
+              </button>
+            ) : (
+              <div key={s.label} className={kelas}>{isi}</div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Kartu standar halaman profil; tingginya mengikuti pasangan di baris yang sama. */
+export function KartuProfil({ ikon, judul, sub, kanan, children, className = '' }: {
+  ikon: ReactNode
+  judul: string
+  sub?: string
+  kanan?: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div className={`bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden flex flex-col h-full ${className}`}>
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center [&_svg]:w-[18px] [&_svg]:h-[18px]">{ikon}</div>
+        <div className="flex-1 min-w-0">
+          <h4 className="text-sm font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{judul}</h4>
+          {sub && <p className="text-[11px] text-gray-400 truncate">{sub}</p>}
+        </div>
+        {kanan}
+      </div>
+      <div className="flex-1 flex flex-col">{children}</div>
+    </div>
+  )
+}
+
 /** Kartu ganti password; setelah berhasil pengguna diminta login ulang. */
-export function KartuGantiPassword({ user, onLogout, pesanLuar }: { user: CurrentUser; onLogout: () => void; pesanLuar?: string }) {
+export function KartuGantiPassword({ user, onLogout, pesanLuar, susun = false }: { user: CurrentUser; onLogout: () => void; pesanLuar?: string; susun?: boolean }) {
   const [passwordLama, setPasswordLama] = useState('')
   const [passwordBaru, setPasswordBaru] = useState('')
   const [konfirmasi, setKonfirmasi] = useState('')
@@ -179,34 +264,22 @@ export function KartuGantiPassword({ user, onLogout, pesanLuar }: { user: Curren
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/70 flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800">
-          <Lock className="w-4 h-4" />
-        </div>
-        <div>
-          <h4 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Keamanan & Ganti Password
-          </h4>
-          <p className="text-[11px] text-gray-400">Perbarui kata sandi akun secara berkala</p>
-        </div>
-      </div>
-
-      <div className="p-5 space-y-4">
-        <div className="grid sm:grid-cols-3 gap-3">
+    <KartuProfil ikon={<Lock />} judul="Keamanan & Ganti Password" sub="Perbarui kata sandi akun secara berkala">
+      <div className="p-5 flex-1 flex flex-col gap-4">
+        <div className={`grid gap-3 ${susun ? '' : 'sm:grid-cols-3'}`}>
           {[
             { label: 'Password Lama', placeholder: 'Masukkan password lama' },
             { label: 'Password Baru', placeholder: 'Minimal 8 karakter' },
             { label: 'Konfirmasi Baru', placeholder: 'Ulangi password baru' },
           ].map((f, index) => (
             <div key={f.label}>
-              <label className="block text-xs font-semibold text-gray-700 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
                 {f.label}
               </label>
               <div className="relative flex items-center">
                 <input
                   type={showPassword === index ? 'text' : 'password'}
-                  className="w-full px-3 py-2 pr-8 rounded-lg border border-gray-300 text-xs text-gray-800 outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 transition-colors placeholder:text-gray-400"
+                  className="w-full px-3.5 py-2.5 pr-9 rounded-xl border border-gray-200 text-sm text-gray-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15 transition-colors placeholder:text-gray-400"
                   placeholder={f.placeholder}
                   value={[passwordLama, passwordBaru, konfirmasi][index]}
                   onChange={e => [setPasswordLama, setPasswordBaru, setKonfirmasi][index](e.target.value)}
@@ -224,14 +297,14 @@ export function KartuGantiPassword({ user, onLogout, pesanLuar }: { user: Curren
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-100">
-          <p className="text-[11px] text-gray-400">Setelah password diubah, Anda akan diminta login ulang demi keamanan.</p>
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-100">
+          <p className="text-[11px] text-gray-400">Setelah password diubah, Anda akan diminta login ulang.</p>
           <div className="flex items-center gap-3">
             {tampilPesan && <p className="text-xs font-semibold text-emerald-700">{tampilPesan}</p>}
             <button
               type="button"
               onClick={simpanPassword}
-              className="py-2 px-5 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer"
+              className="py-2.5 px-5 rounded-xl font-bold text-xs text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs cursor-pointer"
               style={{ fontFamily: 'Plus Jakarta Sans' }}
             >
               Simpan Perubahan
@@ -259,6 +332,6 @@ export function KartuGantiPassword({ user, onLogout, pesanLuar }: { user: Curren
           onConfirm={onLogout}
         />
       )}
-    </div>
+    </KartuProfil>
   )
 }

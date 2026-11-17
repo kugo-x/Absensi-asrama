@@ -2,15 +2,16 @@ import { Fragment, useState, useEffect, type ReactNode } from 'react'
 import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult } from '../types'
 import AppLayout, { SectionTitle, Badge, ConfirmDialog, StatCard } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
+import KartuEvent, { UbinBuatEvent } from '../components/KartuEvent'
 import { unduhLaporan, type ExportFormat } from '../ekspor'
-import { BuktiIzin, FotoBadge, FotoWajah, KotakTanggalIzin, RekapStats, RekapTableBerhalaman, SesiToggle, TAMPILAN_STATUS_IZIN, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
-import { BarisSaringIzin, KosongSaringIzin, useSaringIzin } from '../components/SaringIzin'
+import { BuktiIzin, FotoBadge, FotoWajah, KotakTanggalIzin, RekapTableBerhalaman, SesiToggle, TAMPILAN_STATUS_IZIN, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
+import { BarisSaringIzin, KosongSaringIzin, useSaringIzin, type StatusSaring } from '../components/SaringIzin'
 import { BilahKomposisi, HistogramSebaran, PetaPanasPola, WARNA_STATUS_GRAFIK, hitungPolaMingguan } from '../components/GrafikKehadiran'
 import { PanelTrenKehadiran } from '../components/TrenKehadiran'
 import { PilihPeriodeLaporan, labelPeriodeLaporan, rentangLaporan, type SaringPeriode } from '../components/SaringLaporan'
 import DateInput from '../components/DateInput'
 import { notifikasiFasil } from '../notifikasiPeran'
-import { AvatarProfil, KartuGantiPassword, simpanUserLokal } from '../components/ProfilAkun'
+import { KartuGantiPassword, KartuProfil, ProfilHeader, simpanUserLokal } from '../components/ProfilAkun'
 import {
   presensiList as initialPresensi,
   izinList as initialIzin,
@@ -39,6 +40,7 @@ import {
   CalendarDays,
   Paperclip,
   User,
+  Users,
   Check,
   Download,
   X,
@@ -495,168 +497,77 @@ function FasilEvent({
 
   return (
     <div className="space-y-6">
-      {/* Action Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4.5 rounded-2xl border border-emerald-100/90 shadow-xs">
-        <div>
-          <h3 className="text-base font-extrabold text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Event & Kegiatan {gedungSaya.nama}
-          </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Buat kegiatan gedung, atur radius presensi di peta, dan pantau rekap kehadiran peserta
-          </p>
+      {/* Header + pencarian dalam satu kartu */}
+      <div className="bg-white rounded-2xl border border-emerald-100/90 shadow-xs p-4.5 flex flex-col lg:flex-row lg:items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Event & Kegiatan {gedungSaya.nama}</h3>
+          <p className="text-xs text-gray-500 mt-0.5">{eventFasil.length} event · gedung Anda & seluruh asrama</p>
         </div>
-        <button
-          type="button"
-          onClick={onTambahEvent}
-          className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-700/20 cursor-pointer transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Buat Event Gedung</span>
-        </button>
-      </div>
-
-      {/* Filter Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-xs">
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Cari event, agenda, lokasi..."
-            value={cari}
-            onChange={e => setCari(e.target.value)}
-            className="pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 w-52 sm:w-72 bg-gray-50/50"
-          />
-        </div>
-        <select
-          value={filterStatus}
-          onChange={e => setFilterStatus(e.target.value)}
-          className="px-3 py-1.5 rounded-xl border border-gray-200 text-xs bg-white outline-none focus:border-emerald-600 font-medium"
-        >
-          <option value="semua">Semua Status ({eventFasil.length})</option>
-          <option value="Akan Datang">Akan Datang</option>
-          <option value="Sedang Berlangsung">Sedang Berlangsung</option>
-          <option value="Selesai">Selesai</option>
-        </select>
-      </div>
-
-      {/* Grid Cards */}
-      {filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl p-12 text-center border border-gray-100 shadow-xs">
-          <CalendarDays className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <h4 className="font-extrabold text-base text-gray-800 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Belum Ada Event Terjadwal
-          </h4>
-          <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
-            Belum ada agenda atau kegiatan gedung yang terdaftar saat ini.
-          </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Cari event, agenda, lokasi..."
+              value={cari}
+              onChange={e => setCari(e.target.value)}
+              className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 w-52 sm:w-64 bg-white"
+            />
+          </div>
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white outline-none focus:border-emerald-600 font-medium"
+          >
+            <option value="semua">Semua status</option>
+            <option value="Akan Datang">Akan Datang</option>
+            <option value="Sedang Berlangsung">Sedang Berlangsung</option>
+            <option value="Selesai">Selesai</option>
+          </select>
           <button
             type="button"
             onClick={onTambahEvent}
-            className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+            className="px-4 py-2 rounded-xl bg-[#141a17] hover:bg-[#2a332e] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer transition-colors"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Buat Event Gedung Baru</span>
+            <Plus className="w-4 h-4" />
+            <span>Buat Event</span>
           </button>
         </div>
-      ) : (
-        <div className="grid md:grid-cols-2 gap-5">
+      </div>
+
+      {/* Grid Cards */}
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
           {filtered.map(ev => {
             const st = getStatusEvent(ev)
             const adalahGedungSaya = ev.tipe === 'gedung' && ev.idGedung === gedungSaya.id
             return (
-              <div
+              <KartuEvent
                 key={ev.id}
-                className="bg-white rounded-2xl p-5 border border-emerald-100/80 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+                ev={ev}
+                status={st}
+                onEdit={adalahGedungSaya ? () => onEditEvent(ev) : undefined}
+                onHapus={adalahGedungSaya ? () => onHapusEvent(ev) : undefined}
+                penyelenggara={adalahGedungSaya ? 'Dikelola oleh Anda' : `Penyelenggara: ${ev.namaPembuat || 'Admin'}`}
               >
-                <div>
-                  <div className="flex items-start justify-between gap-2 mb-2.5">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          ev.tipe === 'seluruh'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-purple-50 text-purple-800 border border-purple-200'
-                        }`}
-                      >
-                        {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
-                      </span>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          st === 'Sedang Berlangsung'
-                            ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
-                            : st === 'Akan Datang'
-                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                            : 'bg-gray-100 text-gray-700 border border-gray-200'
-                        }`}
-                      >
-                        {st}
-                      </span>
-                    </div>
-
-                    {adalahGedungSaya && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onEditEvent(ev)}
-                          title="Edit Event Gedung"
-                          className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onHapusEvent(ev)}
-                          title="Hapus Event"
-                          className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-rose-700 hover:bg-rose-50 cursor-pointer transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <h4 className="font-extrabold text-base text-gray-900 leading-snug" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                    {ev.judul}
-                  </h4>
-                  {ev.deskripsi && (
-                    <p className="text-xs text-gray-600 mt-1 line-clamp-2 leading-relaxed">
-                      {ev.deskripsi}
-                    </p>
-                  )}
-
-                  <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
-                    <div className="flex items-center gap-2 text-gray-700">
-                      <Calendar className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span className="font-semibold">{ev.tanggal}</span>
-                      <span className="text-gray-400">·</span>
-                      <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span className="font-semibold">{ev.jamMulai}–{ev.jamSelesai} WIB</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <MapPin className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                      <span className="truncate">{ev.lokasi} (Radius: {ev.radiusMeter} m)</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-                  <span className="text-[11px] text-gray-400">
-                    {adalahGedungSaya ? 'Dikelola oleh Anda' : `Penyelenggara: ${ev.namaPembuat || 'Admin'}`}
-                  </span>
+                <div className="pt-3 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => onLihatRekap(ev)}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    className="w-full py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <Eye className="w-3.5 h-3.5 text-emerald-700" />
                     <span>Rekap Kehadiran</span>
                   </button>
                 </div>
-              </div>
+              </KartuEvent>
             )
           })}
+          <UbinBuatEvent
+            onClick={onTambahEvent}
+            label="Buat event gedung"
+            keterangan={filtered.length === 0 ? (eventFasil.length === 0 ? 'Belum ada event terjadwal untuk gedung Anda.' : 'Tidak ada event yang cocok dengan pencarian.') : 'Atur jadwal, lokasi & radius presensi'}
+          />
         </div>
-      )}
     </div>
   )
 }
@@ -733,9 +644,9 @@ function FasilDashboard({
 
   const izinTerdekat = [...pendingIzin].sort((a, b) => a.tanggal.localeCompare(b.tanggal))[0]
   const tindakan = [
-    fotoMenunggu > 0 && { kunci: 'foto', ikon: <Camera className="w-4 h-4 text-orange-600" />, jumlah: fotoMenunggu, judul: 'Foto presensi menunggu validasi', ket: 'Periksa kecocokan wajah penghuni', aksi: 'Validasi', onClick: onLihatFoto },
+    fotoMenunggu > 0 && { kunci: 'foto', ikon: <Camera className="w-4 h-4 text-amber-600" />, jumlah: fotoMenunggu, judul: 'Foto presensi menunggu validasi', ket: 'Periksa kecocokan wajah penghuni', aksi: 'Validasi', onClick: onLihatFoto },
     pendingIzin.length > 0 && { kunci: 'izin', ikon: <FileCheck className="w-4 h-4 text-amber-700" />, jumlah: pendingIzin.length, judul: 'Izin menunggu keputusan', ket: `Terdekat: ${izinTerdekat.namaPenghuni}, ${formatRentangTanggal(izinTerdekat.tanggal, izinTerdekat.tanggalSelesai)}`, aksi: 'Tinjau', onClick: onLihatIzin },
-    sering.length > 0 && { kunci: 'alpa', ikon: <AlertCircle className="w-4 h-4 text-red-600" />, jumlah: sering.length, judul: 'Penghuni sering tidak hadir', ket: `≥ ${batasTidakHadir} sesi dalam 30 hari terakhir`, aksi: 'Lihat', onClick: onLihatRekap },
+    sering.length > 0 && { kunci: 'alpa', ikon: <AlertCircle className="w-4 h-4 text-rose-600" />, jumlah: sering.length, judul: 'Penghuni sering tidak hadir', ket: `≥ ${batasTidakHadir} sesi dalam 30 hari terakhir`, aksi: 'Lihat', onClick: onLihatRekap },
   ].filter(Boolean) as { kunci: string; ikon: React.ReactNode; jumlah: number; judul: string; ket: string; aksi: string; onClick: () => void }[]
 
   const kartuCls = 'bg-white rounded-2xl border border-gray-200 shadow-2xs'
@@ -744,7 +655,7 @@ function FasilDashboard({
   return (
     <div className="space-y-5">
       {/* Header: sapaan, gedung, dan ringkasan singkat */}
-      <div className="rounded-2xl bg-gradient-to-br from-emerald-800 to-emerald-950 text-white p-5 sm:p-6 shadow-md">
+      <div className="rounded-2xl bg-gradient-to-br from-[#0f3e2d] via-[#17603d] to-[#27a150] text-white p-5 sm:p-6 shadow-md">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div>
             <p className="text-xs font-semibold text-emerald-200">{formatTanggal(today)}</p>
@@ -756,7 +667,7 @@ function FasilDashboard({
               Penanggung jawab {gedung.nama}
             </p>
             {liburHariIni && (
-              <span className="inline-flex items-center gap-1.5 mt-3 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-100 text-sky-900">
+              <span className="inline-flex items-center gap-1.5 mt-3 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-900">
                 <Palmtree className="w-3.5 h-3.5" /> Hari ini libur: {liburHariIni.keterangan}
               </span>
             )}
@@ -970,52 +881,76 @@ function FasilMonitor({ sesiList, rekapRows, today, onKoreksi, awal }: {
   const filtered = filterStatus ? dicari.filter(r => r.detail.status === filterStatus) : dicari
   const jumlah = (s: PresensiStatus) => dicari.filter(r => r.detail.status === s).length
 
+  // Ubin status = ringkasan angka sekaligus penyaring (menggantikan kartu angka + chip filter)
+  const ubin: { status: PresensiStatus | ''; label: string; ikon: ReactNode; warna: string; aktifCls: string }[] = [
+    { status: '', label: 'Semua', ikon: <Users className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-800 ring-2 ring-gray-800/10' },
+    { status: 'Hadir', label: 'Hadir', ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700', aktifCls: 'border-emerald-500 ring-2 ring-emerald-500/20' },
+    { status: 'Belum', label: 'Belum absen', ikon: <Clock className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-500 ring-2 ring-gray-500/15' },
+    { status: 'Tidak Hadir', label: 'Tidak hadir', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600', aktifCls: 'border-rose-400 ring-2 ring-rose-400/20' },
+    { status: 'Izin', label: 'Izin', ikon: <FileCheck className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700', aktifCls: 'border-amber-400 ring-2 ring-amber-400/20' },
+    { status: 'Libur', label: 'Libur', ikon: <Palmtree className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-600', aktifCls: 'border-slate-400 ring-2 ring-slate-400/20' },
+  ]
+  const ubinAktif = ubin.find(u => u.status === filterStatus)
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
-        <div className="flex flex-wrap gap-3 items-center">
+    <div className="space-y-5">
+      {/* Filter dalam satu kartu */}
+      <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs px-5 py-4 flex flex-col xl:flex-row xl:items-center gap-3">
+        <div className="xl:mr-auto">
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pantauan Presensi</h3>
+          <p className="text-xs text-gray-500">{formatTanggal(tanggal)} · Sesi {sesi || '–'}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <DateInput
             max={today}
-            className="px-3.5 py-2.5 rounded-xl border border-gray-200 hover:border-gray-300 bg-white text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all font-medium text-gray-700"
+            className="px-3.5 py-2.5 rounded-xl border border-gray-200 hover:border-gray-300 bg-[#fff] text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all font-medium text-gray-700"
             value={tanggal}
             onChange={e => setTanggal(e.target.value)}
           />
           <SesiToggle sesiList={sesiList} value={sesi} onChange={setSesi} />
-        </div>
-        <div className="relative flex-1 lg:max-w-sm lg:ml-auto">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="search"
-            value={cari}
-            onChange={e => setCari(e.target.value)}
-            placeholder="Cari nama, NIM, atau kamar..."
-            aria-label="Cari penghuni"
-            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400"
-          />
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="search"
+              value={cari}
+              onChange={e => setCari(e.target.value)}
+              placeholder="Cari nama, NIM, atau kamar..."
+              aria-label="Cari penghuni"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400"
+            />
+          </div>
         </div>
       </div>
 
-      <RekapStats rows={rows} />
+      {/* Ubin status */}
+      <div className="grid grid-cols-3 lg:grid-cols-6 gap-3" role="tablist" aria-label="Saring status presensi">
+        {ubin.map(u => {
+          const aktif = filterStatus === u.status
+          return (
+            <button
+              key={u.status || 'semua'}
+              type="button"
+              role="tab"
+              aria-selected={aktif}
+              onClick={() => setFilterStatus(u.status)}
+              className={`text-left bg-[#fff] rounded-2xl border p-3.5 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-gray-600 truncate">{u.label}</span>
+                <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+              </div>
+              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{u.status ? jumlah(u.status) : dicari.length}</p>
+            </button>
+          )
+        })}
+      </div>
 
-      <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100/80 shadow-xs">
-        <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Saring status presensi">
-          {(['', ...STATUS_MONITOR] as const).map(st => {
-            const aktif = filterStatus === st
-            return (
-              <button
-                key={st || 'semua'}
-                type="button"
-                role="tab"
-                aria-selected={aktif}
-                onClick={() => setFilterStatus(st)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${aktif ? 'bg-[#0e4b29] text-white border-[#0e4b29]' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
-                style={{ fontFamily: 'Plus Jakarta Sans' }}
-              >
-                {st || 'Semua'}
-                <span className={`ml-1.5 ${aktif ? 'text-emerald-100' : 'text-gray-400'}`}>{st ? jumlah(st) : dicari.length}</span>
-              </button>
-            )
-          })}
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            {filterStatus ? ubinAktif?.label : 'Semua Penghuni'} <span className="text-gray-400 font-semibold">· {filtered.length} penghuni</span>
+          </h3>
+          <p className="text-xs text-gray-500">Yang perlu perhatian (tidak hadir, belum absen) tampil lebih dulu</p>
         </div>
         <RekapTableBerhalaman
           rows={filtered}
@@ -1035,24 +970,54 @@ function FasilIzin({ izinData, onSelect }: { izinData: IzinRecord[]; onSelect: (
   const daftar = [...saring.hasil].sort((a, b) => saring.status === 'Pending'
     ? a.tanggal.localeCompare(b.tanggal) || a.id - b.id
     : b.tanggal.localeCompare(a.tanggal) || b.id - a.id)
-  const hitung = (s: IzinRecord['statusPersetujuan']) => izinData.filter(i => i.statusPersetujuan === s).length
   const chipCls = 'inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border'
 
+  // Ubin status = ringkasan angka sekaligus tab penyaring
+  const ubin: { status: StatusSaring; label: string; ket: string; ikon: ReactNode; warna: string; aktifCls: string }[] = [
+    { status: 'Pending', label: 'Menunggu', ket: 'Perlu keputusan', ikon: <Clock className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700', aktifCls: 'border-amber-400 ring-2 ring-amber-400/20' },
+    { status: 'Disetujui', label: 'Disetujui', ket: 'Izin diterima', ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700', aktifCls: 'border-emerald-500 ring-2 ring-emerald-500/20' },
+    { status: 'Ditolak', label: 'Ditolak', ket: 'Izin tidak diterima', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600', aktifCls: 'border-rose-400 ring-2 ring-rose-400/20' },
+    { status: 'Semua', label: 'Semua', ket: 'Seluruh pengajuan', ikon: <FileCheck className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-800 ring-2 ring-gray-800/10' },
+  ]
+
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard icon={<Clock className="w-5 h-5 text-orange-600" />} label="Menunggu" value={hitung('Pending')} sub="Perlu keputusan" color="#c2410c" />
-        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-blue-700" />} label="Disetujui" value={hitung('Disetujui')} color="#1d4ed8" />
-        <StatCard icon={<XCircle className="w-5 h-5 text-red-600" />} label="Ditolak" value={hitung('Ditolak')} color="#dc2626" />
+    <div className="space-y-5">
+      {/* Ubin status */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="tablist" aria-label="Saring status izin">
+        {ubin.map(u => {
+          const aktif = saring.status === u.status
+          return (
+            <button
+              key={u.status}
+              type="button"
+              role="tab"
+              aria-selected={aktif}
+              onClick={() => saring.setStatus(u.status)}
+              className={`text-left bg-[#fff] rounded-2xl border p-4 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-gray-600">{u.label}</span>
+                <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+              </div>
+              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{saring.jumlah[u.status]}</p>
+              <p className="text-[11px] text-gray-400">{u.ket}</p>
+            </button>
+          )
+        })}
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-        <div className="px-5 pt-4 pb-4 border-b border-gray-100">
-          <SectionTitle subtitle="Pengajuan izin penghuni gedung Anda. Izin yang menunggu diurutkan dari tanggal terdekat.">Daftar Pengajuan Izin</SectionTitle>
-          <BarisSaringIzin saring={saring} />
+      <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              {saring.status === 'Semua' ? 'Semua Pengajuan' : `Izin ${ubin.find(u => u.status === saring.status)?.label}`}
+            </h3>
+            <p className="text-xs text-gray-500">{saring.status === 'Pending' ? 'Diurutkan dari tanggal izin terdekat' : 'Diurutkan dari yang terbaru'}</p>
+          </div>
+          <BarisSaringIzin saring={saring} tanpaStatus />
         </div>
 
-        <div className="p-4 space-y-2">
+        <div className="p-4 space-y-3">
           {daftar.length === 0 && <KosongSaringIzin saring={saring} teksKosong="Belum ada pengajuan izin dari penghuni gedung ini" />}
 
           {daftar.map(i => {
@@ -1062,54 +1027,56 @@ function FasilIzin({ izinData, onSelect }: { izinData: IzinRecord[]; onSelect: (
             const segera = pending && i.tanggal <= addDays(today, 1)
             const rutin = teksHariBerulang(i.hariBerulang)
             return (
-              <div key={i.id} className="flex gap-3 p-3 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors">
+              <div
+                key={i.id}
+                className={`flex gap-4 p-4 rounded-xl border bg-[#fff] hover:shadow-sm transition-shadow ${pending ? 'border-gray-200 border-l-4 border-l-amber-400' : 'border-gray-200'}`}
+              >
                 <KotakTanggalIzin izin={i} />
 
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{i.namaPenghuni}</p>
-                      <p className="text-[11px] text-gray-500"><span className="mono">{i.nim}</span> · Kamar {i.nomorKamar || '–'}</p>
-                    </div>
-                    <div className="flex flex-wrap justify-end items-center gap-1.5 shrink-0">
-                      {segera && <span className={`${chipCls} bg-rose-50 border-rose-200 text-rose-700`}>Segera</span>}
-                      {i.idIzinSebelumnya != null && <span className={`${chipCls} bg-amber-50 border-amber-300 text-amber-800`}>Pengajuan ulang</span>}
-                      <span className={`${chipCls} ${tampil.pill}`} style={{ fontFamily: 'Plus Jakarta Sans' }}>{tampil.label}</span>
-                    </div>
+                <div className="min-w-0 flex-1 flex flex-col">
+                  {/* Nama + badge (badge turun ke baris berikutnya bila sempit, nama tidak terpotong) */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <p className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{i.namaPenghuni}</p>
+                    <span className={`${chipCls} ${tampil.pill}`} style={{ fontFamily: 'Plus Jakarta Sans' }}>{tampil.label}</span>
+                    {segera && <span className={`${chipCls} bg-rose-50 border-rose-200 text-rose-700`}>Segera</span>}
+                    {i.idIzinSebelumnya != null && <span className={`${chipCls} bg-amber-50 border-amber-300 text-amber-800`}>Pengajuan ulang</span>}
                   </div>
+                  <p className="text-[11px] text-gray-500 mt-0.5"><span className="mono">{i.nim}</span> · Kamar {i.nomorKamar || '–'}</p>
 
-                  <p className="text-xs text-gray-500 mt-1.5">
+                  <p className="text-xs text-gray-500 mt-2">
                     <span className="font-semibold text-gray-800">{formatRentangTanggal(i.tanggal, i.tanggalSelesai)}</span>
                     {' · '}{i.sesi ? `Sesi ${i.sesi}` : 'Seharian'}
                     {rutin && <> · {rutin}</>}
                   </p>
                   <p className="text-sm text-gray-800 leading-snug mt-1 break-words">{i.alasan}</p>
                   {i.catatanSebelumnya && (
-                    <p className="text-xs mt-1 text-amber-800 break-words"><span className="font-semibold">Ditolak sebelumnya karena:</span> {i.catatanSebelumnya}</p>
+                    <p className="text-xs mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-900 break-words"><span className="font-semibold">Ditolak sebelumnya:</span> {i.catatanSebelumnya}</p>
                   )}
                   {i.catatanApprover && (
-                    <p className={`text-xs mt-1 break-words ${i.statusPersetujuan === 'Ditolak' ? 'text-red-700' : 'text-blue-800'}`}>
+                    <p className={`text-xs mt-1.5 px-2.5 py-1.5 rounded-lg break-words ${i.statusPersetujuan === 'Ditolak' ? 'bg-rose-50 text-rose-800' : 'bg-gray-50 text-gray-700'}`}>
                       <span className="font-semibold">Catatan keputusan:</span> {i.catatanApprover}
                     </p>
                   )}
 
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5 text-[11px] text-gray-500">
-                    {i.fileBukti
-                      ? <BuktiIzin fileBukti={i.fileBukti} className="inline-flex items-center gap-1 font-semibold text-blue-700" />
-                      : <span className="text-gray-400">Tanpa berkas bukti</span>}
-                    {!pending && (
-                      <span className="inline-flex items-center gap-1">
-                        <User className="w-3 h-3 shrink-0" />
-                        {tampil.label} oleh {i.namaApprover || 'fasilitator'}{i.tanggalApproval ? ` · ${formatTanggal(i.tanggalApproval, 'tanpaHari')}` : ''}
-                      </span>
-                    )}
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-[11px] text-gray-500">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+                      {i.fileBukti
+                        ? <BuktiIzin fileBukti={i.fileBukti} className="inline-flex items-center gap-1 font-semibold text-slate-700" />
+                        : <span className="text-gray-400">Tanpa berkas bukti</span>}
+                      {!pending && (
+                        <span className="inline-flex items-center gap-1">
+                          <User className="w-3 h-3 shrink-0" />
+                          {tampil.label} oleh {i.namaApprover || 'fasilitator'}{i.tanggalApproval ? ` · ${formatTanggal(i.tanggalApproval, 'tanpaHari')}` : ''}
+                        </span>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={() => onSelect(i)}
-                      className={`ml-auto px-3 py-1.5 rounded-md text-xs font-bold cursor-pointer transition-colors ${pending ? 'text-white bg-[#0e4b29] hover:bg-[#0b3c20]' : 'text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-50'}`}
+                      className={`sm:ml-auto w-full sm:w-auto px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-colors ${pending ? 'text-white bg-[#141a17] hover:bg-[#2a332e]' : 'text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-50'}`}
                       style={{ fontFamily: 'Plus Jakarta Sans' }}
                     >
-                      {pending ? 'Tinjau & Putuskan' : 'Detail'}
+                      {pending ? 'Tinjau & Putuskan' : 'Lihat Detail'}
                     </button>
                   </div>
                 </div>
@@ -1153,64 +1120,94 @@ function FasilValidasiFoto({ records, onValidasi, onTerimaMassal }: {
     if (hasil.ok) setPilih(new Set())
   }
 
+  // Ubin status = ringkasan angka sekaligus tab penyaring
+  const ubin: { status: StatusFoto; ket: string; ikon: ReactNode; warna: string; aktifCls: string }[] = [
+    { status: 'Menunggu', ket: 'Perlu diperiksa', ikon: <Clock className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700', aktifCls: 'border-amber-400 ring-2 ring-amber-400/20' },
+    { status: 'Diterima', ket: 'Wajah sesuai', ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700', aktifCls: 'border-emerald-500 ring-2 ring-emerald-500/20' },
+    { status: 'Ditolak', ket: 'Tercatat Tidak Hadir', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600', aktifCls: 'border-rose-400 ring-2 ring-rose-400/20' },
+  ]
+  const kosong = filter === 'Menunggu'
+    ? { judul: 'Semua foto sudah divalidasi', ket: 'Foto presensi mandiri penghuni yang baru masuk akan muncul di sini.' }
+    : filter === 'Diterima'
+      ? { judul: 'Belum ada foto yang diterima', ket: 'Foto yang Anda terima tampil di sini sebagai arsip.' }
+      : { judul: 'Belum ada foto yang ditolak', ket: 'Foto yang ditolak membuat presensi tercatat Tidak Hadir.' }
+
   return (
-    <div className="space-y-4">
-      <div className="p-4 rounded-2xl bg-white border border-emerald-100/80 shadow-xs">
-        <SectionTitle subtitle="Periksa apakah foto wajah benar penghuni yang bersangkutan. Foto yang ditolak membuat presensi tercatat Tidak Hadir.">
-          Validasi Foto Presensi
-        </SectionTitle>
-      </div>
-      <div className="flex gap-2 flex-wrap">
-        {daftarFilter.map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-              filter === f ? 'bg-emerald-800 text-white shadow-xs' : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-500'
-            }`}
-            style={{ fontFamily: 'Plus Jakarta Sans' }}
-          >
-            {f} ({records.filter(r => r.statusFoto === f).length})
-          </button>
-        ))}
+    <div className="space-y-5">
+      {/* Ubin status */}
+      <div className="grid grid-cols-3 gap-3" role="tablist" aria-label="Saring status foto">
+        {ubin.map(u => {
+          const aktif = filter === u.status
+          return (
+            <button
+              key={u.status}
+              type="button"
+              role="tab"
+              aria-selected={aktif}
+              onClick={() => setFilter(u.status)}
+              className={`text-left bg-[#fff] rounded-2xl border p-4 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-gray-600">{u.status}</span>
+                <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+              </div>
+              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{records.filter(r => r.statusFoto === u.status).length}</p>
+              <p className="text-[11px] text-gray-400 truncate">{u.ket}</p>
+            </button>
+          )
+        })}
       </div>
 
-      {filter === 'Menunggu' && menunggu.length > 0 && (
-        <div className="sticky top-2 z-10 flex flex-wrap items-center gap-3 px-4 py-3 rounded-2xl bg-white/95 backdrop-blur border border-emerald-100 shadow-xs">
-          <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="w-4 h-4 accent-emerald-700 cursor-pointer"
-              checked={semuaTerpilih}
-              onChange={() => setPilih(semuaTerpilih ? new Set() : new Set(menunggu.map(r => r.id)))}
-            />
-            Pilih semua ({menunggu.length})
-          </label>
-          <span className="text-xs text-gray-500">{terpilih.length} dipilih</span>
-          <button
-            onClick={terimaTerpilih}
-            disabled={terpilih.length === 0 || prosesMassal}
-            className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Check className="w-3.5 h-3.5" />
-            {prosesMassal ? 'Menyimpan…' : `Terima ${terpilih.length || ''} foto terpilih`}
-          </button>
-          <p className="basis-full text-[11px] text-gray-400">Foto yang bermasalah tolak satu per satu karena wajib disertai catatan.</p>
+      <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Foto {filter}</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Pastikan wajah di foto benar penghuni yang bersangkutan. Foto yang ditolak membuat presensi tercatat Tidak Hadir.</p>
+          </div>
         </div>
-      )}
-      {pesanMassal && <p className={`text-xs font-semibold ${pesanMassal.ok ? 'text-emerald-700' : 'text-red-700'}`}>{pesanMassal.teks}</p>}
 
-      {filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl p-10 text-center border border-emerald-100/80">
-          <p className="text-sm text-gray-400 font-medium">
-            {filter === 'Menunggu' ? 'Semua foto presensi sudah divalidasi' : 'Tidak ada foto dalam kategori ini'}
-          </p>
+        {/* Terima sekaligus */}
+        {filter === 'Menunggu' && menunggu.length > 0 && (
+          <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/60 flex flex-wrap items-center gap-3">
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="w-4 h-4 accent-emerald-700 cursor-pointer"
+                checked={semuaTerpilih}
+                onChange={() => setPilih(semuaTerpilih ? new Set() : new Set(menunggu.map(r => r.id)))}
+              />
+              Pilih semua ({menunggu.length})
+            </label>
+            <span className="text-xs text-gray-500">{terpilih.length} dipilih</span>
+            <span className="hidden md:inline text-[11px] text-gray-400">· Foto bermasalah ditolak satu per satu karena wajib disertai catatan</span>
+            <button
+              onClick={terimaTerpilih}
+              disabled={terpilih.length === 0 || prosesMassal}
+              className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Check className="w-3.5 h-3.5" />
+              {prosesMassal ? 'Menyimpan…' : `Terima ${terpilih.length || ''} foto terpilih`}
+            </button>
+          </div>
+        )}
+        {pesanMassal && <p className={`px-5 pt-3 text-xs font-semibold ${pesanMassal.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{pesanMassal.teks}</p>}
+
+        <div className="p-5">
+          {filtered.length === 0 ? (
+            <div className="py-12 flex flex-col items-center text-center">
+              <span className={`w-14 h-14 rounded-2xl flex items-center justify-center ${filter === 'Menunggu' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+                {filter === 'Menunggu' ? <CheckCircle2 className="w-7 h-7" /> : <Camera className="w-7 h-7" />}
+              </span>
+              <p className="mt-3 text-sm font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>{kosong.judul}</p>
+              <p className="mt-1 text-xs text-gray-500 max-w-sm">{kosong.ket}</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {filtered.map(r => <KartuValidasiFoto key={r.id} rec={r} onValidasi={onValidasi} dipilih={pilih.has(r.id)} onPilih={() => togglePilih(r.id)} />)}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map(r => <KartuValidasiFoto key={r.id} rec={r} onValidasi={onValidasi} dipilih={pilih.has(r.id)} onPilih={() => togglePilih(r.id)} />)}
-        </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -1238,7 +1235,7 @@ function KartuValidasiFoto({ rec, onValidasi, dipilih, onPilih }: {
   }
 
   return (
-    <div className={`bg-white rounded-2xl overflow-hidden border shadow-xs flex flex-col ${dipilih ? 'border-emerald-500 ring-2 ring-emerald-500/30' : 'border-emerald-100/80'}`}>
+    <div className={`bg-[#fff] rounded-2xl overflow-hidden border shadow-xs hover:shadow-md transition-shadow flex flex-col ${dipilih ? 'border-emerald-500 ring-2 ring-emerald-500/30' : 'border-gray-200'}`}>
       <div className="relative">
         <FotoWajah foto={rec.fotoWajah} alt={`Foto ${rec.namaPenghuni}`} className="w-full aspect-[4/3]" />
         {menunggu && (
@@ -1257,7 +1254,7 @@ function KartuValidasiFoto({ rec, onValidasi, dipilih, onPilih }: {
           <p className="mono text-xs text-gray-500">{rec.nim} · Kamar {rec.nomorKamar}</p>
           <p className="text-xs text-gray-600 mt-1 font-medium">{formatTanggal(rec.tanggal)} · Sesi {rec.sesi} · {rec.waktu} WIB</p>
           {rec.latitude !== null && rec.longitude !== null && (
-            <a href={`https://www.google.com/maps?q=${rec.latitude},${rec.longitude}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mt-1 text-xs text-blue-700 hover:underline">
+            <a href={`https://www.google.com/maps?q=${rec.latitude},${rec.longitude}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mt-1 text-xs text-slate-700 hover:underline">
               <MapPin className="w-3 h-3" />
               <span className="mono">{Number(rec.latitude).toFixed(5)}, {Number(rec.longitude).toFixed(5)}</span>
               {rec.akurasiMeter != null && <span className="text-gray-500">· ±{Math.round(rec.akurasiMeter)} m</span>}
@@ -1274,7 +1271,7 @@ function KartuValidasiFoto({ rec, onValidasi, dipilih, onPilih }: {
               value={catatan}
               onChange={e => { setCatatan(e.target.value); setError('') }}
             />
-            {error && <p className="text-xs text-red-700 font-semibold">{error}</p>}
+            {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
             <div className="flex gap-2">
               <button
                 disabled={proses}
@@ -1287,7 +1284,7 @@ function KartuValidasiFoto({ rec, onValidasi, dipilih, onPilih }: {
               <button
                 disabled={proses}
                 onClick={() => putuskan('Diterima')}
-                className="flex-1 py-2 rounded-xl font-bold text-xs text-white bg-emerald-700 hover:bg-emerald-800 flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                className="flex-1 py-2 rounded-xl font-bold text-xs text-white bg-[#141a17] hover:bg-[#2a332e] flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>Terima</span>
@@ -1391,10 +1388,10 @@ function FasilRekap({ fasil, anggota, sesiList, data, now, batas: BATAS_ALPA, na
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<BarChart3 className="w-5 h-5 text-emerald-700" />} label="Kehadiran Gedung" value={`${persenGedung}%`} sub={`${total.hadir} dari ${total.wajib} sesi wajib`} color="#0e4b29" />
+        <StatCard icon={<BarChart3 className="w-5 h-5 text-emerald-700" />} label="Kehadiran Gedung" value={`${persenGedung}%`} sub={`${total.hadir} dari ${total.wajib} sesi wajib`} color="#141a17" />
         <StatCard icon={<XCircle className="w-5 h-5 text-rose-600" />} label="Total Tidak Hadir" value={total.alpa} sub="sesi" color="#be123c" />
         <StatCard icon={<FileCheck className="w-5 h-5 text-amber-700" />} label="Total Izin" value={total.izin} sub="sesi" color="#b45309" />
-        <StatCard icon={<AlertCircle className="w-5 h-5 text-red-600" />} label="Perlu Ditegur" value={jumlahDitegur} sub={`≥ ${BATAS_ALPA} sesi tidak hadir`} color="#dc2626" />
+        <StatCard icon={<AlertCircle className="w-5 h-5 text-rose-600" />} label="Perlu Ditegur" value={jumlahDitegur} sub={`≥ ${BATAS_ALPA} sesi tidak hadir`} color="#e11d48" />
       </div>
 
       <div className="grid lg:grid-cols-5 gap-5">
@@ -1453,7 +1450,7 @@ function FasilRekap({ fasil, anggota, sesiList, data, now, batas: BATAS_ALPA, na
           </div>
 
           <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none">
-            <input type="checkbox" className="accent-red-600 w-4 h-4" checked={hanyaDitegur} onChange={e => setHanyaDitegur(e.target.checked)} />
+            <input type="checkbox" className="accent-rose-600 w-4 h-4" checked={hanyaDitegur} onChange={e => setHanyaDitegur(e.target.checked)} />
             Hanya yang perlu ditegur ({jumlahDitegur})
           </label>
         </div>
@@ -1480,7 +1477,7 @@ function FasilRekap({ fasil, anggota, sesiList, data, now, batas: BATAS_ALPA, na
                 const izin = riwayat.filter(r => r.detail.status === 'Izin')
                 return (
                   <Fragment key={p.nim}>
-                    <tr className={`${ditegur ? 'bg-red-50/50' : ''} hover:bg-gray-50 cursor-pointer`} onClick={() => setDibuka(terbuka ? null : p.nim)}>
+                    <tr className={`${ditegur ? 'bg-rose-50/50' : ''} hover:bg-gray-50 cursor-pointer`} onClick={() => setDibuka(terbuka ? null : p.nim)}>
                       <td className="px-5 py-3">
                         <button type="button" aria-expanded={terbuka} className="text-left cursor-pointer">
                           <p className="font-bold text-gray-900 flex items-center gap-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
@@ -1503,7 +1500,7 @@ function FasilRekap({ fasil, anggota, sesiList, data, now, batas: BATAS_ALPA, na
                         </div>
                       </td>
                       <td className="px-5 py-3 text-xs">
-                        {ditegur ? <span className="font-bold text-red-700">Perlu ditegur</span> : <span className="text-gray-400">–</span>}
+                        {ditegur ? <span className="font-bold text-rose-700">Perlu ditegur</span> : <span className="text-gray-400">–</span>}
                       </td>
                     </tr>
                     {terbuka && (
@@ -1588,13 +1585,13 @@ function IzinModal({ izin, izinLain, onClose, onDecide }: {
     <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
       {/* bg-[#fff], bukan bg-white: tema kaca (index.css) membuat .bg-white di modal tembus pandang dan tampak kusam */}
       <div className="bg-[#fff] rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-emerald-100 max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-5">
+        <div className="modal-header flex items-center justify-between gap-3 -mx-6 -mt-6 px-6 py-4 border-b border-gray-100 mb-5">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center">
               <FileCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-base text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>Detail Pengajuan Izin</h3>
+              <h3 className="font-extrabold text-base text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Detail Pengajuan Izin</h3>
               <p className="text-xs text-gray-400">Verifikasi berkas dan alasan ketidakhadiran</p>
             </div>
           </div>
@@ -1625,7 +1622,7 @@ function IzinModal({ izin, izinLain, onClose, onDecide }: {
               <span className="text-xs text-right text-gray-700">
                 {izinLain.length === 0
                   ? 'Belum pernah mengajukan'
-                  : <><strong className="text-blue-700">{riwayat.Disetujui}</strong> disetujui · <strong className="text-red-700">{riwayat.Ditolak}</strong> ditolak · <strong className="text-orange-700">{riwayat.Pending}</strong> menunggu</>}
+                  : <><strong className="text-emerald-700">{riwayat.Disetujui}</strong> disetujui · <strong className="text-rose-700">{riwayat.Ditolak}</strong> ditolak · <strong className="text-amber-700">{riwayat.Pending}</strong> menunggu</>}
               </span>
             </div>
           </div>
@@ -1645,7 +1642,7 @@ function IzinModal({ izin, izinLain, onClose, onDecide }: {
           </div>
 
           {izin.fileBukti && (
-            <BuktiIzin fileBukti={izin.fileBukti} className="w-full flex items-center gap-2 p-2.5 rounded-xl bg-blue-50 border border-blue-100 text-blue-700 text-xs font-semibold text-left" />
+            <BuktiIzin fileBukti={izin.fileBukti} className="w-full flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-slate-700 text-xs font-semibold text-left" />
           )}
 
           {!pending && izin.catatanApprover && (
@@ -1683,7 +1680,7 @@ function IzinModal({ izin, izinLain, onClose, onDecide }: {
                 ))}
               </div>
               {error && (
-                <p role="alert" className="text-xs text-red-700 font-semibold mt-2 p-2.5 rounded-lg bg-red-50 border border-red-100">{error}</p>
+                <p role="alert" className="text-xs text-rose-700 font-semibold mt-2 p-2.5 rounded-lg bg-rose-50 border border-rose-100">{error}</p>
               )}
             </div>
             <div className="flex gap-3">
@@ -1740,13 +1737,13 @@ function KoreksiModal({ target, onClose, onSave }: {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border border-emerald-100">
-        <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-5">
+        <div className="modal-header flex items-center justify-between gap-3 -mx-6 -mt-6 px-6 py-4 border-b border-gray-100 mb-5">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center">
               <Pencil className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-base text-emerald-950" style={{ fontFamily: 'Plus Jakarta Sans' }}>Koreksi Presensi</h3>
+              <h3 className="font-extrabold text-base text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Koreksi Presensi</h3>
               <p className="text-xs text-gray-400">{target.row.penghuni.nama} · {formatTanggal(target.tanggal)} · Sesi {target.sesi}</p>
             </div>
           </div>
@@ -1785,7 +1782,7 @@ function KoreksiModal({ target, onClose, onSave }: {
               value={keterangan}
               onChange={e => { setKeterangan(e.target.value); setError('') }}
             />
-            {error && <p className="text-xs text-red-700 font-semibold mt-1">{error}</p>}
+            {error && <p className="text-xs text-rose-700 font-semibold mt-1">{error}</p>}
           </div>
           <div className="flex gap-3">
             <button className="flex-1 py-2.5 rounded-xl font-bold text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer" onClick={onClose}>Batal</button>
@@ -1840,99 +1837,53 @@ function FasilProfil({
   const kamarTerisi = new Set(aktif.map(p => p.nomorKamar).filter(Boolean)).size
   const adaLokasi = gedung?.latitude != null && gedung?.longitude != null
 
-  const kolom = 'w-full px-3 py-2 rounded-lg border border-gray-300 text-xs text-gray-800 outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 transition-colors placeholder:text-gray-400'
-  const judulKartu = (ikon: ReactNode, judul: string, kanan?: ReactNode) => (
-    <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/70 flex items-center gap-2.5">
-      <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800">{ikon}</div>
-      <h4 className="flex-1 text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{judul}</h4>
-      {kanan}
-    </div>
-  )
+  const kolom = 'w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15 transition-colors placeholder:text-gray-400'
+  const label = 'block text-xs font-semibold text-gray-700 mb-1.5'
 
   return (
-    <div className="grid lg:grid-cols-12 gap-5 w-full items-start">
-      {/* Kolom kiri: kartu identitas */}
-      <div className="lg:col-span-4 space-y-4">
-        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-          <div className="bg-gradient-to-br from-[#0e4b29] via-[#125832] to-[#176d3e] p-6 text-white text-center relative">
-            <div className="absolute top-3 right-3 opacity-20">
-              <ShieldCheck className="w-16 h-16 text-white" />
-            </div>
-            <div className="mb-3">
-              <AvatarProfil user={user} onPesan={setPesanFoto} />
-            </div>
-            <h3 className="font-bold text-base text-white truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{user.nama}</h3>
-            <p className="mono text-xs text-emerald-100/90 mt-0.5 tracking-wide">{user.nim}</p>
-            <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-xs font-semibold text-emerald-50">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span>Fasilitator Asrama</span>
-            </div>
-          </div>
+    <div className="space-y-5 w-full">
+      {/* Baris 1: identitas selebar halaman, angka yang perlu ditindak bisa diklik */}
+      <ProfilHeader
+        user={user}
+        peran="Fasilitator Asrama"
+        keterangan={gedung ? `PJ ${gedung.nama}` : 'Belum ditetapkan sebagai PJ gedung'}
+        onPesan={setPesanFoto}
+        stats={[
+          { label: 'Penghuni dibina', nilai: `${aktif.length} orang` },
+          { label: 'Izin menunggu', nilai: izinMenunggu, sorot: izinMenunggu > 0, onClick: gedung ? () => onBuka('izin') : undefined },
+          { label: 'Foto menunggu', nilai: fotoMenunggu, sorot: fotoMenunggu > 0, onClick: gedung ? () => onBuka('foto') : undefined },
+        ]}
+      />
+      {pesanFoto && <p className="-mt-2 text-xs font-semibold text-emerald-700">{pesanFoto}</p>}
 
-          <div className="p-4 space-y-2 bg-gray-50/50">
-            <div className="grid grid-cols-2 gap-2 text-center">
-              <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">PJ Gedung</p>
-                <p className="text-xs font-bold text-emerald-950 mt-0.5 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{gedung?.nama || '-'}</p>
-              </div>
-              <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Penghuni Dibina</p>
-                <p className="text-xs font-bold text-emerald-950 mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>{aktif.length} orang</p>
-              </div>
-            </div>
-            {pesanFoto && <p className="text-center text-[11px] font-semibold text-emerald-700">{pesanFoto}</p>}
-          </div>
-        </div>
-
-        {/* Pekerjaan yang menunggu */}
-        <div className="bg-white rounded-2xl p-4 border border-gray-200/90 shadow-2xs">
-          <h5 className="font-bold text-xs text-gray-900 pb-2 mb-1 border-b border-gray-100" style={{ fontFamily: 'Plus Jakarta Sans' }}>Menunggu Tindakan Anda</h5>
-          {[
-            { tab: 'izin', ikon: <FileCheck className="w-4 h-4 text-amber-700" />, label: 'Izin menunggu keputusan', jumlah: izinMenunggu },
-            { tab: 'foto', ikon: <Camera className="w-4 h-4 text-orange-600" />, label: 'Foto presensi menunggu validasi', jumlah: fotoMenunggu },
-          ].map(t => (
-            <button
-              key={t.tab}
-              type="button"
-              onClick={() => onBuka(t.tab)}
-              disabled={!gedung}
-              className="w-full flex items-center gap-2.5 py-2.5 text-left text-xs rounded-lg hover:bg-gray-50 px-1.5 -mx-1.5 cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
-            >
-              {t.ikon}
-              <span className="flex-1 text-gray-600">{t.label}</span>
-              <span className={`min-w-6 text-center px-1.5 py-0.5 rounded-full text-[11px] font-bold ${t.jumlah > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-400'}`}>{t.jumlah}</span>
-              {gedung && <ChevronRight className="w-3.5 h-3.5 text-gray-300" />}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Kolom kanan */}
-      <div className="lg:col-span-8 space-y-4">
-        {/* Gedung tanggung jawab */}
-        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-          {judulKartu(<Building2 className="w-4 h-4" />, 'Gedung Tanggung Jawab', gedung && (
-            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${gedung.jenis === 'Putri' ? 'bg-purple-50 text-purple-800' : 'bg-emerald-50 text-emerald-800'}`}>
+      {/* Baris 2: gedung | rekam kerja (tinggi sama) */}
+      <div className="grid lg:grid-cols-2 gap-5 items-stretch">
+        <KartuProfil
+          ikon={<Building2 />}
+          judul="Gedung Tanggung Jawab"
+          sub={gedung ? gedung.nama : 'Belum ada gedung'}
+          kanan={gedung && (
+            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${gedung.jenis === 'Putri' ? 'bg-slate-50 text-slate-800' : 'bg-emerald-50 text-emerald-800'}`}>
               Asrama {gedung.jenis}
             </span>
-          ))}
+          )}
+        >
           {gedung ? (
-            <div className="p-5">
-              <p className="text-lg font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>{gedung.nama}</p>
-              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="p-5 flex-1 flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Penghuni aktif', nilai: aktif.length },
                   { label: 'Wajib absen', nilai: jumlahWajibAbsen },
                   { label: 'Kamar terisi', nilai: `${kamarTerisi}${gedung.totalKamar ? ` / ${gedung.totalKamar}` : ''}` },
                   { label: 'Radius presensi', nilai: `${gedung.radiusMeter} m` },
-                ].map(s => (
-                  <div key={s.label} className="p-3 rounded-xl bg-gray-50 border border-gray-100">
-                    <p className="text-[11px] text-gray-500">{s.label}</p>
-                    <p className="mt-0.5 text-base font-extrabold text-emerald-950 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.nilai}</p>
+                ].map(st => (
+                  <div key={st.label} className="p-3.5 rounded-xl bg-gray-50 border border-gray-100">
+                    <p className="text-[11px] text-gray-500">{st.label}</p>
+                    <p className="mt-0.5 text-xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{st.nilai}</p>
                   </div>
                 ))}
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+              <div className="mt-auto pt-4 border-t border-gray-100 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
                 <MapPin className="w-3.5 h-3.5 text-emerald-700" />
                 {adaLokasi ? (
                   <>
@@ -1941,7 +1892,7 @@ function FasilProfil({
                       href={`https://www.google.com/maps?q=${gedung.latitude},${gedung.longitude}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-semibold text-emerald-700 hover:text-emerald-900"
+                      className="ml-auto font-semibold text-emerald-700 hover:text-emerald-900"
                     >
                       Lihat di peta
                     </a>
@@ -1954,63 +1905,64 @@ function FasilProfil({
           ) : (
             <p className="p-5 text-xs text-gray-500">Anda belum ditetapkan sebagai penanggung jawab gedung. Hubungi admin.</p>
           )}
-        </div>
+        </KartuProfil>
 
-        {/* Rekam kerja */}
-        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-          {judulKartu(<ClipboardCheck className="w-4 h-4" />, 'Rekam Kerja')}
-          <div className="p-5 grid sm:grid-cols-3 gap-2.5">
+        <KartuProfil ikon={<ClipboardCheck />} judul="Rekam Kerja" sub="Tindakan yang tercatat atas nama Anda">
+          <div className="p-5 flex-1 flex flex-col gap-3">
             {[
-              { ikon: <FileCheck className="w-4 h-4 text-emerald-700" />, label: 'Izin diputuskan', nilai: izinDiputuskan.length, ket: `${disetujui} disetujui · ${izinDiputuskan.length - disetujui} ditolak` },
-              { ikon: <Camera className="w-4 h-4 text-emerald-700" />, label: 'Foto divalidasi', nilai: fotoDivalidasi, ket: 'Foto wajah presensi' },
-              { ikon: <Pencil className="w-4 h-4 text-emerald-700" />, label: 'Koreksi presensi', nilai: koreksi, ket: 'Status yang Anda ubah' },
-            ].map(s => (
-              <div key={s.label} className="p-3.5 rounded-xl border border-gray-100">
-                <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">{s.ikon}{s.label}</div>
-                <p className="mt-1.5 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.nilai}</p>
-                <p className="text-[11px] text-gray-400">{s.ket}</p>
+              { ikon: <FileCheck className="w-4 h-4" />, label: 'Izin diputuskan', nilai: izinDiputuskan.length, ket: `${disetujui} disetujui · ${izinDiputuskan.length - disetujui} ditolak` },
+              { ikon: <Camera className="w-4 h-4" />, label: 'Foto divalidasi', nilai: fotoDivalidasi, ket: 'Foto wajah presensi penghuni' },
+              { ikon: <Pencil className="w-4 h-4" />, label: 'Koreksi presensi', nilai: koreksi, ket: 'Status presensi yang Anda ubah' },
+            ].map(st => (
+              <div key={st.label} className="flex-1 flex items-center gap-3.5 p-3.5 rounded-xl bg-gray-50 border border-gray-100">
+                <div className="w-9 h-9 shrink-0 rounded-lg bg-white border border-gray-100 text-emerald-700 flex items-center justify-center">{st.ikon}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-700">{st.label}</p>
+                  <p className="text-[11px] text-gray-400 truncate">{st.ket}</p>
+                </div>
+                <p className="text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{st.nilai}</p>
               </div>
             ))}
           </div>
-        </div>
+        </KartuProfil>
+      </div>
 
-        {/* Kontak */}
-        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-          {judulKartu(<Mail className="w-4 h-4" />, 'Kontak')}
-          <div className="p-5 space-y-4">
-            <div className="grid sm:grid-cols-3 gap-3">
+      {/* Baris 3: kontak | keamanan (tinggi sama) */}
+      <div className="grid lg:grid-cols-2 gap-5 items-stretch">
+        <KartuProfil ikon={<Mail />} judul="Kontak" sub="Dipakai penghuni dan admin untuk menghubungi Anda">
+          <div className="p-5 flex-1 flex flex-col gap-4">
+            <div className="grid gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Nama Lengkap</label>
+                <label className={label}>Nama Lengkap</label>
                 <input value={user.nama} disabled className={`${kolom} bg-gray-50 text-gray-500 cursor-not-allowed`} title="Nama hanya dapat diubah oleh admin" />
               </div>
               <div>
-                <label htmlFor="fasil-email" className="block text-xs font-semibold text-gray-700 mb-1">Email</label>
+                <label htmlFor="fasil-email" className={label}>Email</label>
                 <input id="fasil-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="nama@email.com" className={kolom} />
               </div>
               <div>
-                <label htmlFor="fasil-hp" className="block text-xs font-semibold text-gray-700 mb-1">Nomor WhatsApp</label>
+                <label htmlFor="fasil-hp" className={label}>Nomor WhatsApp</label>
                 <input id="fasil-hp" type="tel" inputMode="tel" value={noHp} onChange={e => setNoHp(e.target.value)} placeholder="08xxxxxxxxxx" className={kolom} />
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-100">
-              <p className="text-[11px] text-gray-400">Nama hanya dapat diubah oleh admin.</p>
-              <div className="flex items-center gap-3">
-                {pesanKontak && <p className={`text-xs font-semibold ${pesanKontak.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{pesanKontak.teks}</p>}
-                <button
-                  type="button"
-                  onClick={simpanKontak}
-                  disabled={!kontakBerubah || simpan}
-                  className="py-2 px-5 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-default"
-                  style={{ fontFamily: 'Plus Jakarta Sans' }}
-                >
-                  {simpan ? 'Menyimpan…' : 'Simpan Kontak'}
-                </button>
-              </div>
+            <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-100">
+              {pesanKontak
+                ? <p className={`text-xs font-semibold ${pesanKontak.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{pesanKontak.teks}</p>
+                : <p className="text-[11px] text-gray-400">Nama hanya dapat diubah oleh admin.</p>}
+              <button
+                type="button"
+                onClick={simpanKontak}
+                disabled={!kontakBerubah || simpan}
+                className="py-2.5 px-5 rounded-xl font-bold text-xs text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                style={{ fontFamily: 'Plus Jakarta Sans' }}
+              >
+                {simpan ? 'Menyimpan…' : 'Simpan Kontak'}
+              </button>
             </div>
           </div>
-        </div>
+        </KartuProfil>
 
-        <KartuGantiPassword user={user} onLogout={onLogout} />
+        <KartuGantiPassword user={user} onLogout={onLogout} susun />
       </div>
     </div>
   )

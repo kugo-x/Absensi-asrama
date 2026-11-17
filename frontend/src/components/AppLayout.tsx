@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CurrentUser } from '../types'
 import NotifikasiBell, { type Notifikasi } from './Notifikasi'
+import JamDigital from './JamDigital'
 import BannerKoneksi from './BannerKoneksi'
 import LogoSIP from './LogoSIP'
 import { LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar, ChevronLeft } from 'lucide-react'
@@ -165,14 +166,14 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
             ciut ? 'lg:w-[68px]' : 'lg:w-[252px]'
           } w-[276px]`}
           style={{
-            background: 'linear-gradient(180deg, #0f3322 0%, #0b2a1c 45%, #092317 100%)',
+            background: 'linear-gradient(180deg, #17543d 0%, #0f3e2d 45%, #0b3024 100%)',
             boxShadow: 'inset 0 0 0 1px rgb(255 255 255 / 0.06), inset 0 1px 0 rgb(255 255 255 / 0.06), 0 14px 36px -16px rgb(17 24 39 / 0.5)',
             fontFamily: 'Plus Jakarta Sans',
           }}
         >
           {/* Brand */}
           <div className="flex items-center gap-3 shrink-0 h-[76px] pl-4 pr-3">
-            <LogoSIP className="w-9 h-9 shrink-0 drop-shadow-[0_4px_10px_rgb(16_185_129/0.35)]" />
+            <LogoSIP className="w-9 h-9 shrink-0 drop-shadow-[0_4px_10px_rgb(47_184_74/0.35)]" />
             <div className={`min-w-0 flex-1 whitespace-nowrap ${pudar}`}>
               <div className="font-extrabold text-[15px] leading-tight tracking-tight">SIP Asrama</div>
               <div className="text-[11px] font-medium text-emerald-200/50">Universitas Andalas</div>
@@ -199,7 +200,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
                   top: 0,
                   height: indikator.height,
                   translate: `0 ${indikator.top}px`,
-                  background: 'linear-gradient(90deg, rgb(52 211 153 / 0.2) 0%, rgb(52 211 153 / 0.07) 60%, rgb(52 211 153 / 0.03) 100%)',
+                  background: 'rgb(255 255 255 / 0.08)',
                 }}
               >
                 <span className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-emerald-400" />
@@ -234,7 +235,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
                         }`}>
                           {item.icon}
                           {badge && (
-                            <span className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#0b2a1c] transition-opacity duration-300 opacity-0 ${ciut ? 'lg:opacity-100' : ''}`} />
+                            <span className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#0f3e2d] transition-opacity duration-300 opacity-0 ${ciut ? 'lg:opacity-100' : ''}`} />
                           )}
                         </span>
                         <span className={`flex-1 min-w-0 truncate ${pudar}`}>{label}</span>
@@ -257,21 +258,41 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
           {/* Profil + keluar */}
           <div className="shrink-0 px-3 pb-3 pt-2 space-y-1">
             <div className="h-px bg-white/[0.07] mb-2" />
-            <div className="flex items-center gap-3 h-12 pl-1 pr-2 rounded-xl whitespace-nowrap" title={ciut ? `${user.nama} · ${ROLE_LABELS[user.role]}` : undefined}>
-              <div className="relative shrink-0">
-                <div className="w-9 h-9 rounded-full bg-emerald-600 text-white font-bold text-[12px] tracking-wide flex items-center justify-center overflow-hidden ring-2 ring-emerald-300/25">
-                  {user.fotoProfil ? <img src={user.fotoProfil} alt="Foto profil" className="h-full w-full object-cover" /> : inisial(user.nama)}
-                </div>
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#092317]" aria-label="Sedang aktif" />
-              </div>
-              <div className={`flex-1 min-w-0 ${pudar}`}>
-                <p className="text-[13.5px] font-bold leading-tight truncate" title={user.nama}>{user.nama}</p>
-                <p className="flex items-center gap-1 mt-0.5 text-[11px] font-medium text-emerald-200/55 truncate [&_svg]:w-3 [&_svg]:h-3">
-                  {ROLE_ICONS[user.role]}
-                  <span className="truncate">{ROLE_PENDEK[user.role]}</span>
-                </p>
-              </div>
-            </div>
+            {(() => {
+              // Kartu profil: animasi saat disorot; bila peran punya tab Profil, bisa diklik untuk membukanya
+              const adaProfil = navItems.some(n => n.id === 'profil')
+              const aktifProfil = activeTab === 'profil'
+              const isi = (
+                <>
+                  <div className="relative shrink-0">
+                    <span className="absolute inset-0 rounded-full bg-emerald-400/40 scale-100 opacity-0 group-hover/profil:animate-ping group-hover/profil:opacity-100" aria-hidden />
+                    <div className="relative w-9 h-9 rounded-full bg-emerald-600 text-white font-bold text-[12px] tracking-wide flex items-center justify-center overflow-hidden ring-2 ring-emerald-300/25 transition-[scale,box-shadow] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover/profil:scale-110 group-hover/profil:ring-emerald-300/70 group-hover/profil:shadow-[0_0_18px_rgb(79_204_99/0.45)]">
+                      {user.fotoProfil ? <img src={user.fotoProfil} alt="Foto profil" className="h-full w-full object-cover transition-[scale] duration-500 group-hover/profil:scale-110" /> : inisial(user.nama)}
+                    </div>
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0b3024]" aria-label="Sedang aktif" />
+                  </div>
+                  <div className={`flex-1 min-w-0 text-left transition-[translate] duration-300 ease-out group-hover/profil:translate-x-0.5 ${pudar}`}>
+                    <p className="text-[13.5px] font-bold leading-tight truncate">{user.nama}</p>
+                    <p className="flex items-center gap-1 mt-0.5 text-[11px] font-medium text-emerald-200/55 truncate transition-colors duration-300 group-hover/profil:text-emerald-200/90 [&_svg]:w-3 [&_svg]:h-3">
+                      {ROLE_ICONS[user.role]}
+                      <span className="truncate">{adaProfil ? <><span className="group-hover/profil:hidden">{ROLE_PENDEK[user.role]}</span><span className="hidden group-hover/profil:inline">Lihat profil</span></> : ROLE_PENDEK[user.role]}</span>
+                    </p>
+                  </div>
+                  {adaProfil && (
+                    <ChevronLeft className={`w-4 h-4 shrink-0 rotate-180 text-emerald-200/70 opacity-0 -translate-x-1.5 transition-[opacity,translate] duration-300 group-hover/profil:opacity-100 group-hover/profil:translate-x-0 ${pudar}`} />
+                  )}
+                </>
+              )
+              const kelas = `group/profil w-full flex items-center gap-3 h-12 pl-1 pr-2 rounded-xl whitespace-nowrap transition-colors duration-300 hover:bg-white/[0.07] ${aktifProfil ? 'bg-white/[0.06]' : ''}`
+              const judul = ciut ? `${user.nama} · ${ROLE_LABELS[user.role]}` : undefined
+              return adaProfil ? (
+                <button type="button" onClick={() => { onTabChange('profil'); setSidebarOpen(false) }} title={judul} aria-label={`Buka profil ${user.nama}`} className={`${kelas} cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60`}>
+                  {isi}
+                </button>
+              ) : (
+                <div className={kelas} title={judul}>{isi}</div>
+              )
+            })()}
             <button
               onClick={onLogout}
               aria-label="Keluar akun"
@@ -318,6 +339,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
           </div>
 
           <div className="flex items-center gap-2.5">
+            <JamDigital />
             <NotifikasiBell nim={user.nim} items={notifikasi} onBuka={onTabChange} />
             <div className="hidden sm:flex items-center gap-2 rounded-full px-3 py-1.5 bg-white/60 border border-white/80 shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_2px_8px_-4px_rgb(17_24_39/0.15)] backdrop-blur-xl text-xs text-gray-700 font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
@@ -411,7 +433,7 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Konfirmasi', onC
         {children && <div className="mt-5">{children}</div>}
         <div className="mt-6 flex justify-end gap-2">
           {!hideCancel && <button type="button" onClick={onCancel} className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-200 cursor-pointer">Batal</button>}
-          <button type="button" onClick={onConfirm} disabled={loading} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-60 cursor-pointer">
+          <button type="button" onClick={onConfirm} disabled={loading} className="rounded-xl bg-[#141a17] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#2a332e] disabled:opacity-60 cursor-pointer">
             {loading ? 'Memproses...' : confirmLabel}
           </button>
         </div>
@@ -425,15 +447,15 @@ export function Badge({ status }: { status: string }) {
     'Hadir': { bg: 'bg-emerald-50 border-emerald-300 text-emerald-800' },
     'Tidak Hadir': { bg: 'bg-rose-50 border-rose-300 text-rose-800' },
     'Izin': { bg: 'bg-amber-50 border-amber-300 text-amber-800' },
-    'Pending': { bg: 'bg-orange-50 border-orange-300 text-orange-800' },
-    'Disetujui': { bg: 'bg-blue-50 border-blue-300 text-blue-800' },
-    'Ditolak': { bg: 'bg-red-50 border-red-300 text-red-800' },
+    'Pending': { bg: 'bg-amber-50 border-amber-300 text-amber-800' },
+    'Disetujui': { bg: 'bg-emerald-50 border-emerald-300 text-emerald-800' },
+    'Ditolak': { bg: 'bg-rose-50 border-rose-300 text-rose-800' },
     'Aktif': { bg: 'bg-emerald-50 border-emerald-300 text-emerald-800' },
     'Non-aktif': { bg: 'bg-gray-100 border-gray-300 text-gray-700' },
     'Belum': { bg: 'bg-gray-100 border-gray-300 text-gray-600' },
-    'Libur': { bg: 'bg-sky-50 border-sky-300 text-sky-800' },
-    'Fasil': { bg: 'bg-indigo-50 border-indigo-300 text-indigo-800' },
-    'Penghuni': { bg: 'bg-teal-50 border-teal-300 text-teal-800' },
+    'Libur': { bg: 'bg-slate-50 border-slate-300 text-slate-800' },
+    'Fasil': { bg: 'bg-slate-50 border-slate-300 text-slate-800' },
+    'Penghuni': { bg: 'bg-emerald-50 border-emerald-300 text-emerald-800' },
   }
 
   const current = map[status] || { bg: 'bg-gray-100 border-gray-300 text-gray-700' }

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, Cog, RefreshCw, Search, ShieldCheck, XCircle } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { BedDouble, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, ClipboardCheck, Cog, FileText, RefreshCw, Search, Settings, ShieldCheck, UserCog, Users, XCircle } from 'lucide-react'
 import type { LogAktivitas } from '../types'
 import { fetchLogAktivitas, type HasilLogAktivitas } from '../api'
-import { formatTanggal } from '../logic'
+import { addDays, formatTanggal, todayLocal } from '../logic'
 import DateInput from './DateInput'
 
 /**
@@ -11,16 +12,30 @@ import DateInput from './DateInput'
  */
 
 const JENIS: { nilai: string; label: string; warna: string }[] = [
-  { nilai: 'akun', label: 'Akun', warna: 'bg-purple-50 border-purple-200 text-purple-800' },
-  { nilai: 'penghuni', label: 'Penghuni', warna: 'bg-teal-50 border-teal-200 text-teal-800' },
-  { nilai: 'gedung', label: 'Gedung', warna: 'bg-blue-50 border-blue-200 text-blue-800' },
-  { nilai: 'kamar', label: 'Kamar', warna: 'bg-sky-50 border-sky-200 text-sky-800' },
+  { nilai: 'akun', label: 'Akun', warna: 'bg-slate-50 border-slate-200 text-slate-800' },
+  { nilai: 'penghuni', label: 'Penghuni', warna: 'bg-slate-50 border-slate-200 text-slate-800' },
+  { nilai: 'gedung', label: 'Gedung', warna: 'bg-slate-50 border-slate-200 text-slate-800' },
+  { nilai: 'kamar', label: 'Kamar', warna: 'bg-slate-50 border-slate-200 text-slate-800' },
   { nilai: 'presensi', label: 'Presensi', warna: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
   { nilai: 'izin', label: 'Izin', warna: 'bg-amber-50 border-amber-200 text-amber-800' },
-  { nilai: 'event', label: 'Event', warna: 'bg-pink-50 border-pink-200 text-pink-800' },
+  { nilai: 'event', label: 'Event', warna: 'bg-slate-50 border-slate-200 text-slate-800' },
   { nilai: 'pengaturan', label: 'Pengaturan', warna: 'bg-gray-50 border-gray-200 text-gray-700' },
   { nilai: 'sistem', label: 'Sistem', warna: 'bg-slate-100 border-slate-300 text-slate-800' },
 ]
+// Ikon & warna kotak ikon per jenis aktivitas
+const IKON_JENIS: Record<string, { ikon: ReactNode; warna: string }> = {
+  akun: { ikon: <UserCog className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700' },
+  penghuni: { ikon: <Users className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700' },
+  gedung: { ikon: <Building2 className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700' },
+  kamar: { ikon: <BedDouble className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700' },
+  presensi: { ikon: <ClipboardCheck className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700' },
+  izin: { ikon: <FileText className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
+  event: { ikon: <CalendarDays className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700' },
+  pengaturan: { ikon: <Settings className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-700' },
+  sistem: { ikon: <Cog className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-700' },
+}
+const ikonJenis = (e: string) => IKON_JENIS[e] ?? { ikon: <Cog className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600' }
+
 const PERAN: Record<string, string> = { admin: 'Admin', fasil: 'Fasilitator', penghuni: 'Penghuni', sistem: 'Sistem' }
 const PILIHAN_PER_HALAMAN = [10, 25, 50, 100]
 const KUNCI_PER_HALAMAN = 'sip-log-per-halaman'
@@ -98,6 +113,16 @@ export default function HalamanLogAktivitas() {
     try { localStorage.setItem(KUNCI_PER_HALAMAN, String(n)) } catch { /* abaikan */ }
   }
   const adaSaringan = !!(cariAktif || entitas || status || dari || sampai)
+  // Catatan dikelompokkan per hari (data sudah urut terbaru dari server)
+  const kelompok: { tanggal: string; item: LogAktivitas[] }[] = []
+  for (const l of hasil?.data ?? []) {
+    const t = l.waktu.slice(0, 10)
+    const akhir = kelompok[kelompok.length - 1]
+    if (akhir && akhir.tanggal === t) akhir.item.push(l)
+    else kelompok.push({ tanggal: t, item: [l] })
+  }
+  const hariIni = todayLocal()
+  const labelHari = (t: string) => t === hariIni ? `Hari ini · ${formatTanggal(t)}` : t === addDays(hariIni, -1) ? `Kemarin · ${formatTanggal(t)}` : formatTanggal(t)
   const reset = () => { setCari(''); setEntitas(''); setStatus(''); setDari(''); setSampai('') }
   const saringCls = 'px-3 py-2 rounded-lg border border-gray-300 hover:border-gray-400 text-sm text-gray-800 bg-white outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 transition-colors placeholder:text-gray-400'
 
@@ -106,19 +131,19 @@ export default function HalamanLogAktivitas() {
       <div className="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-              <ShieldCheck className="w-5 h-5 text-slate-700" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5 text-emerald-700" />
             </div>
             <div>
               <h2 className="font-bold text-base text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Log Aktivitas Sistem</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Jejak setiap perubahan data: siapa, melakukan apa, dan kapan. Termasuk percobaan yang ditolak. Log hanya dapat dibaca.</p>
+              <p className="text-xs text-gray-500 mt-0.5">Siapa melakukan apa dan kapan, termasuk percobaan yang ditolak. Hanya dapat dibaca.</p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setMuatUlang(n => n + 1)}
             disabled={memuat}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 cursor-pointer disabled:opacity-50 shrink-0"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-gray-700 bg-[#fff] border border-gray-200 hover:bg-gray-50 cursor-pointer disabled:opacity-50 shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${memuat ? 'animate-spin' : ''}`} />
             Muat ulang
@@ -152,85 +177,101 @@ export default function HalamanLogAktivitas() {
         </div>
 
         {gagal ? (
-          <p className="px-6 py-12 text-center text-sm text-red-700">Log aktivitas gagal dimuat. Periksa koneksi ke server lalu coba muat ulang.</p>
+          <p className="px-6 py-12 text-center text-sm text-rose-700">Log aktivitas gagal dimuat. Periksa koneksi ke server lalu coba muat ulang.</p>
         ) : hasil?.pesan ? (
           <p className="px-6 py-12 text-center text-sm text-amber-700">{hasil.pesan}</p>
         ) : (
-          <div className={`divide-y divide-gray-100 transition-opacity ${memuat ? 'opacity-50' : ''}`}>
+          <div className={`transition-opacity ${memuat ? 'opacity-50' : ''}`}>
             {hasil && hasil.data.length === 0 && (
               <p className="px-6 py-12 text-center text-sm text-gray-400">{adaSaringan ? 'Tidak ada catatan yang cocok dengan filter.' : 'Belum ada aktivitas tercatat.'}</p>
             )}
-            {hasil?.data.map(l => {
-              const jenis = jenisDari(l.entitas)
-              const terbuka = dibuka === l.id
-              const sistem = !l.nim
-              return (
-                <div key={l.id} className={terbuka ? 'bg-gray-50/70' : ''}>
-                  <button
-                    type="button"
-                    onClick={() => setDibuka(terbuka ? null : l.id)}
-                    aria-expanded={terbuka}
-                    // display:grid lewat style, bukan kelas `grid`: animasi tema (index.css `.grid > *`)
-                    // akan memudarkan setiap kolom di setiap baris tiap kali daftar dimuat ulang
-                    style={{ display: 'grid' }}
-                    className="w-full text-left px-6 py-3 grid-cols-[auto_1fr_auto] sm:grid-cols-[96px_200px_1fr_auto] gap-x-4 gap-y-1 items-center hover:bg-gray-50 cursor-pointer"
-                  >
-                    {/* Kapan */}
-                    <span className="hidden sm:block text-xs text-gray-500 tabular-nums leading-tight">
-                      <span className="block font-semibold text-gray-800">{l.waktu.slice(11, 16)}</span>
-                      {formatTanggal(l.waktu.slice(0, 10), 'tanpaHari')}
-                    </span>
-                    {/* Siapa */}
-                    <span className="flex items-center gap-2.5 min-w-0">
-                      <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 overflow-hidden ${sistem ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`}>
-                        {sistem ? <Cog className="w-4 h-4" />
-                          : l.nim && foto[l.nim] ? <img src={foto[l.nim]} alt="" loading="lazy" className="w-full h-full object-cover" />
-                          : inisial(l.nama || l.nim || '?')}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold text-gray-900 truncate">{sistem ? 'Sistem' : l.nama || l.nim}</span>
-                        <span className="block text-[11px] text-gray-500 truncate">
-                          {sistem ? 'Perintah terjadwal' : `${l.nim}${l.peran ? ` · ${PERAN[l.peran] ?? l.peran}` : ''}`}
-                        </span>
-                      </span>
-                    </span>
-                    {/* Apa */}
-                    <span className="col-span-3 sm:col-span-1 row-start-2 sm:row-start-auto min-w-0">
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wide ${jenis.warna}`}>{jenis.label}</span>
-                        <span className="text-sm font-semibold text-gray-800">{l.aksi}</span>
-                        {l.target && <span className="text-xs text-gray-500 mono">{l.target}</span>}
-                      </span>
-                      {l.keterangan && <span className="block text-xs text-gray-500 truncate mt-0.5">{l.keterangan}</span>}
-                      <span className="sm:hidden block text-[11px] text-gray-400 mt-0.5">{formatTanggal(l.waktu.slice(0, 10), 'tanpaHari')} · {l.waktu.slice(11, 16)}</span>
-                    </span>
-                    {/* Hasil */}
-                    <span className="flex items-center gap-2 justify-self-end">
-                      {l.status === 'berhasil'
-                        ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700"><CheckCircle2 className="w-3.5 h-3.5" />Berhasil</span>
-                        : <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700"><XCircle className="w-3.5 h-3.5" />Gagal{l.kodeHttp ? ` (${l.kodeHttp})` : ''}</span>}
-                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${terbuka ? 'rotate-180' : ''}`} />
-                    </span>
-                  </button>
-                  {terbuka && (
-                    <div className="px-6 pb-4 grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-4 text-xs">
-                      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 content-start">
-                        <dt className="text-gray-500">Waktu</dt><dd className="text-gray-800 tabular-nums">{formatTanggal(l.waktu.slice(0, 10))}, {l.waktu.slice(11)}</dd>
-                        <dt className="text-gray-500">Permintaan</dt><dd className="text-gray-800 mono break-all">{l.rute ?? '–'}</dd>
-                        <dt className="text-gray-500">Alamat IP</dt><dd className="text-gray-800 mono">{l.ip ?? '–'}</dd>
-                        <dt className="text-gray-500">Perangkat</dt><dd className="text-gray-600 break-all">{l.agen || '–'}</dd>
-                        {l.keterangan && <><dt className="text-gray-500">Pesan</dt><dd className="text-gray-800">{l.keterangan}</dd></>}
-                      </dl>
-                      <div className="rounded-lg border border-gray-200 bg-white p-3">
-                        <p className="font-semibold text-gray-700 mb-2">Data yang dikirim</p>
-                        <RincianData data={l.data} />
-                        <p className="mt-2 text-[11px] text-gray-400">Password, foto, dan berkas tidak pernah disimpan di log.</p>
-                      </div>
-                    </div>
-                  )}
+            {kelompok.map(g => (
+              <section key={g.tanggal}>
+                <div className="px-6 py-2.5 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold text-gray-700" style={{ fontFamily: 'Plus Jakarta Sans' }}>{labelHari(g.tanggal)}</span>
+                  <span className="text-[11px] text-gray-400">{g.item.length} aktivitas</span>
                 </div>
-              )
-            })}
+                <div className="divide-y divide-gray-100">
+                  {g.item.map(l => {
+                    const jenis = jenisDari(l.entitas)
+                    const ikon = ikonJenis(l.entitas)
+                    const terbuka = dibuka === l.id
+                    const sistem = !l.nim
+                    const gagalAksi = l.status !== 'berhasil'
+                    return (
+                      <div key={l.id} className={`relative ${gagalAksi ? 'bg-rose-50/30' : ''} ${terbuka ? 'bg-gray-50/80' : ''}`}>
+                        {/* Penanda gagal: elemen sendiri (border kiri tertimpa aturan pemisah baris di tema) */}
+                        {gagalAksi && <span className="absolute left-0 inset-y-0 w-1 bg-rose-400" aria-hidden />}
+                        <button
+                          type="button"
+                          onClick={() => setDibuka(terbuka ? null : l.id)}
+                          aria-expanded={terbuka}
+                          // display:grid lewat style, bukan kelas `grid`: animasi tema (index.css `.grid > *`)
+                          // akan memudarkan setiap kolom di setiap baris tiap kali daftar dimuat ulang
+                          style={{ display: 'grid' }}
+                          className="w-full text-left pl-5 pr-6 py-3.5 grid-cols-[auto_1fr_auto] sm:grid-cols-[52px_210px_1fr_auto] gap-x-4 gap-y-2 items-center hover:bg-gray-50/80 cursor-pointer transition-colors"
+                        >
+                          {/* Kapan */}
+                          <span className="hidden sm:block text-sm font-bold text-gray-800 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{l.waktu.slice(11, 16)}</span>
+                          {/* Siapa */}
+                          <span className="flex items-center gap-2.5 min-w-0">
+                            <span className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 overflow-hidden ${sistem ? 'bg-gray-100 text-gray-600' : 'bg-emerald-100 text-emerald-800'}`}>
+                              {sistem ? <Cog className="w-4 h-4" />
+                                : l.nim && foto[l.nim] ? <img src={foto[l.nim]} alt="" loading="lazy" className="w-full h-full object-cover" />
+                                : inisial(l.nama || l.nim || '?')}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-gray-900 truncate">{sistem ? 'Sistem' : l.nama || l.nim}</span>
+                              <span className="block text-[11px] text-gray-500 truncate">
+                                {sistem ? 'Perintah terjadwal' : `${l.peran ? PERAN[l.peran] ?? l.peran : ''}${l.peran ? ' · ' : ''}${l.nim}`}
+                              </span>
+                            </span>
+                          </span>
+                          {/* Apa */}
+                          <span className="col-span-3 sm:col-span-1 row-start-2 sm:row-start-auto min-w-0 flex items-start gap-3">
+                            <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${ikon.warna}`} title={jenis.label}>{ikon.ikon}</span>
+                            <span className="min-w-0">
+                              <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <span className="text-sm font-semibold text-gray-900">{l.aksi}</span>
+                                {l.target && <span className="text-xs text-gray-500 mono truncate">{l.target}</span>}
+                              </span>
+                              <span className="block text-xs text-gray-500 truncate">
+                                <span className="font-medium text-gray-600">{jenis.label}</span>
+                                {l.keterangan ? <> · {l.keterangan}</> : null}
+                              </span>
+                              <span className="sm:hidden block text-[11px] text-gray-400 mt-0.5">{l.waktu.slice(11, 16)}</span>
+                            </span>
+                          </span>
+                          {/* Hasil */}
+                          <span className="flex items-center gap-2 justify-self-end">
+                            {gagalAksi
+                              ? <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-rose-50 border border-rose-200 text-[11px] font-semibold text-rose-700"><XCircle className="w-3.5 h-3.5" />Gagal{l.kodeHttp ? ` · ${l.kodeHttp}` : ''}</span>
+                              : <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-700"><CheckCircle2 className="w-3.5 h-3.5" />Berhasil</span>}
+                            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${terbuka ? 'rotate-180' : ''}`} />
+                          </span>
+                        </button>
+                        {terbuka && (
+                          <div className="pl-5 pr-6 pb-4 sm:pl-[92px] grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-4 text-xs">
+                            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 content-start rounded-xl border border-gray-200 bg-[#fff] p-3.5">
+                              <dt className="text-gray-500">Waktu</dt><dd className="text-gray-800 tabular-nums">{formatTanggal(l.waktu.slice(0, 10))}, {l.waktu.slice(11)}</dd>
+                              <dt className="text-gray-500">Permintaan</dt><dd className="text-gray-800 mono break-all">{l.rute ?? '–'}</dd>
+                              <dt className="text-gray-500">Alamat IP</dt><dd className="text-gray-800 mono">{l.ip ?? '–'}</dd>
+                              <dt className="text-gray-500">Perangkat</dt><dd className="text-gray-600 break-all">{l.agen || '–'}</dd>
+                              {l.keterangan && <><dt className="text-gray-500">Pesan</dt><dd className="text-gray-800">{l.keterangan}</dd></>}
+                            </dl>
+                            <div className="rounded-xl border border-gray-200 bg-[#fff] p-3.5">
+                              <p className="font-semibold text-gray-700 mb-2">Data yang dikirim</p>
+                              <RincianData data={l.data} />
+                              <p className="mt-2 text-[11px] text-gray-400">Password, foto, dan berkas tidak pernah disimpan di log.</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         )}
 

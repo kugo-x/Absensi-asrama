@@ -68,7 +68,8 @@ export type SaringIzin = ReturnType<typeof useSaringIzin>
 const saringCls = 'w-full px-3 py-2 rounded-lg border border-gray-300 hover:border-gray-400 text-sm text-gray-800 bg-white outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 transition-colors placeholder:text-gray-400'
 
 // gedungList diisi untuk admin (lintas gedung); fasil hanya melihat satu gedung sehingga tidak perlu
-export function BarisSaringIzin({ saring, gedungList }: { saring: SaringIzin; gedungList?: Gedung[] }) {
+// tanpaStatus: chip status disembunyikan (halaman yang sudah punya ubin status sendiri, mis. fasil)
+export function BarisSaringIzin({ saring, gedungList, tanpaStatus = false }: { saring: SaringIzin; gedungList?: Gedung[]; tanpaStatus?: boolean }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-col lg:flex-row gap-2">
@@ -100,8 +101,8 @@ export function BarisSaringIzin({ saring, gedungList }: { saring: SaringIzin; ge
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Saring status izin">
-        {URUTAN_STATUS.map(f => {
+      <div className="flex flex-wrap items-center gap-1.5" role={tanpaStatus ? undefined : 'tablist'} aria-label={tanpaStatus ? undefined : 'Saring status izin'}>
+        {!tanpaStatus && URUTAN_STATUS.map(f => {
           const aktif = saring.status === f
           return (
             <button
@@ -110,7 +111,7 @@ export function BarisSaringIzin({ saring, gedungList }: { saring: SaringIzin; ge
               role="tab"
               aria-selected={aktif}
               onClick={() => saring.setStatus(f)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${aktif ? 'bg-[#0e4b29] text-white border-[#0e4b29]' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${aktif ? 'bg-[#141a17] text-white border-[#141a17]' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
               style={{ fontFamily: 'Plus Jakarta Sans' }}
             >
               {f === 'Semua' ? 'Semua' : TAMPILAN_STATUS_IZIN[f].label}

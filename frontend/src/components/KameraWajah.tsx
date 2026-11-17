@@ -15,10 +15,12 @@ function pesanErrorKamera(err: unknown): string {
 }
 
 // Pengambilan foto wajah (swafoto) sebagai bukti kehadiran saat presensi
-export default function KameraWajah({ foto, onChange, disabled = false }: {
+export default function KameraWajah({ foto, onChange, disabled = false, polos = false }: {
   foto: string | null
   onChange: (foto: string | null) => void
   disabled?: boolean
+  // true = tanpa bingkai & judul sendiri (dipakai di dalam kartu yang sudah berjudul)
+  polos?: boolean
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -78,8 +80,8 @@ export default function KameraWajah({ foto, onChange, disabled = false }: {
   const tombolCls = 'flex-1 py-2.5 px-3 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
 
   return (
-    <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
-      <div className="flex items-center justify-between mb-2.5 gap-2">
+    <div className={polos ? '' : 'p-4 rounded-xl bg-gray-50 border border-gray-200'}>
+      <div className={polos ? 'hidden' : 'flex items-center justify-between mb-2.5 gap-2'}>
         <div className="flex items-center gap-2">
           <Camera className="w-4 h-4 text-emerald-700" />
           <span className="text-xs font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>Foto Wajah</span>
@@ -87,7 +89,7 @@ export default function KameraWajah({ foto, onChange, disabled = false }: {
         {foto && <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-200">Foto siap dikirim</span>}
       </div>
 
-      <div className="relative aspect-[4/3] w-full max-w-sm mx-auto rounded-xl overflow-hidden bg-gray-900">
+      <div className={`relative aspect-[4/3] w-full mx-auto rounded-xl overflow-hidden bg-gray-900 ${polos ? '' : 'max-w-sm'}`}>
         {foto && <img src={foto} alt="Foto wajah" className="w-full h-full object-cover" />}
         {/* Pratinjau dicerminkan agar terasa seperti cermin; foto yang disimpan tidak dicerminkan */}
         <video ref={videoRef} playsInline muted className={`w-full h-full object-cover -scale-x-100 ${kameraTampil ? '' : 'hidden'}`} />
@@ -109,7 +111,7 @@ export default function KameraWajah({ foto, onChange, disabled = false }: {
         )}
       </div>
 
-      {error && <p className="text-xs text-red-700 mt-2.5 font-medium">{error}</p>}
+      {error && <p className="text-xs text-rose-700 mt-2.5 font-medium">{error}</p>}
 
       <div className="flex gap-2 mt-3">
         {foto ? (

@@ -41,13 +41,46 @@ final class CheckInTest extends Modul3TestCase
         $this->assertSame(1, $this->db->table('presensi')->where('NIM', 'PNG1')->countAllResults());
     }
 
-    public function testLuarJamSesiDitolak403(): void
+    public function testSebelumSesiDibukaDitolak403TanpaCatatan(): void
+    {
+        $this->sesi('Nanti', '23:59:58', '23:59:59');
+        $r = $this->postApi('presensi', $this->bodyCheckIn(['sesi' => 'Nanti']), $this->token('PNG1', 'penghuni'));
+
+        $r->assertStatus(403);
+        $this->assertStringContainsString('hanya dibuka pukul', $this->pesan($r));
+        $this->assertNull($this->barisPresensi('PNG1', null, 'Nanti'));
+    }
+
+    public function testAbsenSetelahBatasWaktuOtomatisAlpa(): void
     {
         $this->sesi('Tutup', '00:00:00', '00:00:01');
         $r = $this->postApi('presensi', $this->bodyCheckIn(['sesi' => 'Tutup']), $this->token('PNG1', 'penghuni'));
 
         $r->assertStatus(403);
-        $this->assertStringContainsString('hanya dibuka pukul', $this->pesan($r));
+        $this->assertStringContainsString('sudah ditutup', $this->pesan($r));
+        $this->assertStringContainsString('Tidak Hadir (alpa)', $this->pesan($r));
+        $row = $this->barisPresensi('PNG1', null, 'Tutup');
+        $this->assertSame('Tidak Hadir', $row['Status']);
+        $this->assertStringStartsWith('Otomatis oleh sistem', $row['Keterangan']);
+        $this->assertNull($row['Foto_wajah'], 'foto dari absen yang telat tidak disimpan');
+
+        // Mencoba lagi tetap ditolak dan status tidak berubah
+        $this->postApi('presensi', $this->bodyCheckIn(['sesi' => 'Tutup']), $this->token('PNG1', 'penghuni'))->assertStatus(403);
+        $this->assertSame(1, $this->db->table('presensi')->where('NIM', 'PNG1')->where('Sesi', 'Tutup')->countAllResults());
+    }
+
+    public function testPenandaanOtomatisBerkalaTanpaCron(): void
+    {
+        $this->sesi('Tutup', '00:00:00', '00:00:01');
+        $svc = new \App\Libraries\PresensiService($this->db);
+
+        $svc->tandaiOtomatisBerkala(0);
+        $this->assertSame('Tidak Hadir', $this->barisPresensi('PNG3', null, 'Tutup')['Status']);
+
+        // Dalam jeda: tidak dijalankan ulang (baris baru tidak dibuat)
+        $this->db->table('presensi')->where('Sesi', 'Tutup')->delete();
+        $svc->tandaiOtomatisBerkala(300);
+        $this->assertNull($this->barisPresensi('PNG3', null, 'Tutup'));
     }
 
     public function testLuarRadiusDitolak403(): void

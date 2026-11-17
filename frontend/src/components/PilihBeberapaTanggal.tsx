@@ -101,7 +101,7 @@ export default function PilihBeberapaTanggal({ value, onChange, min, maks = 31 }
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[11px] font-semibold text-gray-600">{value.length} tanggal dipilih{penuh ? ` (maksimal ${maks})` : ''}</p>
-            <button type="button" onClick={() => onChange([])} className="text-[11px] font-semibold text-red-600 hover:underline cursor-pointer">Hapus semua</button>
+            <button type="button" onClick={() => onChange([])} className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer">Hapus semua</button>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {value.map(s => (

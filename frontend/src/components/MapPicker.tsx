@@ -20,7 +20,7 @@ export interface MapPickerProps {
 }
 
 // Marker icon menggunakan SVG Pin modern dan tajam
-const createCustomPin = (color: string = '#047857') => {
+const createCustomPin = (color: string = '#1c7b31') => {
   return L.divIcon({
     className: 'custom-map-pin',
     html: `
@@ -79,14 +79,14 @@ export default function MapPicker({
     }).addTo(map)
 
     const marker = L.marker([activeLat, activeLng], {
-      icon: createCustomPin('#047857'),
+      icon: createCustomPin('#1c7b31'),
       draggable: interactive,
     }).addTo(map)
 
     const circle = L.circle([activeLat, activeLng], {
       radius: radiusMeter,
-      color: '#059669',
-      fillColor: '#10b981',
+      color: '#22993b',
+      fillColor: '#2fb84a',
       fillOpacity: 0.22,
       weight: 2,
     }).addTo(map)

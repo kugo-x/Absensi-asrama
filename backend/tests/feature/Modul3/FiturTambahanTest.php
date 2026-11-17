@@ -135,41 +135,32 @@ final class FiturTambahanTest extends Modul3TestCase
         return $this->postApi('izin', $body + ['nim' => $nim, 'alasan' => 'Kuliah malam', 'sesi' => null], $this->token($nim, 'penghuni'));
     }
 
-    public function testIzinRutinTersimpanDanTerbaca(): void
-    {
-        $mulai = date('Y-m-d', strtotime('+1 day'));
-        $selesai = date('Y-m-d', strtotime('+60 day'));
-        $this->ajukan(['tanggal' => $mulai, 'tanggalSelesai' => $selesai, 'hariBerulang' => [4, 2, 2]])->assertStatus(201);
+    // Form izin kini memakai "beberapa tanggal terpisah" (tanggalList) sebagai pengganti pembuatan izin rutin.
+    // Izin rutin lama (kolom Hari_berulang) tetap dibaca: tampil di daftar dan dihormati saat cek bentrok.
 
-        $this->assertSame('2,4', $this->db->table('izin')->get()->getRowArray()['Hari_berulang']);
+    private function izinRutinLama(string $mulai, string $selesai, string $hari): void
+    {
+        $this->db->table('izin')->insert([
+            'NIM' => 'PNG1', 'Alasan' => 'Kuliah malam', 'Status_persetujuan' => 'Disetujui', 'Tanggal' => $mulai,
+            'Tanggal_selesai' => $selesai, 'Sesi' => null, 'Hari_berulang' => $hari, 'created_at' => self::DIBUAT, 'updated_at' => self::DIBUAT,
+        ]);
+    }
+
+    public function testIzinRutinLamaTerbacaDiDaftar(): void
+    {
+        $this->izinRutinLama(date('Y-m-d', strtotime('+1 day')), date('Y-m-d', strtotime('+60 day')), '2,4');
+
         $list = $this->json($this->getApi('izin', $this->token('FAS1', 'fasil')));
         $this->assertSame([2, 4], $list[0]['hariBerulang']);
     }
 
-    public function testIzinRutinDivalidasi(): void
-    {
-        $besok = date('Y-m-d', strtotime('+1 day'));
-        $this->ajukan(['tanggal' => $besok, 'tanggalSelesai' => $besok, 'hariBerulang' => [1]])->assertStatus(400);
-        $this->ajukan(['tanggal' => $besok, 'tanggalSelesai' => date('Y-m-d', strtotime('+30 day')), 'hariBerulang' => []])->assertStatus(400);
-        $this->ajukan(['tanggal' => $besok, 'tanggalSelesai' => date('Y-m-d', strtotime('+30 day')), 'hariBerulang' => [9]])->assertStatus(400);
-        // Rentang 2 hari yang tidak memuat hari terpilih
-        $hariBesok = (int) date('N', strtotime($besok));
-        $lain = (($hariBesok + 2) % 7) + 1; // bukan besok dan bukan lusa
-        $r = $this->ajukan(['tanggal' => $besok, 'tanggalSelesai' => date('Y-m-d', strtotime('+2 day')), 'hariBerulang' => [$lain]]);
-        $r->assertStatus(400);
-        $this->assertSame(0, $this->db->table('izin')->countAllResults());
-    }
-
-    public function testIzinRutinBerbedaHariTidakBentrok(): void
+    public function testIzinRutinLamaHanyaBentrokDiHariTerpilih(): void
     {
         $mulai = date('Y-m-d', strtotime('+1 day'));
-        $selesai = date('Y-m-d', strtotime('+60 day'));
-        $this->ajukan(['tanggal' => $mulai, 'tanggalSelesai' => $selesai, 'hariBerulang' => [2]])->assertStatus(201);
-        $this->ajukan(['tanggal' => $mulai, 'tanggalSelesai' => $selesai, 'hariBerulang' => [4]])->assertStatus(201);
-        $this->ajukan(['tanggal' => $mulai, 'tanggalSelesai' => $selesai, 'hariBerulang' => [4, 5]])->assertStatus(409);
-        // Izin biasa satu hari: bentrok hanya bila jatuh pada Selasa/Kamis
+        $this->izinRutinLama($mulai, date('Y-m-d', strtotime('+60 day')), '2,4'); // Selasa & Kamis
         $selasa = date('Y-m-d', strtotime('next tuesday', strtotime($mulai)));
         $senin  = date('Y-m-d', strtotime('next monday', strtotime($mulai)));
+
         $this->ajukan(['tanggal' => $selasa, 'tanggalSelesai' => $selasa])->assertStatus(409);
         $this->ajukan(['tanggal' => $senin, 'tanggalSelesai' => $senin])->assertStatus(201);
     }

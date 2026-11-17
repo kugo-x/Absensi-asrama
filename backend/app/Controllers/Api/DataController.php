@@ -703,6 +703,11 @@ class DataController extends BaseController
             if (! $this->db->tableExists('presensi')) {
                 return $this->respond([]);
             }
+            // Sesi yang sudah ditutup langsung tercatat Tidak Hadir tanpa menunggu cron (dibatasi tiap 5 menit).
+            // Di lingkungan testing dimatikan agar tes tetap deterministik; logikanya diuji langsung lewat service.
+            if (ENVIRONMENT !== 'testing') {
+                $this->presensiService->tandaiOtomatisBerkala();
+            }
 
             // Lingkup data mengikuti peran: penghuni = miliknya sendiri, fasil = penghuni gedung yang ia pegang,
             // admin = semua. Mencegah penghuni melihat presensi & nama berkas foto wajah penghuni lain.
@@ -865,7 +870,7 @@ class DataController extends BaseController
                 ? 'Tidak ada absen ' . strtolower($sesi) . ' hari ini: belum diatur, dinonaktifkan, atau diliburkan oleh fasil gedung Anda.'
                 : 'Sesi ' . $sesi . ' tidak tersedia.', 400);
         }
-        if (!$modeUji['abaikanJam'] && ($jam < $dataSesi['Jam_mulai'] || $jam > $dataSesi['Jam_selesai'])) {
+        if (!$modeUji['abaikanJam'] && $jam < $dataSesi['Jam_mulai']) {
             return $this->fail(sprintf(
                 'Presensi sesi %s hanya dibuka pukul %s–%s WIB.',
                 $sesi, substr($dataSesi['Jam_mulai'], 0, 5), substr($dataSesi['Jam_selesai'], 0, 5)
@@ -876,6 +881,17 @@ class DataController extends BaseController
         }
         if ($this->presensiService->cariIzinDisetujui($nim, $tanggal, $sesi)) {
             return $this->fail('Anda berstatus izin pada sesi ini.', 400);
+        }
+        // Absen setelah batas waktu sesi = alpa: langsung dicatat Tidak Hadir (sama seperti command penandaan otomatis)
+        if (!$modeUji['abaikanJam'] && $jam > $dataSesi['Jam_selesai']) {
+            $this->presensiService->tandaiTidakHadir($tanggal, $waktu);
+            $baris  = $this->db->table('presensi')->where('NIM', $nim)->where('Tanggal', $tanggal)->where('Sesi', $sesi)->get()->getRowArray();
+            $status = $baris['Status'] ?? 'Tidak Hadir';
+
+            return $this->fail(sprintf(
+                'Sesi %s sudah ditutup pukul %s WIB. Absen melewati batas waktu tidak diterima; Anda tercatat %s.',
+                $sesi, substr($dataSesi['Jam_selesai'], 0, 5), $status === 'Tidak Hadir' ? 'Tidak Hadir (alpa)' : $status
+            ), 403);
         }
 
         $existing = $this->db->table('presensi')

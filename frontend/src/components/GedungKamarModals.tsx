@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import type { Gedung, Kamar, Penghuni, GedungInput, KamarInput } from '../types'
-import { X, Building2, DoorClosed, AlertCircle, Trash2 } from 'lucide-react'
+import { X, Building2, DoorClosed, AlertCircle, Trash2, BedDouble } from 'lucide-react'
 import MapPicker from './MapPicker'
 
 // ----------------------------------------------------
@@ -60,19 +60,22 @@ export function GedungFormModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-emerald-100 overflow-hidden my-8 max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4.5 bg-gradient-to-r from-emerald-800 to-emerald-950 text-white flex items-center justify-between shrink-0">
-          <div>
-            <h3 className="text-lg font-extrabold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {isEdit ? 'Edit Data Gedung' : 'Tambah Gedung Asrama Baru'}
-            </h3>
-            <p className="text-xs text-emerald-200 mt-0.5">
-              Atur nama, penanggung jawab, serta koordinat geofence untuk presensi
-            </p>
+        <div className="px-6 py-4 modal-header bg-white border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center"><Building2 className="w-5 h-5" /></span>
+            <div className="min-w-0">
+              <h3 className="text-base font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                {isEdit ? 'Edit Data Gedung' : 'Tambah Gedung Asrama Baru'}
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Atur nama, penanggung jawab, serta koordinat geofence untuk presensi
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -233,19 +236,22 @@ export function KamarFormModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
       <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-emerald-100 overflow-hidden animate-in fade-in zoom-in-95">
         {/* Header */}
-        <div className="px-6 py-4.5 bg-gradient-to-r from-emerald-800 to-emerald-950 text-white flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-extrabold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {isEdit ? `Edit Kamar ${kamar?.nomorKamar}` : 'Tambah Kamar Baru'}
-            </h3>
-            <p className="text-xs text-emerald-200 mt-0.5">
-              Atur nomor kamar, penempatan gedung, lantai, dan batas kapasitas
-            </p>
+        <div className="px-6 py-4 modal-header bg-white border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center"><BedDouble className="w-5 h-5" /></span>
+            <div className="min-w-0">
+              <h3 className="text-base font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                {isEdit ? `Edit Kamar ${kamar?.nomorKamar}` : 'Tambah Kamar Baru'}
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Atur nomor kamar, penempatan gedung, lantai, dan batas kapasitas
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -326,7 +332,7 @@ export function KamarFormModal({
           </div>
 
           {isEdit && kamar && (
-            <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-xl text-xs text-blue-900 flex justify-between items-center">
+            <div className="p-3 bg-slate-50/70 border border-slate-100 rounded-xl text-xs text-slate-900 flex justify-between items-center">
               <span>Penghuni aktif saat ini:</span>
               <span className="font-extrabold">{kamar.penghuniCount} orang</span>
             </div>

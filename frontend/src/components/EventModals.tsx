@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import type { EventAsrama, Gedung, RekapEventResult, PesertaRekapEvent, ModeUji } from '../types'
-import { X, Calendar, Clock, MapPin, Building2, CheckCircle2, XCircle, AlertCircle, Camera, Search, Download, UserCheck, ShieldAlert, Sparkles } from 'lucide-react'
+import { X, Calendar, Clock, MapPin, Building2, CheckCircle2, XCircle, AlertCircle, Camera, Search, Download, UserCheck, ShieldAlert, Sparkles, CalendarPlus, CalendarDays, ScanFace } from 'lucide-react'
 import MapPicker from './MapPicker'
 import DateInput from './DateInput'
 import TimeInput from './TimeInput'
@@ -104,21 +104,24 @@ export function EventFormModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-emerald-100 overflow-hidden my-8 max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4.5 bg-gradient-to-r from-emerald-800 to-emerald-950 text-white flex items-center justify-between shrink-0">
-          <div>
-            <h3 className="text-lg font-extrabold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {isEdit ? 'Edit Event Asrama' : 'Buat Event Asrama Baru'}
-            </h3>
-            <p className="text-xs text-emerald-200 mt-0.5">
-              {role === 'admin'
-                ? 'Kelola event untuk seluruh penghuni asrama atau gedung spesifik'
-                : 'Kelola event kegiatan untuk penghuni gedung binaan Anda'}
-            </p>
+        <div className="px-6 py-4 modal-header bg-white border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center"><CalendarPlus className="w-5 h-5" /></span>
+            <div className="min-w-0">
+              <h3 className="text-base font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                {isEdit ? 'Edit Event Asrama' : 'Buat Event Asrama Baru'}
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {role === 'admin'
+                  ? 'Kelola event untuk seluruh penghuni asrama atau gedung spesifik'
+                  : 'Kelola event kegiatan untuk penghuni gedung binaan Anda'}
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -185,7 +188,7 @@ export function EventFormModal({
                     onClick={() => { setTipe('gedung'); if (!idGedung) setIdGedung(gedungList[0]?.id ?? null) }}
                     className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                       tipe === 'gedung'
-                        ? 'bg-purple-50 border-purple-600 text-purple-900 shadow-xs'
+                        ? 'bg-slate-50 border-slate-600 text-slate-900 shadow-xs'
                         : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
                     }`}
                   >
@@ -193,8 +196,8 @@ export function EventFormModal({
                   </button>
                 </div>
               ) : (
-                <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-xl text-xs font-bold text-purple-900 flex items-center gap-1.5">
-                  <Building2 className="w-4 h-4 text-purple-700" />
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 text-slate-700" />
                   <span>Event Khusus Gedung Binaan</span>
                 </div>
               )}
@@ -348,28 +351,31 @@ export function EventRekapModal({ rekap, onClose }: EventRekapModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-emerald-100 overflow-hidden my-8 max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4.5 bg-gradient-to-r from-emerald-800 to-emerald-950 text-white flex items-center justify-between shrink-0">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${event.tipe === 'seluruh' ? 'bg-emerald-500/30 text-emerald-100' : 'bg-purple-500/30 text-purple-100'}`}>
-                {event.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${event.namaGedung || ''}`}
-              </span>
-              <span className="text-xs text-emerald-200">
-                {event.tanggal} · {event.jamMulai}–{event.jamSelesai} WIB
-              </span>
+        <div className="px-6 py-4 modal-header bg-white border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center"><CalendarDays className="w-5 h-5" /></span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${event.tipe === 'seluruh' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-50 text-slate-800'}`}>
+                  {event.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${event.namaGedung || ''}`}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {event.tanggal} · {event.jamMulai}–{event.jamSelesai} WIB
+                </span>
+              </div>
+              <h3 className="text-base font-extrabold text-gray-900 tracking-tight mt-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                {event.judul}
+              </h3>
+              <p className="text-xs text-gray-500/90 flex items-center gap-1.5 mt-0.5">
+                <MapPin className="w-3.5 h-3.5" />
+                {event.lokasi} (Radius: {event.radiusMeter} m)
+              </p>
             </div>
-            <h3 className="text-lg font-extrabold tracking-tight mt-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {event.judul}
-            </h3>
-            <p className="text-xs text-emerald-200/90 flex items-center gap-1.5 mt-0.5">
-              <MapPin className="w-3.5 h-3.5" />
-              {event.lokasi} (Radius: {event.radiusMeter} m)
-            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -643,17 +649,20 @@ export function EventPresensiModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-emerald-100 overflow-hidden my-6">
         {/* Header */}
-        <div className="px-6 py-4.5 bg-gradient-to-r from-emerald-800 to-emerald-950 text-white flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-emerald-300 uppercase tracking-wider">Presensi Event Asrama</span>
-            <h3 className="text-base font-extrabold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {event.judul}
-            </h3>
+        <div className="px-6 py-4 modal-header bg-white border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center"><ScanFace className="w-5 h-5" /></span>
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Presensi Event Asrama</span>
+              <h3 className="text-base font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                {event.judul}
+              </h3>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>

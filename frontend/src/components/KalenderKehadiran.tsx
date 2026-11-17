@@ -19,7 +19,7 @@ const WARNA: Record<Ringkas, string> = {
   sebagian: 'bg-amber-200 text-amber-900',
   alpa: 'bg-rose-500 text-white',
   izin: 'bg-amber-400 text-amber-950',
-  libur: 'bg-sky-100 text-sky-800',
+  libur: 'bg-slate-100 text-slate-800',
   kosong: 'bg-gray-50 text-gray-400 border border-gray-200',
 }
 
@@ -36,7 +36,7 @@ const WARNA_STATUS: Record<PresensiStatus, string> = {
   Hadir: 'text-emerald-700',
   'Tidak Hadir': 'text-rose-700',
   Izin: 'text-amber-700',
-  Libur: 'text-sky-700',
+  Libur: 'text-slate-700',
   Belum: 'text-gray-400',
 }
 

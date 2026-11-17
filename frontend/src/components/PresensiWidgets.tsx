@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Sun, Moon, CheckCircle2, XCircle, FileCheck, Clock, Pencil, Paperclip } from 'lucide-react'
+import { Sun, Moon, CheckCircle2, XCircle, FileCheck, Clock, Pencil, Paperclip, ImageOff } from 'lucide-react'
 import type { HariIso, IzinRecord, IzinStatus, Penghuni, Sesi, StatusFoto } from '../types'
 import type { StatusDetail } from '../logic'
 import { formatRentangTanggal, teksHariBerulang, hitungStatus, jamPresensi, keteranganStatus, dateRangeDesc, hariIso, NAMA_HARI } from '../logic'
@@ -7,18 +7,20 @@ import { StatCard, Badge } from './AppLayout'
 import { adalahBuktiTersimpan, fetchBuktiIzin, fetchFotoWajah } from '../api'
 
 export function SesiIcon({ nama, className = 'w-4 h-4' }: { nama: string; className?: string }) {
-  return /subuh|pagi/i.test(nama) ? <Sun className={`${className} text-amber-500`} /> : <Moon className={`${className} text-blue-500`} />
+  return /subuh|pagi/i.test(nama) ? <Sun className={`${className} text-amber-500`} /> : <Moon className={`${className} text-slate-500`} />
 }
 
 export function SesiToggle({ sesiList, value, onChange }: { sesiList: Sesi[]; value: string; onChange: (nama: string) => void }) {
   return (
-    <div className="inline-flex flex-wrap p-1.5 rounded-xl bg-emerald-50/70 border border-emerald-100">
+    <div className="inline-flex flex-wrap gap-1 p-1 rounded-xl bg-gray-100/80 border border-gray-200/80">
       {sesiList.map(s => (
         <button
           key={s.id}
+          type="button"
           onClick={() => onChange(s.nama)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            value === s.nama ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'
+          aria-pressed={value === s.nama}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            value === s.nama ? 'bg-[#fff] text-gray-900 shadow-sm ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'
           }`}
           style={{ fontFamily: 'Plus Jakarta Sans' }}
         >
@@ -37,12 +39,26 @@ export interface RekapRow {
 
 export function RekapStats({ rows }: { rows: RekapRow[] }) {
   const c = hitungStatus(rows.map(r => r.detail.status))
+  const ubin = [
+    { label: 'Hadir', nilai: c.Hadir, ket: `dari ${rows.length} penghuni`, ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700' },
+    { label: 'Belum absen', nilai: c.Belum, ket: 'Sesi belum ditutup', ikon: <Clock className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600' },
+    { label: 'Tidak hadir', nilai: c['Tidak Hadir'], ket: 'Tanpa keterangan', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600' },
+    { label: 'Izin / libur', nilai: c.Izin + c.Libur, ket: 'Izin disetujui atau libur', ikon: <FileCheck className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
+  ]
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard icon={<CheckCircle2 className="w-6 h-6 text-emerald-700" />} label="Hadir" value={c.Hadir} sub={`dari ${rows.length} penghuni`} color="#047857" />
-      <StatCard icon={<Clock className="w-6 h-6 text-gray-600" />} label="Belum Absen" value={c.Belum} sub="Sesi belum ditutup" color="#4b5563" />
-      <StatCard icon={<XCircle className="w-6 h-6 text-rose-700" />} label="Tidak Hadir" value={c['Tidak Hadir']} sub="Tanpa keterangan" color="#dc2626" />
-      <StatCard icon={<FileCheck className="w-6 h-6 text-amber-700" />} label="Izin / Libur" value={c.Izin + c.Libur} sub="Izin disetujui atau hari libur" color="#b45309" />
+    <div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {ubin.map(u => (
+          <div key={u.label} className="bg-[#fff] rounded-2xl border border-gray-200/90 p-4 shadow-2xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-gray-600">{u.label}</span>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+            </div>
+            <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{u.nilai}</p>
+            <p className="text-[11px] text-gray-400 truncate">{u.ket}</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -74,7 +90,7 @@ export function RekapTableBerhalaman({ rows, perHalaman = 25, kunciReset = '', .
   const aktif = Math.min(halaman, jumlahHalaman)
   const dari = (aktif - 1) * perHalaman
   const potongan = urut.slice(dari, dari + perHalaman)
-  const tombolCls = 'px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
+  const tombolCls = 'px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-[#fff] hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
 
   return (
     <>
@@ -100,16 +116,16 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
   onKoreksi?: (row: RekapRow) => void
   emptyText?: string
 }) {
-  const headers = ['Nama Lengkap', 'NIM', ...(showGedung ? ['Gedung'] : []), 'Kamar', 'Waktu', 'Foto', 'Lokasi GPS', 'Status', 'Keterangan', ...(onKoreksi ? ['Aksi'] : [])]
+  const headers = ['Penghuni', 'Kamar', 'Waktu', 'Bukti', 'Status', 'Keterangan', ...(onKoreksi ? ['Aksi'] : [])]
   const sorted = urutkanRekap(rows)
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-emerald-50/60 border-b border-emerald-100">
+          <tr className="bg-gray-50/70 border-b border-gray-100">
             {headers.map(h => (
-              <th key={h} className="text-left px-5 py-3.5 text-xs font-bold uppercase tracking-wider text-emerald-950 whitespace-nowrap" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              <th key={h} className="text-left px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">
                 {h}
               </th>
             ))}
@@ -123,35 +139,43 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
           )}
           {sorted.map(({ penghuni: p, detail }) => {
             const rec = detail.presensi
+            const ket = keteranganStatus(detail)
+            const otomatis = !!rec?.otomatis
             return (
-              <tr key={p.nim} className="hover:bg-emerald-50/30 transition-colors">
-                <td className="px-5 py-3.5 font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{p.nama}</td>
-                <td className="px-5 py-3.5 mono text-xs font-semibold text-gray-600">{p.nim}</td>
-                {showGedung && <td className="px-5 py-3.5 text-xs text-gray-600">{p.namaGedung}</td>}
-                <td className="px-5 py-3.5 mono text-xs font-bold text-emerald-800">{p.nomorKamar}</td>
-                <td className="px-5 py-3.5 mono text-xs font-medium text-gray-700">{jamPresensi(rec) || '–'}</td>
-                <td className="px-5 py-2">
-                  <div className="flex items-center gap-2">
-                    <FotoWajah foto={rec?.fotoWajah} alt={`Foto ${p.nama}`} className="w-10 h-10 rounded-lg hover:ring-2 hover:ring-emerald-500" />
-                    {rec?.statusFoto && <FotoBadge status={rec.statusFoto} />}
-                  </div>
+              <tr key={p.nim} className="hover:bg-gray-50/80 transition-colors">
+                <td className="px-5 py-3">
+                  <p className="font-bold text-gray-900 whitespace-nowrap" style={{ fontFamily: 'Plus Jakarta Sans' }}>{p.nama}</p>
+                  <p className="mono text-[11px] text-gray-500">{p.nim}</p>
                 </td>
-                <td className="px-5 py-3.5 mono text-[11px] text-gray-500">
-                  {rec && rec.latitude !== null && rec.longitude !== null ? (
-                    <a href={`https://www.google.com/maps?q=${rec.latitude},${rec.longitude}`} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
-                      {Number(rec.latitude).toFixed(5)}, {Number(rec.longitude).toFixed(5)}
-                    </a>
-                  ) : '–'}
-                  {rec?.akurasiMeter != null && <span className="block text-gray-400">±{Math.round(rec.akurasiMeter)} m</span>}
+                <td className="px-5 py-3 whitespace-nowrap">
+                  <p className="mono text-xs font-bold text-emerald-800">{p.nomorKamar}</p>
+                  {showGedung && <p className="text-[11px] text-gray-500">{p.namaGedung}</p>}
                 </td>
-                <td className="px-5 py-3.5"><Badge status={detail.status} /></td>
-                <td className="px-5 py-3.5 text-xs text-gray-500 font-medium max-w-[260px]">{keteranganStatus(detail) || '–'}</td>
+                <td className="px-5 py-3 mono text-xs font-semibold text-gray-700 whitespace-nowrap">{jamPresensi(rec) || <span className="text-gray-300">–</span>}</td>
+                <td className="px-5 py-2.5">
+                  {rec?.fotoWajah || (rec && rec.latitude !== null) ? (
+                    <div className="flex items-center gap-2.5">
+                      {rec?.fotoWajah && <FotoWajah foto={rec.fotoWajah} alt={`Foto ${p.nama}`} className="w-10 h-10 rounded-lg hover:ring-2 hover:ring-emerald-500" />}
+                      <div className="min-w-0 space-y-0.5">
+                        {rec?.statusFoto && <FotoBadge status={rec.statusFoto} />}
+                        {rec && rec.latitude !== null && rec.longitude !== null && (
+                          <a href={`https://www.google.com/maps?q=${rec.latitude},${rec.longitude}`} target="_blank" rel="noreferrer" className="block mono text-[11px] text-slate-600 hover:underline whitespace-nowrap">
+                            {Number(rec.latitude).toFixed(5)}, {Number(rec.longitude).toFixed(5)}
+                            {rec.akurasiMeter != null && <span className="text-gray-400"> · ±{Math.round(rec.akurasiMeter)} m</span>}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ) : <span className="text-gray-300">–</span>}
+                </td>
+                <td className="px-5 py-3"><Badge status={detail.status} /></td>
+                <td className={`px-5 py-3 text-xs max-w-[260px] ${otomatis ? 'text-gray-400' : 'text-gray-600 font-medium'}`}>{ket || <span className="text-gray-300">–</span>}</td>
                 {onKoreksi && (
                   <td className="px-5 py-3.5">
                     {detail.fase !== 'belum-dibuka' && detail.status !== 'Libur' ? (
                       <button
                         onClick={() => onKoreksi({ penghuni: p, detail })}
-                        className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
+                        className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg text-emerald-800 bg-[#fff] hover:bg-emerald-50 border border-emerald-200 transition-colors cursor-pointer"
                       >
                         <Pencil className="w-3 h-3" />
                         <span>Koreksi</span>
@@ -226,7 +250,13 @@ export function FotoWajah({ foto, alt, className = 'w-10 h-10 rounded-lg', link 
   }, [foto, terlihat])
 
   if (!foto) return <span className="text-xs text-gray-300">–</span>
-  if (gagal) return <span className="text-[11px] text-gray-400">Foto tidak tersedia</span>
+  // Kotak seukuran foto agar tata letak (mis. kartu validasi) tidak kempis saat berkas hilang
+  if (gagal) return (
+    <div className={`${className} bg-gray-50 border border-dashed border-gray-200 flex flex-col items-center justify-center text-center text-gray-400`} title="Foto tidak tersedia">
+      <ImageOff className="w-4 h-4 shrink-0" />
+      {className.includes('w-full') && <span className="mt-1.5 text-[11px] font-medium">Foto tidak tersedia</span>}
+    </div>
+  )
   if (!src) return <div ref={penampung} className={`${className} bg-gray-100 border border-gray-200 ${terlihat ? 'animate-pulse' : ''}`} />
   const img = <img src={src} alt={alt} className={`${className} object-cover border border-gray-200`} />
   return link ? <a href={src} target="_blank" rel="noreferrer" title="Lihat foto wajah">{img}</a> : img
@@ -234,9 +264,9 @@ export function FotoWajah({ foto, alt, className = 'w-10 h-10 rounded-lg', link 
 
 // Tampilan status izin (nilai di database 'Pending' ditampilkan "Menunggu")
 export const TAMPILAN_STATUS_IZIN: Record<IzinStatus, { label: string; pill: string; kotak: string }> = {
-  Pending: { label: 'Menunggu', pill: 'bg-orange-50 border-orange-300 text-orange-800', kotak: 'bg-orange-100 text-orange-900' },
-  Disetujui: { label: 'Disetujui', pill: 'bg-blue-50 border-blue-300 text-blue-800', kotak: 'bg-blue-100 text-blue-900' },
-  Ditolak: { label: 'Ditolak', pill: 'bg-red-50 border-red-300 text-red-800', kotak: 'bg-red-100 text-red-900' },
+  Pending: { label: 'Menunggu', pill: 'bg-amber-50 border-amber-300 text-amber-800', kotak: 'bg-amber-100 text-amber-900' },
+  Disetujui: { label: 'Disetujui', pill: 'bg-emerald-50 border-emerald-300 text-emerald-800', kotak: 'bg-emerald-100 text-emerald-900' },
+  Ditolak: { label: 'Ditolak', pill: 'bg-rose-50 border-rose-300 text-rose-800', kotak: 'bg-rose-100 text-rose-900' },
 }
 
 const BULAN_SINGKAT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
@@ -304,9 +334,9 @@ export function BuktiIzin({ fileBukti, className }: { fileBukti: string; classNa
 
 export function FotoBadge({ status }: { status: StatusFoto }) {
   const warna: Record<StatusFoto, string> = {
-    Menunggu: 'bg-orange-50 border-orange-300 text-orange-800',
+    Menunggu: 'bg-amber-50 border-amber-300 text-amber-800',
     Diterima: 'bg-emerald-50 border-emerald-300 text-emerald-800',
-    Ditolak: 'bg-red-50 border-red-300 text-red-800',
+    Ditolak: 'bg-rose-50 border-rose-300 text-rose-800',
   }
   const label: Record<StatusFoto, string> = { Menunggu: 'Foto menunggu', Diterima: 'Foto diterima', Ditolak: 'Foto ditolak' }
   return (

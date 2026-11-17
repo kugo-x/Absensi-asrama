@@ -70,7 +70,7 @@ function waktuRelatif(w: string | undefined, now: Date): string {
 
 const GAYA: Record<JenisNotifikasi, { ikon: React.ReactNode; warna: string }> = {
   sukses: { ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-100 text-emerald-700' },
-  permintaan: { ikon: <Inbox className="w-4 h-4" />, warna: 'bg-blue-100 text-blue-700' },
+  permintaan: { ikon: <Inbox className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700' },
   peringatan: { ikon: <AlertTriangle className="w-4 h-4" />, warna: 'bg-amber-100 text-amber-700' },
   info: { ikon: <Info className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600' },
 }
