@@ -369,6 +369,8 @@ export interface HasilLogAktivitas {
   halaman: number
   per: number
   pesan?: string
+  /** Foto profil pelaku di halaman ini, per NIM */
+  foto?: Record<string, string>
 }
 
 /** Log aktivitas dengan filter & halaman dari server; null bila gagal dimuat */

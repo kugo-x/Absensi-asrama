@@ -71,6 +71,19 @@ class LogController extends BaseController
             $b['data'] = $b['data'] === null ? null : (json_decode($b['data'], true) ?? $b['data']);
         }
 
-        return $this->respond(['data' => $baris, 'total' => $total, 'halaman' => $halaman, 'per' => $per]);
+        unset($b);
+
+        // Foto profil pelaku, dikirim sekali per NIM (bukan per baris) agar respons tetap ringan
+        $foto = [];
+        $nimHalaman = array_values(array_unique(array_filter(array_column($baris, 'nim'))));
+        if ($nimHalaman !== [] && $db->fieldExists('Foto_profil', 'user')) {
+            $rows = $db->table('user')->select('NIM, Foto_profil')->whereIn('NIM', $nimHalaman)
+                ->where('Foto_profil IS NOT NULL', null, false)->where('Foto_profil !=', '')->get()->getResultArray();
+            foreach ($rows as $r) {
+                $foto[$r['NIM']] = $r['Foto_profil'];
+            }
+        }
+
+        return $this->respond(['data' => $baris, 'total' => $total, 'halaman' => $halaman, 'per' => $per, 'foto' => (object) $foto]);
     }
 }

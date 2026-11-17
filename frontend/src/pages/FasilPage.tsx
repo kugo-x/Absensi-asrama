@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect } from 'react'
+import { Fragment, useState, useEffect, type ReactNode } from 'react'
 import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult } from '../types'
 import AppLayout, { SectionTitle, Badge, ConfirmDialog, StatCard } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
@@ -10,6 +10,7 @@ import { PanelTrenKehadiran } from '../components/TrenKehadiran'
 import { PilihPeriodeLaporan, labelPeriodeLaporan, rentangLaporan, type SaringPeriode } from '../components/SaringLaporan'
 import DateInput from '../components/DateInput'
 import { notifikasiFasil } from '../notifikasiPeran'
+import { AvatarProfil, KartuGantiPassword, simpanUserLokal } from '../components/ProfilAkun'
 import {
   presensiList as initialPresensi,
   izinList as initialIzin,
@@ -22,7 +23,7 @@ import {
 import {
   awalDemo, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur,
   fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent, type ApiResult,
-  updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT
+  updateIzinStatusApi, koreksiPresensiApi, updateProfileApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT
 } from '../api'
 import {
   cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, toHM, todayLocal, type DataPresensi,
@@ -56,6 +57,8 @@ import {
   ChevronRight,
   Search,
   Eye,
+  ShieldCheck,
+  Mail,
 } from 'lucide-react'
 import { EventFormModal, EventRekapModal } from '../components/EventModals'
 
@@ -66,6 +69,7 @@ const navItems = [
   { id: 'izin', label: 'Manajemen Izin', icon: <FileCheck className="w-[18px] h-[18px]" /> },
   { id: 'foto', label: 'Validasi Foto', icon: <Camera className="w-[18px] h-[18px]" /> },
   { id: 'rekap', label: 'Rekap Kehadiran', icon: <BarChart3 className="w-[18px] h-[18px]" /> },
+  { id: 'profil', label: 'Profil Saya', icon: <User className="w-[18px] h-[18px]" /> },
 ]
 
 interface KoreksiTarget {
@@ -132,6 +136,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const today = todayLocal()
   const sesiAktifList = sesiAktif(sesiList, gedungSaya?.nama, today)
   const anggota = gedungSaya ? penghuniWajibAbsen(penghuni, gedungSaya.nama) : []
+  const penghuniGedungSaya = gedungSaya ? penghuni.filter(p => p.role !== 'fasil' && p.namaGedung === gedungSaya.nama) : []
   const nimGedung = new Set(penghuni.filter(p => gedungSaya && p.namaGedung === gedungSaya.nama).map(p => p.nim))
   const izinGedung = izinData.filter(i => nimGedung.has(i.nim) || (gedungSaya && i.namaGedung === gedungSaya.nama))
   const data: DataPresensi = { presensi, izin: izinData, libur }
@@ -280,11 +285,25 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   if (!gedungSaya) {
     return (
       <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={setActiveTab}>
+        {activeTab === 'profil' ? (
+        <FasilProfil
+          user={user}
+          onLogout={onLogout}
+          gedung={gedungSaya}
+          penghuniGedung={penghuniGedungSaya}
+          jumlahWajibAbsen={anggota.length}
+          izinGedung={izinGedung}
+          presensi={presensi}
+          fotoMenunggu={fotoMenunggu}
+          onBuka={gantiTab}
+        />
+        ) : (
         <div className="bg-white rounded-2xl p-10 text-center border border-amber-200 max-w-xl mx-auto">
           <Building2 className="w-10 h-10 text-amber-600 mx-auto mb-3" />
           <h3 className="font-bold text-base text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Anda belum ditetapkan sebagai PJ gedung</h3>
           <p className="text-sm text-gray-500 mt-1">Hubungi admin agar akun Anda ditetapkan sebagai penanggung jawab salah satu gedung asrama.</p>
         </div>
+        )}
       </AppLayout>
     )
   }
@@ -293,7 +312,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={gantiTab}
       notifikasi={notifikasiFasil({ nim: user.nim, izinGedung, presensiBerfoto, sering, batasTidakHadir: aturan.batasTidakHadir, eventList, today, jamSekarang })}>
       {/* Dashboard sudah menampilkan gedung & jumlah penghuni di header-nya */}
-      {activeTab !== 'dashboard' && (
+      {activeTab !== 'dashboard' && activeTab !== 'profil' && (
         <div className="mb-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-emerald-100 text-xs font-semibold text-emerald-900">
           <Building2 className="w-4 h-4 text-emerald-700" />
           <span>Penanggung jawab {gedungSaya.nama} · {anggota.length} penghuni wajib absen</span>
@@ -364,6 +383,19 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
       {activeTab === 'izin' && <FasilIzin izinData={izinGedung} onSelect={setSelectedIzin} />}
       {activeTab === 'foto' && <FasilValidasiFoto records={presensiBerfoto} onValidasi={handleValidasiFoto} onTerimaMassal={handleTerimaMassal} />}
       {activeTab === 'rekap' && <FasilRekap fasil={user} anggota={anggota} sesiList={sesiList} data={data} now={now} batas={aturan.batasTidakHadir} namaGedung={gedungSaya.nama} />}
+      {activeTab === 'profil' && (
+        <FasilProfil
+          user={user}
+          onLogout={onLogout}
+          gedung={gedungSaya}
+          penghuniGedung={penghuniGedungSaya}
+          jumlahWajibAbsen={anggota.length}
+          izinGedung={izinGedung}
+          presensi={presensi}
+          fotoMenunggu={fotoMenunggu}
+          onBuka={gantiTab}
+        />
+      )}
 
       {selectedIzin && (
         <IzinModal
@@ -1760,6 +1792,225 @@ function KoreksiModal({ target, onClose, onSave }: {
             <button className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white bg-emerald-700 hover:bg-emerald-800 transition-colors cursor-pointer" onClick={simpan} disabled={menyimpan}>{menyimpan ? 'Menyimpan…' : 'Simpan Koreksi'}</button>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ==================== PROFIL FASIL ====================
+
+function FasilProfil({
+  user, onLogout, gedung, penghuniGedung, jumlahWajibAbsen, izinGedung, presensi, fotoMenunggu, onBuka,
+}: {
+  user: CurrentUser
+  onLogout: () => void
+  gedung: Gedung | null
+  penghuniGedung: Penghuni[]
+  jumlahWajibAbsen: number
+  izinGedung: IzinRecord[]
+  presensi: PresensiRecord[]
+  fotoMenunggu: number
+  onBuka: (tab: string) => void
+}) {
+  const [pesanFoto, setPesanFoto] = useState('')
+  const [email, setEmail] = useState(user.email || '')
+  const [noHp, setNoHp] = useState(user.noHp || '')
+  const [simpan, setSimpan] = useState(false)
+  const [pesanKontak, setPesanKontak] = useState<{ ok: boolean; teks: string } | null>(null)
+  const kontakBerubah = email.trim() !== (user.email || '') || noHp.trim() !== (user.noHp || '')
+
+  const simpanKontak = async () => {
+    setPesanKontak(null)
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setPesanKontak({ ok: false, teks: 'Format email tidak valid.' })
+    setSimpan(true)
+    const hasil = await updateProfileApi(user.nim, { nama: user.nama, email: email.trim(), noHp: noHp.trim(), asal: user.asal || '' })
+    setSimpan(false)
+    if (hasil.ok || hasil.offline) simpanUserLokal({ email: email.trim(), noHp: noHp.trim() })
+    setPesanKontak({ ok: hasil.ok || !!hasil.offline, teks: hasil.ok ? 'Kontak berhasil diperbarui.' : hasil.message })
+  }
+
+  // Rekam kerja: tindakan yang tercatat atas nama fasil ini
+  const izinDiputuskan = izinGedung.filter(i => i.nimApprover === user.nim && i.statusPersetujuan !== 'Pending')
+  const disetujui = izinDiputuskan.filter(i => i.statusPersetujuan === 'Disetujui').length
+  const fotoDivalidasi = presensi.filter(r => r.divalidasiOleh === user.nim && r.statusFoto && r.statusFoto !== 'Menunggu').length
+  const koreksi = presensi.filter(r => r.dikoreksiOleh === user.nim).length
+  const izinMenunggu = izinGedung.filter(i => i.statusPersetujuan === 'Pending').length
+
+  const aktif = penghuniGedung.filter(p => p.statusAktif)
+  const kamarTerisi = new Set(aktif.map(p => p.nomorKamar).filter(Boolean)).size
+  const adaLokasi = gedung?.latitude != null && gedung?.longitude != null
+
+  const kolom = 'w-full px-3 py-2 rounded-lg border border-gray-300 text-xs text-gray-800 outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 transition-colors placeholder:text-gray-400'
+  const judulKartu = (ikon: ReactNode, judul: string, kanan?: ReactNode) => (
+    <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/70 flex items-center gap-2.5">
+      <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800">{ikon}</div>
+      <h4 className="flex-1 text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{judul}</h4>
+      {kanan}
+    </div>
+  )
+
+  return (
+    <div className="grid lg:grid-cols-12 gap-5 w-full items-start">
+      {/* Kolom kiri: kartu identitas */}
+      <div className="lg:col-span-4 space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+          <div className="bg-gradient-to-br from-[#0e4b29] via-[#125832] to-[#176d3e] p-6 text-white text-center relative">
+            <div className="absolute top-3 right-3 opacity-20">
+              <ShieldCheck className="w-16 h-16 text-white" />
+            </div>
+            <div className="mb-3">
+              <AvatarProfil user={user} onPesan={setPesanFoto} />
+            </div>
+            <h3 className="font-bold text-base text-white truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{user.nama}</h3>
+            <p className="mono text-xs text-emerald-100/90 mt-0.5 tracking-wide">{user.nim}</p>
+            <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-xs font-semibold text-emerald-50">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span>Fasilitator Asrama</span>
+            </div>
+          </div>
+
+          <div className="p-4 space-y-2 bg-gray-50/50">
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">PJ Gedung</p>
+                <p className="text-xs font-bold text-emerald-950 mt-0.5 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{gedung?.nama || '-'}</p>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Penghuni Dibina</p>
+                <p className="text-xs font-bold text-emerald-950 mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>{aktif.length} orang</p>
+              </div>
+            </div>
+            {pesanFoto && <p className="text-center text-[11px] font-semibold text-emerald-700">{pesanFoto}</p>}
+          </div>
+        </div>
+
+        {/* Pekerjaan yang menunggu */}
+        <div className="bg-white rounded-2xl p-4 border border-gray-200/90 shadow-2xs">
+          <h5 className="font-bold text-xs text-gray-900 pb-2 mb-1 border-b border-gray-100" style={{ fontFamily: 'Plus Jakarta Sans' }}>Menunggu Tindakan Anda</h5>
+          {[
+            { tab: 'izin', ikon: <FileCheck className="w-4 h-4 text-amber-700" />, label: 'Izin menunggu keputusan', jumlah: izinMenunggu },
+            { tab: 'foto', ikon: <Camera className="w-4 h-4 text-orange-600" />, label: 'Foto presensi menunggu validasi', jumlah: fotoMenunggu },
+          ].map(t => (
+            <button
+              key={t.tab}
+              type="button"
+              onClick={() => onBuka(t.tab)}
+              disabled={!gedung}
+              className="w-full flex items-center gap-2.5 py-2.5 text-left text-xs rounded-lg hover:bg-gray-50 px-1.5 -mx-1.5 cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
+            >
+              {t.ikon}
+              <span className="flex-1 text-gray-600">{t.label}</span>
+              <span className={`min-w-6 text-center px-1.5 py-0.5 rounded-full text-[11px] font-bold ${t.jumlah > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-400'}`}>{t.jumlah}</span>
+              {gedung && <ChevronRight className="w-3.5 h-3.5 text-gray-300" />}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Kolom kanan */}
+      <div className="lg:col-span-8 space-y-4">
+        {/* Gedung tanggung jawab */}
+        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+          {judulKartu(<Building2 className="w-4 h-4" />, 'Gedung Tanggung Jawab', gedung && (
+            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${gedung.jenis === 'Putri' ? 'bg-purple-50 text-purple-800' : 'bg-emerald-50 text-emerald-800'}`}>
+              Asrama {gedung.jenis}
+            </span>
+          ))}
+          {gedung ? (
+            <div className="p-5">
+              <p className="text-lg font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>{gedung.nama}</p>
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {[
+                  { label: 'Penghuni aktif', nilai: aktif.length },
+                  { label: 'Wajib absen', nilai: jumlahWajibAbsen },
+                  { label: 'Kamar terisi', nilai: `${kamarTerisi}${gedung.totalKamar ? ` / ${gedung.totalKamar}` : ''}` },
+                  { label: 'Radius presensi', nilai: `${gedung.radiusMeter} m` },
+                ].map(s => (
+                  <div key={s.label} className="p-3 rounded-xl bg-gray-50 border border-gray-100">
+                    <p className="text-[11px] text-gray-500">{s.label}</p>
+                    <p className="mt-0.5 text-base font-extrabold text-emerald-950 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.nilai}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                <MapPin className="w-3.5 h-3.5 text-emerald-700" />
+                {adaLokasi ? (
+                  <>
+                    <span className="mono">{gedung.latitude!.toFixed(5)}, {gedung.longitude!.toFixed(5)}</span>
+                    <a
+                      href={`https://www.google.com/maps?q=${gedung.latitude},${gedung.longitude}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-emerald-700 hover:text-emerald-900"
+                    >
+                      Lihat di peta
+                    </a>
+                  </>
+                ) : (
+                  <span>Titik lokasi presensi belum diatur admin</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="p-5 text-xs text-gray-500">Anda belum ditetapkan sebagai penanggung jawab gedung. Hubungi admin.</p>
+          )}
+        </div>
+
+        {/* Rekam kerja */}
+        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+          {judulKartu(<ClipboardCheck className="w-4 h-4" />, 'Rekam Kerja')}
+          <div className="p-5 grid sm:grid-cols-3 gap-2.5">
+            {[
+              { ikon: <FileCheck className="w-4 h-4 text-emerald-700" />, label: 'Izin diputuskan', nilai: izinDiputuskan.length, ket: `${disetujui} disetujui · ${izinDiputuskan.length - disetujui} ditolak` },
+              { ikon: <Camera className="w-4 h-4 text-emerald-700" />, label: 'Foto divalidasi', nilai: fotoDivalidasi, ket: 'Foto wajah presensi' },
+              { ikon: <Pencil className="w-4 h-4 text-emerald-700" />, label: 'Koreksi presensi', nilai: koreksi, ket: 'Status yang Anda ubah' },
+            ].map(s => (
+              <div key={s.label} className="p-3.5 rounded-xl border border-gray-100">
+                <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">{s.ikon}{s.label}</div>
+                <p className="mt-1.5 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.nilai}</p>
+                <p className="text-[11px] text-gray-400">{s.ket}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Kontak */}
+        <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+          {judulKartu(<Mail className="w-4 h-4" />, 'Kontak')}
+          <div className="p-5 space-y-4">
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Nama Lengkap</label>
+                <input value={user.nama} disabled className={`${kolom} bg-gray-50 text-gray-500 cursor-not-allowed`} title="Nama hanya dapat diubah oleh admin" />
+              </div>
+              <div>
+                <label htmlFor="fasil-email" className="block text-xs font-semibold text-gray-700 mb-1">Email</label>
+                <input id="fasil-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="nama@email.com" className={kolom} />
+              </div>
+              <div>
+                <label htmlFor="fasil-hp" className="block text-xs font-semibold text-gray-700 mb-1">Nomor WhatsApp</label>
+                <input id="fasil-hp" type="tel" inputMode="tel" value={noHp} onChange={e => setNoHp(e.target.value)} placeholder="08xxxxxxxxxx" className={kolom} />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-100">
+              <p className="text-[11px] text-gray-400">Nama hanya dapat diubah oleh admin.</p>
+              <div className="flex items-center gap-3">
+                {pesanKontak && <p className={`text-xs font-semibold ${pesanKontak.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{pesanKontak.teks}</p>}
+                <button
+                  type="button"
+                  onClick={simpanKontak}
+                  disabled={!kontakBerubah || simpan}
+                  className="py-2 px-5 rounded-lg font-bold text-xs text-white bg-[#0e4b29] hover:bg-[#0b3c20] transition-colors shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                  style={{ fontFamily: 'Plus Jakarta Sans' }}
+                >
+                  {simpan ? 'Menyimpan…' : 'Simpan Kontak'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <KartuGantiPassword user={user} onLogout={onLogout} />
       </div>
     </div>
   )

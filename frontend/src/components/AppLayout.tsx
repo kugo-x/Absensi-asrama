@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CurrentUser } from '../types'
 import NotifikasiBell, { type Notifikasi } from './Notifikasi'
 import BannerKoneksi from './BannerKoneksi'
-import { Building2, LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar, ChevronLeft } from 'lucide-react'
+import LogoSIP from './LogoSIP'
+import { LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar, ChevronLeft } from 'lucide-react'
 
 interface NavItem { id: string; label: string; icon: React.ReactNode }
 
@@ -171,9 +172,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
         >
           {/* Brand */}
           <div className="flex items-center gap-3 shrink-0 h-[76px] pl-4 pr-3">
-            <div className="w-9 h-9 shrink-0 rounded-xl bg-emerald-400 flex items-center justify-center text-emerald-950 shadow-[inset_0_-2px_0_rgb(0_0_0/0.12)]">
-              <Building2 className="w-5 h-5" strokeWidth={2.3} />
-            </div>
+            <LogoSIP className="w-9 h-9 shrink-0 drop-shadow-[0_4px_10px_rgb(16_185_129/0.35)]" />
             <div className={`min-w-0 flex-1 whitespace-nowrap ${pudar}`}>
               <div className="font-extrabold text-[15px] leading-tight tracking-tight">SIP Asrama</div>
               <div className="text-[11px] font-medium text-emerald-200/50">Universitas Andalas</div>
