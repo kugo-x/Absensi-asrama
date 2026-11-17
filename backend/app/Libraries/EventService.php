@@ -202,7 +202,8 @@ class EventService
                 e.longitude,
                 e.radius_meter as radiusMeter,
                 e.created_by as createdBy,
-                u.Nama as namaPembuat
+                u.Nama as namaPembuat,
+                DATE_FORMAT(e.created_at, '%Y-%m-%d %H:%i') as dibuatPada
             FROM event e
             LEFT JOIN gedung g ON g.Id_Gedung = e.id_gedung
             LEFT JOIN user u ON BINARY u.NIM = BINARY e.created_by

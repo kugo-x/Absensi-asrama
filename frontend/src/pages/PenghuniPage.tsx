@@ -163,6 +163,16 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     return () => clearInterval(timer)
   }, [])
 
+  // Muat ulang berkala agar keputusan izin, validasi foto, dan event baru muncul di notifikasi tanpa refresh
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchPresensi().then(setPresensi)
+      fetchIzin().then(data => setIzinData(data.filter(i => i.nim === user.nim)))
+      fetchEvent().then(res => { if (res && res.length > 0) setEventList(res) })
+    }, 60000)
+    return () => clearInterval(timer)
+  }, [user.nim])
+
   useEffect(() => {
     fetchPresensi().then(setPresensi)
     fetchIzin().then(data => setIzinData(data.filter(i => i.nim === user.nim)))
@@ -313,7 +323,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
 
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}
-      notifikasi={notifikasiPenghuni({ nim: user.nim, presensi, izin: izinData, sesiHampirTutup, today })}>
+      notifikasi={notifikasiPenghuni({ nim: user.nim, presensi, izin: izinData, sesiHampirTutup, today, eventList, jamSekarang: toHM(now) })}>
       {(modeUji.abaikanJam || modeUji.abaikanRadius) && (
         <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />

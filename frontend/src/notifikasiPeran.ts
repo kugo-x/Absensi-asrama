@@ -1,4 +1,4 @@
-import type { Gedung, IzinRecord, ModeUji, PresensiRecord, Sesi } from './types'
+import type { EventAsrama, Gedung, IzinRecord, ModeUji, PresensiRecord, Sesi } from './types'
 import type { Notifikasi } from './components/Notifikasi'
 import { formatRentangIzin } from './components/PresensiWidgets'
 import { addDays, formatTanggal } from './logic'
@@ -11,6 +11,46 @@ import { addDays, formatTanggal } from './logic'
 
 const RENTANG_HARI = 14
 
+// ---------- Event (penghuni & fasil) ----------
+
+/**
+ * Event yang belum lewat dan dibuat dalam RENTANG_HARI terakhir -> "Event baru".
+ * Event hari ini yang belum diabsen penghuni -> pengingat (id per hari, jadi muncul sekali tiap hari).
+ * Daftar event dari server sudah dibatasi per peran/gedung; event buatan sendiri tidak diberitahukan.
+ */
+function notifikasiEvent(eventList: EventAsrama[], nimSaya: string, today: string, jamSekarang: string, pengingatHariIni: boolean): Notifikasi[] {
+  const batas = addDays(today, -RENTANG_HARI)
+  const out: Notifikasi[] = []
+  for (const ev of eventList) {
+    const belumLewat = ev.tanggal > today || (ev.tanggal === today && ev.jamSelesai >= jamSekarang)
+    if (!belumLewat || ev.createdBy === nimSaya) continue
+    const kapan = `${ev.tanggal === today ? 'Hari ini' : formatTanggal(ev.tanggal)}, ${ev.jamMulai}–${ev.jamSelesai}`
+
+    if (pengingatHariIni && ev.tanggal === today && ev.statusKehadiran !== 'Hadir') {
+      out.push({
+        id: `event-hari-ini-${ev.id}-${today}`,
+        jenis: 'peringatan',
+        judul: `Hari ini: ${ev.judul}`,
+        pesan: `${ev.jamMulai}–${ev.jamSelesai} di ${ev.lokasi}. Jangan lupa absen di lokasi event.`,
+        labelWaktu: ev.jamMulai > jamSekarang ? `Mulai ${ev.jamMulai}` : 'Berlangsung',
+        tab: 'event',
+      })
+    }
+    // Tanpa tanggal dibuat (data lama) tetap diberitahukan selama event belum lewat
+    if (!ev.dibuatPada || ev.dibuatPada.slice(0, 10) >= batas) {
+      out.push({
+        id: `event-baru-${ev.id}`,
+        jenis: 'info',
+        judul: `Event baru: ${ev.judul}`,
+        pesan: `${kapan} · ${ev.lokasi}${ev.namaPembuat ? ` · oleh ${ev.namaPembuat}` : ''}`,
+        waktu: ev.dibuatPada || undefined,
+        tab: 'event',
+      })
+    }
+  }
+  return out
+}
+
 // ---------- Penghuni ----------
 
 export function notifikasiPenghuni(a: {
@@ -19,9 +59,11 @@ export function notifikasiPenghuni(a: {
   izin: IzinRecord[]
   sesiHampirTutup: { sesi: Sesi; sisa: number }[]
   today: string
+  eventList: EventAsrama[]
+  jamSekarang: string
 }): Notifikasi[] {
   const batas = addDays(a.today, -RENTANG_HARI)
-  const out: Notifikasi[] = []
+  const out: Notifikasi[] = notifikasiEvent(a.eventList, a.nim, a.today, a.jamSekarang, true)
 
   for (const { sesi, sisa } of a.sesiHampirTutup) {
     out.push({
@@ -87,19 +129,25 @@ export function notifikasiPenghuni(a: {
 // ---------- Fasilitator ----------
 
 export function notifikasiFasil(a: {
+  nim: string
   izinGedung: IzinRecord[]
   presensiBerfoto: PresensiRecord[]
   sering: { penghuni: { nim: string; nama: string }; c: { 'Tidak Hadir': number } }[]
   batasTidakHadir: number
+  eventList: EventAsrama[]
+  today: string
+  jamSekarang: string
 }): Notifikasi[] {
-  const out: Notifikasi[] = []
+  // Fasil diberi tahu event yang dibuat pihak lain (mis. admin untuk seluruh asrama), tanpa pengingat absen
+  const out: Notifikasi[] = notifikasiEvent(a.eventList, a.nim, a.today, a.jamSekarang, false)
 
   for (const i of a.izinGedung) {
     if (i.statusPersetujuan !== 'Pending') continue
+    const ulang = i.idIzinSebelumnya != null
     out.push({
       id: `izin-masuk-${i.id}`,
       jenis: 'permintaan',
-      judul: `Permohonan izin dari ${i.namaPenghuni}`,
+      judul: ulang ? `Pengajuan ulang izin dari ${i.namaPenghuni}` : `Permohonan izin dari ${i.namaPenghuni}`,
       pesan: `${formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)} — ${i.alasan}`,
       labelWaktu: 'Menunggu',
       tab: 'izin',

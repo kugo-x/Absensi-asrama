@@ -1,4 +1,4 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, RekapEventResult, GedungInput, KamarInput } from './types'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, RekapEventResult, GedungInput, KamarInput, LogAktivitas } from './types'
 import {
   DEMO_ACCOUNTS,
   gedungList as initialGedung,
@@ -361,6 +361,34 @@ export function adalahBuktiTersimpan(fileBukti: string | null | undefined): bool
 }
 
 // Endpoint bukti wajib token, jadi berkas diambil lewat fetch lalu dijadikan blob URL (pemanggil wajib revokeObjectURL)
+// ---------- Log aktivitas (admin) ----------
+
+export interface HasilLogAktivitas {
+  data: LogAktivitas[]
+  total: number
+  halaman: number
+  per: number
+  pesan?: string
+}
+
+/** Log aktivitas dengan filter & halaman dari server; null bila gagal dimuat */
+export async function fetchLogAktivitas(saring: Record<string, string | number>): Promise<HasilLogAktivitas | null> {
+  const qs = new URLSearchParams(Object.entries(saring).filter(([, v]) => v !== '').map(([k, v]) => [k, String(v)]))
+  try {
+    const res = await fetch(`${API_BASE}/log?${qs}`, { headers: authHeaders() })
+    if (res.status === 401) {
+      tokenKedaluwarsa()
+      return null
+    }
+    if (!res.ok || !isJson(res)) return null
+    laporKoneksi(true)
+    return await res.json()
+  } catch {
+    laporKoneksi(false)
+    return null
+  }
+}
+
 export async function fetchBuktiIzin(fileBukti: string): Promise<string | null> {
   try {
     const res = await fetch(`${API_BASE}/izin/bukti/${encodeURIComponent(fileBukti)}`, { headers: authHeaders() })

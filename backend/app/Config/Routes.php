@@ -75,6 +75,9 @@ $routes->group('api', static function ($routes) {
     $routes->get('aturan-presensi', 'Api\PengaturanController::getAturanPresensi');
     $routes->post('aturan-presensi', 'Api\PengaturanController::saveAturanPresensi');
 
+    // Log aktivitas (admin, hanya baca)
+    $routes->get('log', 'Api\LogController::index');
+
     });
 
     // Generic OPTIONS handler for CORS preflight

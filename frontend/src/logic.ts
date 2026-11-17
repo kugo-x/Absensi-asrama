@@ -250,6 +250,54 @@ export function riwayatPenghuni(nim: string, mulai: string, sampai: string, sesi
   return rows
 }
 
+/**
+ * Status seluruh sesi wajib banyak penghuni pada rentang tanggal, dikelompokkan per tanggal.
+ * Hasilnya sama dengan riwayatPenghuni untuk tiap penghuni (urutan & aturan lewati yang sama), tetapi
+ * presensi diindeks per NIM+tanggal dan izin per NIM lebih dulu — statusSesi hanya membaca catatan milik
+ * NIM itu pada tanggal itu — sehingga rentang berbulan-bulan untuk ratusan penghuni tetap ringan.
+ */
+export function statusPerTanggal(penghuni: Penghuni[], mulai: string, sampai: string, sesiList: Sesi[], data: DataPresensi, now: Date): Map<string, PresensiStatus[]> {
+  const kelompok = <T,>(list: T[], kunci: (x: T) => string) => {
+    const m = new Map<string, T[]>()
+    for (const x of list) {
+      const k = kunci(x)
+      const ada = m.get(k)
+      if (ada) ada.push(x)
+      else m.set(k, [x])
+    }
+    return m
+  }
+  const presensiPerHari = kelompok(data.presensi, p => `${p.nim}|${p.tanggal}`)
+  const izinPerNim = kelompok(data.izin, i => i.nim)
+  const tanpaCatatan: PresensiRecord[] = []
+  // Jadwal sesi per gedung per tanggal dihitung sekali, bukan per penghuni
+  const sesiCache = new Map<string, Sesi[]>()
+  const sesiPada = (gedung: string, tanggal: string) => {
+    const k = `${gedung}|${tanggal}`
+    let s = sesiCache.get(k)
+    if (!s) sesiCache.set(k, (s = [...sesiAktif(sesiList, gedung, tanggal)].reverse()))
+    return s
+  }
+  const hasil = new Map<string, PresensiStatus[]>()
+  const tanggalRentang = dateRangeDesc(mulai, sampai)
+  for (const p of penghuni) {
+    const dari = p.tanggalMasuk ? maxDate(mulai, p.tanggalMasuk) : mulai
+    const izin = izinPerNim.get(p.nim) ?? []
+    for (const tanggal of tanggalRentang) {
+      if (tanggal < dari) break
+      const milikHariIni: DataPresensi = { presensi: presensiPerHari.get(`${p.nim}|${tanggal}`) ?? tanpaCatatan, izin, libur: data.libur }
+      for (const sesi of sesiPada(p.namaGedung, tanggal)) {
+        const detail = statusSesi(p.nim, tanggal, sesi, milikHariIni, now)
+        if (detail.status === 'Belum' && detail.fase === 'belum-dibuka') continue
+        const ada = hasil.get(tanggal)
+        if (ada) ada.push(detail.status)
+        else hasil.set(tanggal, [detail.status])
+      }
+    }
+  }
+  return hasil
+}
+
 export function hitungStatus(statuses: PresensiStatus[]) {
   const c = { Hadir: 0, Izin: 0, 'Tidak Hadir': 0, Belum: 0, Libur: 0 }
   statuses.forEach(s => { c[s]++ })

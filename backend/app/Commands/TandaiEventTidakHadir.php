@@ -3,6 +3,7 @@
 namespace App\Commands;
 
 use App\Libraries\EventService;
+use App\Libraries\LogAktivitas;
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
 use Throwable;
@@ -40,6 +41,11 @@ class TandaiEventTidakHadir extends BaseCommand
         CLI::write('[' . date('Y-m-d H:i:s') . '] Pengecekan event selesai per ' . $tanggal . ' ' . $jam, 'green');
         CLI::write('Event diproses : ' . $hasil['eventDiproses']);
         CLI::write('Alpa dicatat   : ' . $hasil['alpaDibuat'], 'yellow');
+
+        // Hanya dicatat bila benar-benar ada data dibuat (perintah ini dapat berjalan tiap menit)
+        if ($hasil['alpaDibuat'] > 0) {
+            LogAktivitas::sistem('event', 'Menandai Tidak Hadir event otomatis', sprintf('%d catatan dibuat dari %d event', $hasil['alpaDibuat'], $hasil['eventDiproses']));
+        }
 
         return EXIT_SUCCESS;
     }

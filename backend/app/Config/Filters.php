@@ -13,6 +13,7 @@ use CodeIgniter\Filters\PageCache;
 use CodeIgniter\Filters\PerformanceMetrics;
 use CodeIgniter\Filters\SecureHeaders;
 use App\Filters\ApiAuth;
+use App\Filters\CatatAktivitas;
 
 class Filters extends BaseFilters
 {
@@ -36,6 +37,7 @@ class Filters extends BaseFilters
         'pagecache'     => PageCache::class,
         'performance'   => PerformanceMetrics::class,
         'api-auth'     => ApiAuth::class,
+        'catat-aktivitas' => CatatAktivitas::class,
     ];
 
     /**
@@ -109,5 +111,8 @@ class Filters extends BaseFilters
      *
      * @var array<string, array<string, list<string>>>
      */
-    public array $filters = [];
+    public array $filters = [
+        // Log aktivitas: setiap perubahan data lewat API dicatat (siapa, apa, kapan)
+        'catat-aktivitas' => ['after' => ['api/*']],
+    ];
 }

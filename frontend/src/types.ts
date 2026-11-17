@@ -155,6 +155,25 @@ export interface IzinRecord {
   catatanSebelumnya?: string
 }
 
+// Log aktivitas sistem (dicatat otomatis oleh backend; admin hanya membaca)
+export interface LogAktivitas {
+  id: number
+  waktu: string // 'YYYY-MM-DD HH:MM:SS'
+  nim: string | null // null = dijalankan sistem
+  nama: string | null
+  peran: string | null
+  entitas: string
+  aksi: string
+  rute: string | null
+  target: string | null
+  keterangan: string | null
+  status: 'berhasil' | 'gagal'
+  kodeHttp: number | null
+  data: Record<string, unknown> | string | null
+  ip: string | null
+  agen: string | null
+}
+
 // ----------------------------------------------------
 // Modul 2: Gedung, Kamar & Event Asrama
 // ----------------------------------------------------
@@ -192,6 +211,8 @@ export interface EventAsrama {
   radiusMeter: number
   createdBy?: string | null
   namaPembuat?: string | null
+  // 'YYYY-MM-DD HH:MM', untuk notifikasi event baru
+  dibuatPada?: string | null
   statusKehadiran?: 'Hadir' | 'Tidak Hadir' | 'Belum Absen'
   presensiSaya?: PresensiEventRecord | null
 }

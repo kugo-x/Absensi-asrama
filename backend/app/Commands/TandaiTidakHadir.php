@@ -2,6 +2,7 @@
 
 namespace App\Commands;
 
+use App\Libraries\LogAktivitas;
 use App\Libraries\PresensiService;
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
@@ -69,6 +70,11 @@ class TandaiTidakHadir extends BaseCommand
         }
         CLI::table($rows, ['Sesi', 'Status', 'Tidak Hadir', 'Izin', 'Diperbarui ke Izin', 'Sudah ada']);
         CLI::write(sprintf('Sesi diproses: %d, baris dibuat: %d', $diproses, $total), 'green');
+
+        // Hanya dicatat bila benar-benar ada data dibuat (perintah ini dapat berjalan tiap menit)
+        if ($total > 0) {
+            LogAktivitas::sistem('presensi', 'Menandai Tidak Hadir otomatis', sprintf('%d catatan dibuat untuk %s', $total, $hasil['tanggal']), ['tanggal' => $hasil['tanggal'], 'sesi' => $rows]);
+        }
 
         return EXIT_SUCCESS;
     }

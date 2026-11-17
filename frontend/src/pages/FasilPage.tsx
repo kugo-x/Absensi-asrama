@@ -2,9 +2,12 @@ import { Fragment, useState, useEffect } from 'react'
 import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult } from '../types'
 import AppLayout, { SectionTitle, Badge, ConfirmDialog, StatCard } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
-import { downloadReport, type ExportFormat } from '../ekspor'
+import { unduhLaporan, type ExportFormat } from '../ekspor'
 import { BuktiIzin, FotoBadge, FotoWajah, KotakTanggalIzin, RekapStats, RekapTableBerhalaman, SesiToggle, TAMPILAN_STATUS_IZIN, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import { BarisSaringIzin, KosongSaringIzin, useSaringIzin } from '../components/SaringIzin'
+import { BilahKomposisi, HistogramSebaran, PetaPanasPola, WARNA_STATUS_GRAFIK, hitungPolaMingguan } from '../components/GrafikKehadiran'
+import { PanelTrenKehadiran } from '../components/TrenKehadiran'
+import { PilihPeriodeLaporan, labelPeriodeLaporan, rentangLaporan, type SaringPeriode } from '../components/SaringLaporan'
 import DateInput from '../components/DateInput'
 import { notifikasiFasil } from '../notifikasiPeran'
 import {
@@ -108,6 +111,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     const timer = setInterval(() => {
       fetchPresensi().then(setPresensi)
       fetchIzin().then(setIzinData)
+      fetchEvent().then(setEventList)
     }, 60000)
     return () => clearInterval(timer)
   }, [])
@@ -140,12 +144,6 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     return { penghuni: p, c: hitungStatus(riwayat.map(r => r.detail.status)), riwayat }
   }).sort((a, b) => b.c['Tidak Hadir'] - a.c['Tidak Hadir'] || a.c.persen - b.c.persen)
   const sering = rekapPenghuni.filter(r => r.c['Tidak Hadir'] >= aturan.batasTidakHadir)
-  // Tren 7 hari terakhir untuk grafik dashboard: status seluruh sesi wajib per tanggal (memakai riwayat 30 hari di atas)
-  const awalTren = addDays(today, -6)
-  const tren = dateRangeDesc(awalTren, today).reverse().map(tanggal => ({
-    tanggal,
-    c: hitungStatus(rekapPenghuni.flatMap(r => r.riwayat.filter(x => x.tanggal === tanggal).map(x => x.detail.status))),
-  }))
   // Penghuni yang sedang berizin (disetujui) hari ini, satu baris per penghuni
   const izinHariIni = izinGedung
     .filter(i => i.statusPersetujuan === 'Disetujui' && i.tanggal <= today && today <= (i.tanggalSelesai || i.tanggal) &&
@@ -293,7 +291,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
 
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={gantiTab}
-      notifikasi={notifikasiFasil({ izinGedung, presensiBerfoto, sering, batasTidakHadir: aturan.batasTidakHadir })}>
+      notifikasi={notifikasiFasil({ nim: user.nim, izinGedung, presensiBerfoto, sering, batasTidakHadir: aturan.batasTidakHadir, eventList, today, jamSekarang })}>
       {/* Dashboard sudah menampilkan gedung & jumlah penghuni di header-nya */}
       {activeTab !== 'dashboard' && (
         <div className="mb-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-emerald-100 text-xs font-semibold text-emerald-900">
@@ -315,7 +313,16 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
           pendingIzin={izinGedung.filter(i => i.statusPersetujuan === 'Pending')}
           izinHariIni={izinHariIni}
           rekapPenghuni={rekapPenghuni}
-          tren={tren}
+          panelTren={
+            <PanelTrenKehadiran
+              penghuni={anggota}
+              sesiList={sesiList}
+              data={data}
+              now={now}
+              judul="Tren Kehadiran Gedung"
+              aksi={<button type="button" onClick={() => setActiveTab('rekap')} className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer shrink-0">Rekap lengkap</button>}
+            />
+          }
           eventBerikutnya={eventBerikutnya}
           onKoreksi={(row, sesi) => setKoreksi({ row, tanggal: today, sesi })}
           onLihatMonitor={bukaMonitor}
@@ -356,7 +363,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
       )}
       {activeTab === 'izin' && <FasilIzin izinData={izinGedung} onSelect={setSelectedIzin} />}
       {activeTab === 'foto' && <FasilValidasiFoto records={presensiBerfoto} onValidasi={handleValidasiFoto} onTerimaMassal={handleTerimaMassal} />}
-      {activeTab === 'rekap' && <FasilRekap anggota={anggota} sesiList={sesiList} data={data} now={now} batas={aturan.batasTidakHadir} namaGedung={gedungSaya.nama} />}
+      {activeTab === 'rekap' && <FasilRekap fasil={user} anggota={anggota} sesiList={sesiList} data={data} now={now} batas={aturan.batasTidakHadir} namaGedung={gedungSaya.nama} />}
 
       {selectedIzin && (
         <IzinModal
@@ -624,10 +631,6 @@ function FasilEvent({
 
 type RekapPenghuni = { penghuni: Penghuni; c: ReturnType<typeof hitungStatus> }
 
-// Warna status untuk grafik & ringkasan sesi (divalidasi skrip dataviz: Hadir/Izin di batas CVD,
-// jadi selalu disertai celah antarsegmen, legenda, dan tooltip)
-const WARNA_STATUS_GRAFIK = { Hadir: '#059669', Izin: '#d97706', 'Tidak Hadir': '#e11d48' } as const
-
 function salam(now: Date): string {
   const jam = now.getHours()
   return jam < 11 ? 'Selamat pagi' : jam < 15 ? 'Selamat siang' : jam < 18 ? 'Selamat sore' : 'Selamat malam'
@@ -640,81 +643,8 @@ function formatDurasi(menit: number): string {
   return j > 0 ? `${j} jam${m ? ` ${m} menit` : ''}` : `${m} menit`
 }
 
-// Grafik batang bertumpuk 7 hari: Hadir (bawah), Izin, Tidak Hadir (atas); detail angka lewat tooltip
-function GrafikTrenKehadiran({ tren, today }: { tren: { tanggal: string; c: ReturnType<typeof hitungStatus> }[]; today: string }) {
-  const maks = Math.max(1, ...tren.map(t => t.c.wajib))
-  const TINGGI = 128
-  const totalHadir = tren.reduce((n, t) => n + t.c.Hadir, 0)
-  const totalWajib = tren.reduce((n, t) => n + t.c.wajib, 0)
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-4 text-xs text-gray-600">
-        {(Object.keys(WARNA_STATUS_GRAFIK) as (keyof typeof WARNA_STATUS_GRAFIK)[]).map(k => (
-          <span key={k} className="inline-flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-sm" style={{ background: WARNA_STATUS_GRAFIK[k] }} />
-            {k}
-          </span>
-        ))}
-        <span className="ml-auto text-gray-500">
-          Rata-rata <strong className="text-gray-900">{totalWajib > 0 ? Math.round((totalHadir / totalWajib) * 100) : 0}%</strong> hadir
-        </span>
-      </div>
-
-      <div className="flex items-end justify-between gap-1 border-b border-gray-200" style={{ height: TINGGI }}>
-        {tren.map(({ tanggal, c }) => {
-          const segmen = (['Hadir', 'Izin', 'Tidak Hadir'] as const).filter(k => c[k] > 0)
-          const atas = segmen[segmen.length - 1]
-          return (
-            <div key={tanggal} className="group relative flex-1 h-full flex flex-col items-center justify-end outline-none" tabIndex={0} aria-label={`${formatTanggal(tanggal)}: ${c.Hadir} hadir, ${c.Izin} izin, ${c['Tidak Hadir']} tidak hadir`}>
-              {/* Tooltip */}
-              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10 hidden group-hover:block group-focus:block w-44 rounded-lg bg-gray-900 text-white text-[11px] p-2.5 shadow-lg">
-                <p className="font-bold mb-1">{formatTanggal(tanggal)}</p>
-                {c.wajib === 0 ? <p className="text-gray-300">{c.Libur > 0 ? 'Libur' : 'Tidak ada sesi wajib'}</p> : (
-                  <>
-                    {(['Hadir', 'Izin', 'Tidak Hadir'] as const).map(k => (
-                      <p key={k} className="flex items-center justify-between gap-2">
-                        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: WARNA_STATUS_GRAFIK[k] }} />{k}</span>
-                        <span className="font-semibold">{c[k]}</span>
-                      </p>
-                    ))}
-                    <p className="mt-1 pt-1 border-t border-white/15 flex justify-between"><span>Kehadiran</span><span className="font-bold">{c.persen}%</span></p>
-                  </>
-                )}
-              </div>
-
-              {c.wajib === 0 ? (
-                <span className="mb-1 text-[10px] font-semibold text-gray-400">{c.Libur > 0 ? 'Libur' : '–'}</span>
-              ) : (
-                <div className="w-full max-w-6 flex flex-col-reverse gap-[2px] group-hover:opacity-85 transition-opacity">
-                  {segmen.map(k => (
-                    <div
-                      key={k}
-                      className={k === atas ? 'rounded-t-[4px]' : ''}
-                      style={{ height: Math.max(2, (c[k] / maks) * (TINGGI - 8)), background: WARNA_STATUS_GRAFIK[k] }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="flex justify-between gap-1 mt-1.5">
-        {tren.map(({ tanggal }) => (
-          <span key={tanggal} className={`flex-1 text-center text-[10px] leading-tight ${tanggal === today ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
-            {tanggal === today ? 'Hari ini' : NAMA_HARI[hariIso(tanggal)].slice(0, 3)}
-            <span className="block text-gray-400 font-normal">{Number(tanggal.slice(8))}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function FasilDashboard({
-  namaFasil, gedung, jumlahPenghuni, sesiList, rekapRows, today, now, liburHariIni, pendingIzin, izinHariIni, rekapPenghuni, tren,
+  namaFasil, gedung, jumlahPenghuni, sesiList, rekapRows, today, now, liburHariIni, pendingIzin, izinHariIni, rekapPenghuni, panelTren,
   eventBerikutnya, onKoreksi, onLihatMonitor, onLihatIzin, onLihatEvent, sering, batasTidakHadir, onLihatRekap, fotoMenunggu, onLihatFoto,
 }: {
   namaFasil: string
@@ -730,7 +660,8 @@ function FasilDashboard({
   izinHariIni: IzinRecord[]
   // Rekap 30 hari tiap penghuni, untuk ringkasan kehadiran gedung
   rekapPenghuni: RekapPenghuni[]
-  tren: { tanggal: string; c: ReturnType<typeof hitungStatus> }[]
+  // Panel tren (7 hari / 12 minggu / 6 bulan) disiapkan induk karena butuh seluruh jadwal sesi
+  panelTren: React.ReactNode
   eventBerikutnya: EventAsrama | null
   onKoreksi: (row: RekapRow, sesi: string) => void
   // Buka tab Monitor dengan sesi & status terpilih (daftar lengkap penghuni ada di sana)
@@ -767,7 +698,6 @@ function FasilDashboard({
   const perhatian = fase === 'belum' ? [] : rows.filter(r => r.detail.status === (fase === 'tutup' ? 'Tidak Hadir' : 'Belum'))
     .sort((a, b) => a.penghuni.nama.localeCompare(b.penghuni.nama))
   const persenSesi = rows.length > 0 ? Math.round((c.Hadir / rows.length) * 100) : 0
-  const KELILING = 2 * Math.PI * 42
 
   const izinTerdekat = [...pendingIzin].sort((a, b) => a.tanggal.localeCompare(b.tanggal))[0]
   const tindakan = [
@@ -837,37 +767,20 @@ function FasilDashboard({
           {rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-gray-400">{liburHariIni ? 'Hari ini libur, tidak ada sesi wajib.' : 'Tidak ada sesi wajib untuk ditampilkan.'}</p>
           ) : (
-            <div className="flex flex-col sm:flex-row gap-6">
-              {/* Persentase hadir sesi ini */}
-              <div className="flex sm:flex-col items-center gap-4 sm:gap-2 shrink-0">
-                <div className="relative w-28 h-28">
-                  <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90" aria-hidden="true">
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="#e5e7eb" strokeWidth="9" />
-                    <circle cx="50" cy="50" r="42" fill="none" stroke={WARNA_STATUS_GRAFIK.Hadir} strokeWidth="9" strokeLinecap="round"
-                      strokeDasharray={`${(persenSesi / 100) * KELILING} ${KELILING}`} className="transition-all duration-500" />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-2xl font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{persenSesi}%</span>
-                    <span className="text-[10px] text-gray-500">hadir</span>
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500 sm:text-center">{c.Hadir} dari {rows.length} penghuni</p>
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+                <span className="text-5xl font-extrabold text-gray-900 leading-none" style={{ fontFamily: 'Plus Jakarta Sans' }}>{persenSesi}%</span>
+                <span className="text-sm text-gray-500 pb-1">hadir · <strong className="text-gray-800">{c.Hadir}</strong> dari {rows.length} penghuni pada sesi {sesi}</span>
               </div>
 
-              <div className="flex-1 min-w-0 space-y-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { label: 'Hadir', nilai: c.Hadir, warna: WARNA_STATUS_GRAFIK.Hadir },
-                    { label: 'Izin', nilai: c.Izin + c.Libur, warna: WARNA_STATUS_GRAFIK.Izin },
-                    { label: 'Tidak hadir', nilai: c['Tidak Hadir'], warna: WARNA_STATUS_GRAFIK['Tidak Hadir'] },
-                    { label: 'Belum', nilai: c.Belum, warna: '#9ca3af' },
-                  ].map(x => (
-                    <div key={x.label} className="rounded-xl border border-gray-200 px-3 py-2">
-                      <p className="text-[11px] text-gray-500 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: x.warna }} />{x.label}</p>
-                      <p className="text-lg font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{x.nilai}</p>
-                    </div>
-                  ))}
-                </div>
+              <BilahKomposisi
+                bagian={[
+                  { label: 'Hadir', nilai: c.Hadir, warna: WARNA_STATUS_GRAFIK.Hadir },
+                  { label: 'Izin & libur', nilai: c.Izin + c.Libur, warna: WARNA_STATUS_GRAFIK.Izin },
+                  { label: 'Tidak hadir', nilai: c['Tidak Hadir'], warna: WARNA_STATUS_GRAFIK['Tidak Hadir'] },
+                  { label: 'Belum presensi', nilai: c.Belum, warna: '#d1d5db', teksGelap: true },
+                ]}
+              />
 
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -913,7 +826,6 @@ function FasilDashboard({
                     </div>
                   )}
                 </div>
-              </div>
             </div>
           )}
         </div>
@@ -950,17 +862,8 @@ function FasilDashboard({
       </div>
 
       <div className="grid lg:grid-cols-3 gap-5">
-        {/* Tren 7 hari */}
-        <div className={`${kartuCls} p-5 lg:col-span-2`}>
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <p className={judulKartu} style={{ fontFamily: 'Plus Jakarta Sans' }}>Tren Kehadiran 7 Hari</p>
-              <p className="text-xs text-gray-500 mt-0.5">Jumlah sesi wajib seluruh penghuni per hari. Arahkan kursor ke batang untuk detail.</p>
-            </div>
-            <button type="button" onClick={onLihatRekap} className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer shrink-0">Rekap lengkap</button>
-          </div>
-          <GrafikTrenKehadiran tren={tren} today={today} />
-        </div>
+        {/* Tren kehadiran gedung: 7 hari / 12 minggu / 6 bulan */}
+        <div className={`${kartuCls} p-5 lg:col-span-2`}>{panelTren}</div>
 
         {/* Hari ini: izin & event */}
         <div className={`${kartuCls} p-5 space-y-5`}>
@@ -1372,31 +1275,11 @@ function KartuValidasiFoto({ rec, onValidasi, dipilih, onPilih }: {
 
 // Rekap kehadiran per penghuni untuk tindak lanjut pelanggaran.
 // Ambang "perlu ditegur" diatur admin (pengaturan batas_tidak_hadir) dan dihitung dalam periode yang dipilih.
-type PeriodeRekapFasil = '7' | '30' | 'bulan-ini' | 'bulan-lalu'
-
-const PILIHAN_PERIODE_REKAP: [PeriodeRekapFasil, string][] = [
-  ['7', '7 hari terakhir'],
-  ['30', '30 hari terakhir'],
-  ['bulan-ini', 'Bulan ini'],
-  ['bulan-lalu', 'Bulan lalu'],
-]
-
-function rentangPeriodeRekap(periode: PeriodeRekapFasil, today: string): [string, string] {
-  const awalBulanIni = `${today.slice(0, 7)}-01`
-  switch (periode) {
-    case '7': return [addDays(today, -6), today]
-    case '30': return [addDays(today, -29), today]
-    case 'bulan-ini': return [awalBulanIni, today]
-    case 'bulan-lalu': {
-      const akhirBulanLalu = addDays(awalBulanIni, -1)
-      return [`${akhirBulanLalu.slice(0, 7)}-01`, akhirBulanLalu]
-    }
-  }
-}
-
 type UrutanRekap = 'alpa' | 'kehadiran' | 'nama' | 'kamar'
 
-function FasilRekap({ anggota, sesiList, data, now, batas: BATAS_ALPA, namaGedung }: {
+function FasilRekap({ fasil, anggota, sesiList, data, now, batas: BATAS_ALPA, namaGedung }: {
+  // Fasil yang mencetak; dicantumkan sebagai penanda tangan laporan
+  fasil: CurrentUser
   anggota: Penghuni[]
   sesiList: Sesi[]
   data: DataPresensi
@@ -1405,19 +1288,27 @@ function FasilRekap({ anggota, sesiList, data, now, batas: BATAS_ALPA, namaGedun
   namaGedung: string
 }) {
   const today = todayLocal()
-  const [periode, setPeriode] = useState<PeriodeRekapFasil>('30')
+  const [saringPeriode, setSaringPeriode] = useState<SaringPeriode>({ periode: '30', dari: '', sampai: '' })
+  const [sesiPilih, setSesiPilih] = useState('')
   const [cari, setCari] = useState('')
   const [urutan, setUrutan] = useState<UrutanRekap>('alpa')
   const [hanyaDitegur, setHanyaDitegur] = useState(false)
   const [dibuka, setDibuka] = useState<string | null>(null)
 
-  const [dari, sampai] = rentangPeriodeRekap(periode, today)
-  const labelPeriode = PILIHAN_PERIODE_REKAP.find(([p]) => p === periode)![1]
+  // Rentang bebas yang belum valid -> tabel kosong sampai tanggalnya diperbaiki
+  const rentang = rentangLaporan(saringPeriode, today)
+  const [dari, sampai] = rentang ?? [today, today]
+  const namaSesi = [...new Set(sesiAktif(sesiList, namaGedung).map(s => s.nama))]
+  const keteranganSaring = rentang
+    ? `${labelPeriodeLaporan(saringPeriode, rentang)}${sesiPilih ? ` · Sesi ${sesiPilih}` : ' · Semua sesi'}`
+    : 'Pilih rentang tanggal yang valid'
 
   // Rekap tiap penghuni sejak tanggal masuknya (penghuni baru tidak dihitung alpa sebelum masuk)
-  const semua = anggota.map(p => {
+  const semua = !rentang ? [] : anggota.map(p => {
     const mulai = p.tanggalMasuk ? maxDate(dari, p.tanggalMasuk) : dari
-    const riwayat = mulai <= sampai ? riwayatPenghuni(p.nim, mulai, sampai, sesiList, data, now, p.namaGedung) : []
+    const riwayat = mulai <= sampai
+      ? riwayatPenghuni(p.nim, mulai, sampai, sesiList, data, now, p.namaGedung).filter(r => !sesiPilih || r.sesi.nama === sesiPilih)
+      : []
     return { penghuni: p, c: hitungStatus(riwayat.map(r => r.detail.status)), riwayat }
   })
   const perluDitegur = (c: ReturnType<typeof hitungStatus>) => c['Tidak Hadir'] >= BATAS_ALPA
@@ -1440,15 +1331,27 @@ function FasilRekap({ anggota, sesiList, data, now, batas: BATAS_ALPA, namaGedun
   const persenGedung = total.wajib > 0 ? Math.round((total.hadir / total.wajib) * 100) : 0
   const jumlahDitegur = semua.filter(r => perluDitegur(r.c)).length
 
+  // Ekspor mengikuti yang sedang ditampilkan (periode, sesi, pencarian, urutan, filter "perlu ditegur")
   const unduh = (format: ExportFormat) => {
-    const judul = `Rekap Kehadiran ${namaGedung} (${formatTanggal(dari, 'tanpaHari')} – ${formatTanggal(sampai, 'tanpaHari')})`
-    const headers = ['NIM', 'Nama', 'Kamar', 'Hadir', 'Izin', 'Tidak Hadir', 'Sesi Wajib', 'Kehadiran', 'Catatan']
-    const isi = rows.map(({ penghuni: p, c }) => [
-      p.nim, p.nama, p.nomorKamar, c.Hadir, c.Izin, c['Tidak Hadir'], c.wajib, `${c.persen}%`,
-      perluDitegur(c) ? 'Perlu ditegur' : '',
-    ])
+    if (!rentang) return
+    const keterangan: [string, string][] = [['Gedung', namaGedung], ['Periode', labelPeriodeLaporan(saringPeriode, rentang)], ['Sesi', sesiPilih || 'Semua sesi']]
+    if (kata) keterangan.push(['Pencarian', cari.trim()])
+    if (hanyaDitegur) keterangan.push(['Filter', 'Hanya penghuni yang perlu ditegur'])
     const slug = namaGedung.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    downloadReport(`rekap-kehadiran-${slug}-${dari}-${sampai}.${format}`, headers, isi, format, judul)
+    void unduhLaporan(`rekap-kehadiran-${slug}${sesiPilih ? `-${sesiPilih.toLowerCase()}` : ''}-${dari}_${sampai}.${format}`, {
+      judul: 'Laporan Rekapitulasi Kehadiran Penghuni',
+      keterangan,
+      headers: ['NIM', 'Nama', 'Kamar', 'Hadir', 'Izin', 'Tidak Hadir', 'Sesi Wajib', 'Kehadiran', 'Catatan'],
+      rows: rows.map(({ penghuni: p, c }) => [
+        p.nim, p.nama, p.nomorKamar, c.Hadir, c.Izin, c['Tidak Hadir'], c.wajib, c.wajib > 0 ? `${c.persen}%` : '–',
+        perluDitegur(c) ? 'Perlu ditegur' : '–',
+      ]),
+      kolomAngka: [2, 3, 4, 5, 6, 7],
+      kolomStatus: 8,
+      ringkasan: [['Penghuni', semua.length], ['Tingkat kehadiran', `${persenGedung}%`], ['Tidak hadir', `${total.alpa} sesi`], ['Perlu ditegur', jumlahDitegur]],
+      catatan: `Penghuni ditandai "Perlu ditegur" bila tidak hadir sedikitnya ${BATAS_ALPA} sesi pada periode ini. Tingkat kehadiran dihitung dari sesi wajib; hari libur tidak dihitung.`,
+      penandatangan: { jabatan: `Fasilitator ${namaGedung}`, nama: fasil.nama, identitas: `NIM. ${fasil.nim}` },
+    }, format)
   }
 
   const saringCls = 'px-3 py-2 rounded-lg border border-gray-300 hover:border-gray-400 text-sm text-gray-800 bg-white outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 transition-colors placeholder:text-gray-400'
@@ -1462,10 +1365,23 @@ function FasilRekap({ anggota, sesiList, data, now, batas: BATAS_ALPA, namaGedun
         <StatCard icon={<AlertCircle className="w-5 h-5 text-red-600" />} label="Perlu Ditegur" value={jumlahDitegur} sub={`≥ ${BATAS_ALPA} sesi tidak hadir`} color="#dc2626" />
       </div>
 
+      <div className="grid lg:grid-cols-5 gap-5">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-2xs p-5 lg:col-span-3">
+          <p className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pola Kehadiran Mingguan</p>
+          <p className="text-xs text-gray-500 mt-0.5 mb-4">Tingkat kehadiran per hari dan sesi pada periode ini. Makin gelap makin tinggi; kotak bergaris merah = paling rendah.</p>
+          <PetaPanasPola pola={hitungPolaMingguan(semua.flatMap(r => r.riwayat))} />
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-2xs p-5 lg:col-span-2">
+          <p className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Sebaran Tingkat Kehadiran</p>
+          <p className="text-xs text-gray-500 mt-0.5 mb-3">Jumlah penghuni pada tiap rentang tingkat kehadiran</p>
+          <HistogramSebaran persen={semua.filter(r => r.c.wajib > 0).map(r => r.c.persen)} />
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
         <div className="px-5 pt-4 pb-4 border-b border-gray-100 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-            <SectionTitle subtitle={`${labelPeriode}: ${formatTanggal(dari, 'tanpaHari')} – ${formatTanggal(sampai, 'tanpaHari')}. Klik nama penghuni untuk melihat tanggal tidak hadir & izinnya.`}>
+            <SectionTitle subtitle={`${keteranganSaring}. Klik nama penghuni untuk melihat tanggal tidak hadir & izinnya.`}>
               Rekap Kehadiran Penghuni
             </SectionTitle>
             <div className="flex gap-2 shrink-0">
@@ -1489,11 +1405,13 @@ function FasilRekap({ anggota, sesiList, data, now, batas: BATAS_ALPA, namaGedun
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input type="search" value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari nama, NIM, atau kamar..." aria-label="Cari penghuni" className={`${saringCls} w-full pl-9`} />
             </div>
-            <div className="grid grid-cols-2 lg:flex gap-2">
-              <select value={periode} onChange={e => setPeriode(e.target.value as PeriodeRekapFasil)} aria-label="Periode rekap" className={`${saringCls} lg:w-44`}>
-                {PILIHAN_PERIODE_REKAP.map(([p, label]) => <option key={p} value={p}>{label}</option>)}
+            <div className="flex flex-wrap gap-2">
+              <PilihPeriodeLaporan nilai={saringPeriode} onChange={setSaringPeriode} today={today} className={saringCls} />
+              <select value={sesiPilih} onChange={e => setSesiPilih(e.target.value)} aria-label="Sesi" className={saringCls}>
+                <option value="">Semua sesi</option>
+                {namaSesi.map(n => <option key={n} value={n}>Sesi {n}</option>)}
               </select>
-              <select value={urutan} onChange={e => setUrutan(e.target.value as UrutanRekap)} aria-label="Urutkan" className={`${saringCls} lg:w-52`}>
+              <select value={urutan} onChange={e => setUrutan(e.target.value as UrutanRekap)} aria-label="Urutkan" className={saringCls}>
                 <option value="alpa">Tidak hadir terbanyak</option>
                 <option value="kehadiran">Kehadiran terendah</option>
                 <option value="nama">Nama (A–Z)</option>
