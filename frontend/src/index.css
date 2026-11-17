@@ -609,3 +609,110 @@ code, .mono {
 .liquid .fixed.inset-0 > :has(> .modal-header) button:is(.bg-emerald-700, .bg-emerald-600, .bg-emerald-800):hover:not(:disabled) {
   background-color: #2a332e !important;
 }
+
+/* =====================================================================
+   HEADER: animasi saat pindah halaman, jam berdetak, status online berdenyut
+   ===================================================================== */
+@media (prefers-reduced-motion: no-preference) {
+  .hd-masuk {
+    animation: hd-masuk 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+  .hd-garis {
+    animation: hd-garis 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .jam-kedip {
+    animation: jam-kedip 1s steps(1, end) infinite;
+    will-change: opacity;
+  }
+  /* Denyut: lapisan cincin terpisah yang hanya berubah transform & opacity (tanpa menggambar ulang) */
+  .hd-denyut::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: rgb(47 184 74 / 0.6);
+    animation: denyut-cincin 2.4s ease-out infinite;
+    will-change: transform, opacity;
+  }
+}
+@keyframes hd-masuk {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes hd-garis {
+  0% { opacity: 0; transform: scaleX(0); }
+  40% { opacity: 1; }
+  100% { opacity: 0; transform: scaleX(1); }
+}
+@keyframes jam-kedip {
+  50% { opacity: 0.25; }
+}
+@keyframes denyut-cincin {
+  0% { transform: scale(1); opacity: 0.7; }
+  80%, 100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* =====================================================================
+   SIDEBAR: animasi interaksi (logo, menu, penanda aktif, badge)
+   ===================================================================== */
+@media (prefers-reduced-motion: no-preference) {
+  .sb-logo { display: inline-flex; animation: sb-melayang 4.5s ease-in-out infinite; will-change: transform; }
+  .group:hover .sb-ikon { animation: sb-ayun 0.55s ease; }
+  .sb-ikon-aktif { animation: sb-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .sb-kilau::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 30%, rgb(255 255 255 / 0.22) 50%, transparent 70%);
+    transform: translateX(-120%);
+    animation: sb-kilau 0.9s 0.25s ease-out forwards;
+  }
+  /* Cahaya garis aktif: bayangan statis di lapisan sendiri, yang dianimasikan hanya opacity-nya */
+  .sb-garis::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 14px 3px rgb(79 204 99 / 0.75);
+    animation: sb-garis 2.6s ease-in-out infinite;
+    will-change: opacity;
+  }
+  .sb-badge { position: relative; }
+  .sb-badge::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgb(251 191 36 / 0.55);
+    z-index: -1;
+    animation: denyut-cincin 2s ease-out infinite;
+    will-change: transform, opacity;
+  }
+  .sb-titik { animation: sb-titik 2s ease-in-out infinite; will-change: transform, opacity; }
+}
+@keyframes sb-melayang {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes sb-ayun {
+  0% { transform: rotate(0deg); }
+  30% { transform: rotate(-12deg); }
+  60% { transform: rotate(8deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes sb-pop {
+  0% { transform: scale(0.7); }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+@keyframes sb-kilau {
+  to { transform: translateX(120%); }
+}
+@keyframes sb-garis {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+@keyframes sb-titik {
+  0%, 100% { opacity: 0.5; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}

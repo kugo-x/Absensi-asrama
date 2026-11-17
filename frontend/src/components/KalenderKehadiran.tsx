@@ -92,7 +92,7 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
   const detail = dipilih ? [...(perTanggal.get(dipilih) ?? [])].reverse() : []
 
   return (
-    <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-2xs">
+    <div className="bg-white rounded-2xl p-5 border border-gray-200/90 shadow-2xs">
       <div className="flex items-start justify-between gap-3 mb-4">
         <SectionTitle subtitle={`Kehadiran ${c.persen}% · Hadir ${c.Hadir} dari ${c.wajib} sesi wajib bulan ini`}>Kalender Kehadiran</SectionTitle>
         <div className="flex items-center gap-1 shrink-0">
@@ -132,17 +132,10 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
               )
             })}
           </div>
-          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5">
-            {LEGENDA.map(([k, label]) => (
-              <span key={k} className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
-                <span className={`w-3 h-3 rounded ${WARNA[k]}`} />
-                {label}
-              </span>
-            ))}
-          </div>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3.5">
+        <div className="flex flex-col gap-4 min-w-0">
+        <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-4">
           {!dipilih ? (
             <p className="text-xs text-gray-400">Pilih tanggal untuk melihat detail.</p>
           ) : (
@@ -169,6 +162,33 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
               )}
             </>
           )}
+        </div>
+
+        {/* Ringkasan bulan & legenda warna */}
+        <div className="rounded-xl border border-gray-100 p-4">
+          <p className="text-sm font-bold text-gray-900 mb-3" style={{ fontFamily: 'Plus Jakarta Sans' }}>Ringkasan {NAMA_BULAN[m - 1]}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {([
+              ['Hadir', c.Hadir, 'text-emerald-700'],
+              ['Tidak hadir', c['Tidak Hadir'], 'text-rose-600'],
+              ['Izin', c.Izin, 'text-amber-700'],
+              ['Libur', c.Libur, 'text-slate-600'],
+            ] as const).map(([label, nilai, warna]) => (
+              <div key={label} className="px-3 py-2.5 rounded-lg bg-gray-50/80 border border-gray-100">
+                <p className="text-[11px] text-gray-500">{label}</p>
+                <p className={`text-lg font-extrabold tabular-nums ${warna}`} style={{ fontFamily: 'Plus Jakarta Sans' }}>{nilai}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap gap-x-4 gap-y-2">
+            {LEGENDA.map(([k, label]) => (
+              <span key={k} className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
+                <span className={`w-3 h-3 rounded ${WARNA[k]}`} />
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
         </div>
       </div>
     </div>

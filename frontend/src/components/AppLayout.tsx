@@ -143,6 +143,9 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
     month: 'long',
     year: 'numeric'
   }).format(new Date())
+  const namaDepan = user.nama.split(' ')[0]
+  const halamanAktif = navItems.find(n => n.id === activeTab)
+  const bisaKeProfil = navItems.some(n => n.id === 'profil')
 
   return (
     <div className="liquid flex min-h-screen text-gray-800">
@@ -173,7 +176,9 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
         >
           {/* Brand */}
           <div className="flex items-center gap-3 shrink-0 h-[76px] pl-4 pr-3">
-            <LogoSIP className="w-9 h-9 shrink-0 drop-shadow-[0_4px_10px_rgb(47_184_74/0.35)]" />
+            <span className="sb-logo shrink-0">
+              <LogoSIP className="w-9 h-9 drop-shadow-[0_4px_10px_rgb(47_184_74/0.35)] transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:-rotate-12 hover:scale-110" />
+            </span>
             <div className={`min-w-0 flex-1 whitespace-nowrap ${pudar}`}>
               <div className="font-extrabold text-[15px] leading-tight tracking-tight">SIP Asrama</div>
               <div className="text-[11px] font-medium text-emerald-200/50">Universitas Andalas</div>
@@ -195,22 +200,25 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
             {indikator && (
               <span
                 aria-hidden
-                className="absolute left-3 right-3 rounded-xl ring-1 ring-inset ring-emerald-300/15 transition-[translate,height] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-[translate]"
+                className="absolute left-3 right-3 rounded-xl ring-1 ring-inset ring-white/10 shadow-[0_8px_20px_-12px_rgb(0_0_0/0.5)] transition-[translate,height] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-[translate]"
                 style={{
                   top: 0,
                   height: indikator.height,
                   translate: `0 ${indikator.top}px`,
-                  background: 'rgb(255 255 255 / 0.08)',
+                  background: 'linear-gradient(90deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.05))',
                 }}
               >
-                <span className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-emerald-400" />
+                {/* Kilau yang menyapu sekali setiap kali menu aktif berganti */}
+                <span key={activeTab} className="sb-kilau absolute inset-0 rounded-xl overflow-hidden" />
+                <span className="sb-garis absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-emerald-400" />
               </span>
             )}
 
             {grupMenu.map(grup => (
               <div key={grup.judul} className="mb-4 last:mb-0">
-                <p className={`px-3 pb-2 whitespace-nowrap overflow-hidden text-[10.5px] font-semibold uppercase tracking-[0.14em] text-emerald-100/30 ${pudar}`}>
+                <p className={`flex items-center gap-2 px-3 pb-2 whitespace-nowrap overflow-hidden text-[10.5px] font-semibold uppercase tracking-[0.14em] text-emerald-100/35 ${pudar}`}>
                   {grup.judul}
+                  <span className="flex-1 h-px bg-gradient-to-r from-white/10 to-transparent" aria-hidden />
                 </p>
                 <div className="space-y-1">
                   {grup.items.map(item => {
@@ -226,26 +234,28 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
                         onClick={() => { onTabChange(item.id); setSidebarOpen(false) }}
                         title={ciut ? item.label : undefined}
                         aria-current={isActive ? 'page' : undefined}
-                        className={`group relative z-10 w-full flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] text-left whitespace-nowrap cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 ${
-                          isActive ? 'text-white font-semibold' : 'text-emerald-50/60 font-medium hover:text-white hover:bg-white/[0.045]'
+                        className={`group relative z-10 w-full flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] text-left whitespace-nowrap cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 transition-[color,scale] duration-200 active:scale-[0.97] ${
+                          isActive
+                            ? 'text-white font-semibold'
+                            : 'text-emerald-50/60 font-medium hover:text-white before:absolute before:inset-0 before:-z-10 before:rounded-xl before:bg-white/[0.06] before:origin-left before:scale-x-0 before:opacity-0 hover:before:scale-x-100 hover:before:opacity-100 before:transition-[scale,opacity] before:duration-300 before:ease-out'
                         }`}
                       >
                         <span className={`relative shrink-0 [&_svg]:w-[19px] [&_svg]:h-[19px] transition-[color,scale] duration-300 ${
-                          isActive ? 'text-emerald-300' : 'text-emerald-100/40 group-hover:text-emerald-100/80 group-hover:scale-110'
+                          isActive ? 'text-emerald-300 sb-ikon-aktif' : 'text-emerald-100/40 group-hover:text-emerald-100/90 group-hover:scale-110 sb-ikon'
                         }`}>
                           {item.icon}
                           {badge && (
                             <span className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#0f3e2d] transition-opacity duration-300 opacity-0 ${ciut ? 'lg:opacity-100' : ''}`} />
                           )}
                         </span>
-                        <span className={`flex-1 min-w-0 truncate ${pudar}`}>{label}</span>
+                        <span className={`flex-1 min-w-0 truncate transition-[translate] duration-300 ease-out ${isActive ? '' : 'group-hover:translate-x-1'} ${pudar}`}>{label}</span>
                         {badge && (
-                          <span className={`min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center tabular-nums bg-amber-400 text-amber-950 ${pudar}`}>
+                          <span className={`sb-badge min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center tabular-nums bg-amber-400 text-amber-950 ${pudar}`}>
                             {badge}
                           </span>
                         )}
                         {isActive && !badge && (
-                          <span className={`w-1.5 h-1.5 shrink-0 rounded-full bg-emerald-400/80 ${pudar}`} />
+                          <span className={`sb-titik w-1.5 h-1.5 shrink-0 rounded-full bg-emerald-400 ${pudar}`} />
                         )}
                       </button>
                     )
@@ -255,51 +265,16 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
             ))}
           </nav>
 
-          {/* Profil + keluar */}
+          {/* Keluar akun */}
           <div className="shrink-0 px-3 pb-3 pt-2 space-y-1">
             <div className="h-px bg-white/[0.07] mb-2" />
-            {(() => {
-              // Kartu profil: animasi saat disorot; bila peran punya tab Profil, bisa diklik untuk membukanya
-              const adaProfil = navItems.some(n => n.id === 'profil')
-              const aktifProfil = activeTab === 'profil'
-              const isi = (
-                <>
-                  <div className="relative shrink-0">
-                    <span className="absolute inset-0 rounded-full bg-emerald-400/40 scale-100 opacity-0 group-hover/profil:animate-ping group-hover/profil:opacity-100" aria-hidden />
-                    <div className="relative w-9 h-9 rounded-full bg-emerald-600 text-white font-bold text-[12px] tracking-wide flex items-center justify-center overflow-hidden ring-2 ring-emerald-300/25 transition-[scale,box-shadow] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover/profil:scale-110 group-hover/profil:ring-emerald-300/70 group-hover/profil:shadow-[0_0_18px_rgb(79_204_99/0.45)]">
-                      {user.fotoProfil ? <img src={user.fotoProfil} alt="Foto profil" className="h-full w-full object-cover transition-[scale] duration-500 group-hover/profil:scale-110" /> : inisial(user.nama)}
-                    </div>
-                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0b3024]" aria-label="Sedang aktif" />
-                  </div>
-                  <div className={`flex-1 min-w-0 text-left transition-[translate] duration-300 ease-out group-hover/profil:translate-x-0.5 ${pudar}`}>
-                    <p className="text-[13.5px] font-bold leading-tight truncate">{user.nama}</p>
-                    <p className="flex items-center gap-1 mt-0.5 text-[11px] font-medium text-emerald-200/55 truncate transition-colors duration-300 group-hover/profil:text-emerald-200/90 [&_svg]:w-3 [&_svg]:h-3">
-                      {ROLE_ICONS[user.role]}
-                      <span className="truncate">{adaProfil ? <><span className="group-hover/profil:hidden">{ROLE_PENDEK[user.role]}</span><span className="hidden group-hover/profil:inline">Lihat profil</span></> : ROLE_PENDEK[user.role]}</span>
-                    </p>
-                  </div>
-                  {adaProfil && (
-                    <ChevronLeft className={`w-4 h-4 shrink-0 rotate-180 text-emerald-200/70 opacity-0 -translate-x-1.5 transition-[opacity,translate] duration-300 group-hover/profil:opacity-100 group-hover/profil:translate-x-0 ${pudar}`} />
-                  )}
-                </>
-              )
-              const kelas = `group/profil w-full flex items-center gap-3 h-12 pl-1 pr-2 rounded-xl whitespace-nowrap transition-colors duration-300 hover:bg-white/[0.07] ${aktifProfil ? 'bg-white/[0.06]' : ''}`
-              const judul = ciut ? `${user.nama} · ${ROLE_LABELS[user.role]}` : undefined
-              return adaProfil ? (
-                <button type="button" onClick={() => { onTabChange('profil'); setSidebarOpen(false) }} title={judul} aria-label={`Buka profil ${user.nama}`} className={`${kelas} cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60`}>
-                  {isi}
-                </button>
-              ) : (
-                <div className={kelas} title={judul}>{isi}</div>
-              )
-            })()}
             <button
               onClick={onLogout}
               aria-label="Keluar akun"
               title={ciut ? 'Keluar akun' : undefined}
-              className="group w-full flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] font-medium text-left whitespace-nowrap text-emerald-50/50 hover:text-rose-200 hover:bg-rose-500/15 cursor-pointer"
+              className="group w-full flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] font-medium text-left whitespace-nowrap text-emerald-50/50 hover:text-rose-200 hover:bg-rose-500/15 cursor-pointer transition-[color,background-color,scale] duration-200 active:scale-[0.97]"
             >
-              <LogOut className="w-[19px] h-[19px] shrink-0 text-emerald-100/40 group-hover:text-rose-300 transition-colors duration-300" />
+              <LogOut className="w-[19px] h-[19px] shrink-0 text-emerald-100/40 group-hover:text-rose-300 group-hover:translate-x-1 transition-[color,translate] duration-300 ease-out" />
               <span className={pudar}>Keluar Akun</span>
             </button>
           </div>
@@ -310,7 +285,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
           onClick={() => setCiut(c => !c)}
           aria-label={ciut ? 'Lebarkan menu' : 'Ciutkan menu'}
           title={ciut ? 'Lebarkan menu' : 'Ciutkan menu'}
-          className={`hidden lg:flex absolute right-0 top-[50px] z-10 w-6 h-6 items-center justify-center rounded-full bg-white text-emerald-900 ring-1 ring-black/5 shadow-[0_2px_8px_-2px_rgb(17_24_39/0.35)] hover:scale-110 hover:bg-emerald-50 transition-[scale,background-color] duration-300 cursor-pointer`}
+          className={`hidden lg:flex absolute right-0 top-[50px] z-10 w-6 h-6 items-center justify-center rounded-full bg-white text-emerald-900 ring-1 ring-black/5 shadow-[0_2px_8px_-2px_rgb(17_24_39/0.35)] hover:scale-110 hover:bg-emerald-50 hover:shadow-[0_0_0_4px_rgb(47_184_74/0.25),0_2px_8px_-2px_rgb(17_24_39/0.35)] active:scale-95 transition-[scale,background-color,box-shadow] duration-300 cursor-pointer`}
         >
           <ChevronLeft className={`w-3.5 h-3.5 transition-[rotate] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${ciut ? 'rotate-180' : ''}`} strokeWidth={2.5} />
         </button>
@@ -319,32 +294,58 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
       {/* Main Container */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header */}
-        <header className="sticky top-0 z-20 flex items-center justify-between px-5 lg:px-8 py-3.5 bg-white/55 backdrop-blur-2xl backdrop-saturate-150 border-b border-white/70 shadow-[inset_0_-1px_0_rgb(15_61_35/0.06),0_6px_20px_-16px_rgb(17_24_39/0.2)]">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setSidebarOpen(true)} 
+        <header className="hd-header sticky top-0 z-20 flex items-center justify-between gap-3 px-5 lg:px-8 py-3 bg-white/60 backdrop-blur-2xl backdrop-saturate-150 border-b border-white/70 shadow-[inset_0_-1px_0_rgb(15_61_35/0.06),0_6px_20px_-16px_rgb(17_24_39/0.2)]">
+          {/* Garis hijau yang menyapu sekali setiap kali pindah halaman */}
+          <span key={`garis-${activeTab}`} className="hd-garis pointer-events-none absolute left-0 bottom-0 h-[2px] w-full bg-gradient-to-r from-transparent via-emerald-500 to-transparent" aria-hidden />
+
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Buka menu"
               className="lg:hidden p-2 rounded-xl text-gray-700 bg-white/50 border border-white/70 hover:bg-white/80 transition-colors"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div>
-              <h2 className="font-bold text-base text-gray-900 leading-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                {navItems.find(n => n.id === activeTab)?.label ?? 'Dashboard'}
+            <span
+              key={`ikon-${activeTab}`}
+              className="hd-masuk hidden sm:flex w-10 h-10 shrink-0 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 items-center justify-center [&_svg]:w-5 [&_svg]:h-5 transition-transform duration-300 hover:-rotate-6 hover:scale-105"
+              aria-hidden
+            >
+              {halamanAktif?.icon}
+            </span>
+            <div key={`judul-${activeTab}`} className="hd-masuk min-w-0" style={{ animationDelay: '60ms' }}>
+              <h2 className="font-extrabold text-base sm:text-lg text-gray-900 leading-tight truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                {halamanAktif?.label ?? 'Dashboard'}
               </h2>
-              <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5">
-                <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                <span>{todayFormatted}</span>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5 min-w-0">
+                <Calendar className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                <span className="truncate">{todayFormatted}</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             <JamDigital />
             <NotifikasiBell nim={user.nim} items={notifikasi} onBuka={onTabChange} />
-            <div className="hidden sm:flex items-center gap-2 rounded-full px-3 py-1.5 bg-white/60 border border-white/80 shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_2px_8px_-4px_rgb(17_24_39/0.15)] backdrop-blur-xl text-xs text-gray-700 font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
-              <span>{ROLE_LABELS[user.role]}</span>
-            </div>
+            {/* Kartu pengguna (membuka profil bila peran punya halaman profil) */}
+            <button
+              type="button"
+              onClick={bisaKeProfil ? () => onTabChange('profil') : undefined}
+              disabled={!bisaKeProfil}
+              title={bisaKeProfil ? 'Buka profil' : undefined}
+              className="group/pengguna hidden sm:flex items-center gap-2.5 h-10 pl-1 pr-3.5 rounded-full bg-white/70 border border-white/80 shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_2px_8px_-4px_rgb(17_24_39/0.15)] backdrop-blur-xl transition-all duration-300 enabled:hover:-translate-y-0.5 enabled:hover:shadow-[0_8px_20px_-10px_rgb(17_24_39/0.35)] enabled:cursor-pointer disabled:cursor-default"
+            >
+              <span className="relative shrink-0">
+                <span className="w-8 h-8 rounded-full bg-emerald-600 text-white text-[11px] font-bold flex items-center justify-center overflow-hidden ring-2 ring-emerald-100 transition-shadow duration-300 group-hover/pengguna:ring-emerald-300 group-hover/pengguna:shadow-[0_0_14px_rgb(47_184_74/0.45)]">
+                  {user.fotoProfil ? <img src={user.fotoProfil} alt="" className="w-full h-full object-cover" /> : inisial(user.nama)}
+                </span>
+                <span className="hd-denyut absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" aria-hidden />
+              </span>
+              <span className="text-left leading-tight">
+                <span className="block text-xs font-bold text-gray-900 max-w-28 truncate">{namaDepan}</span>
+                <span className="block text-[10px] font-medium text-gray-500">{ROLE_LABELS[user.role]}</span>
+              </span>
+            </button>
           </div>
         </header>
 

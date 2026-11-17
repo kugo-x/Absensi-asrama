@@ -1139,58 +1139,96 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
 
 function PenghuniRiwayat({ riwayat, children }: { riwayat: ReturnType<typeof riwayatPenghuni>; children?: React.ReactNode }) {
   const c = hitungStatus(riwayat.map(r => r.detail.status))
+  const [semua, setSemua] = useState(false)
+  const BATAS = 10
+  const tampil = semua ? riwayat : riwayat.slice(0, BATAS)
+  // Lingkaran persentase (SVG)
+  const R = 42
+  const keliling = 2 * Math.PI * R
+  const warnaPersen = c.persen >= 80 ? '#22993b' : c.persen >= 60 ? '#d97706' : '#e11d48'
+  const ringkas = [
+    { label: 'Hadir', nilai: c.Hadir, ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700' },
+    { label: 'Tidak hadir', nilai: c['Tidak Hadir'], ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600' },
+    { label: 'Izin', nilai: c.Izin, ikon: <FileText className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
+    { label: 'Libur', nilai: c.Libur, ikon: <Palmtree className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-600' },
+  ]
 
   return (
-    <div className="space-y-6 w-full">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-emerald-700" />} label="Total Hadir" value={c.Hadir} color="#141a17" />
-        <StatCard icon={<XCircle className="w-5 h-5 text-rose-700" />} label="Tidak Hadir" value={c['Tidak Hadir']} color="#e11d48" />
-        <StatCard icon={<FileText className="w-5 h-5 text-amber-700" />} label="Izin" value={c.Izin} color="#b45309" />
-        <StatCard icon={<Palmtree className="w-5 h-5 text-slate-700" />} label="Libur" value={c.Libur} color="#475569" />
-      </div>
-
-      <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-2xs">
-        <div className="flex items-center justify-between mb-2">
-          <SectionTitle subtitle={`Hadir ${c.Hadir} dari ${c.wajib} sesi wajib (30 hari terakhir, libur tidak dihitung)`}>
-            Persentase Tingkat Kehadiran
-          </SectionTitle>
-          <span className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{c.persen}%</span>
+    <div className="space-y-5 w-full">
+      {/* Ringkasan 30 hari: lingkaran persentase + rincian status */}
+      <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs p-5 flex flex-col md:flex-row md:items-center gap-5">
+        <div className="flex items-center gap-4 md:pr-6 md:border-r md:border-gray-100 shrink-0">
+          <div className="relative w-28 h-28 shrink-0">
+            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+              <circle cx="50" cy="50" r={R} fill="none" stroke="#eef1ef" strokeWidth="10" />
+              <circle
+                cx="50" cy="50" r={R} fill="none" stroke={warnaPersen} strokeWidth="10" strokeLinecap="round"
+                strokeDasharray={keliling} strokeDashoffset={keliling * (1 - c.persen / 100)}
+                style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1)' }}
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{c.persen}%</span>
+              <span className="text-[10px] font-semibold text-gray-400">hadir</span>
+            </div>
+          </div>
+          <div>
+            <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Tingkat Kehadiran</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Hadir {c.Hadir} dari {c.wajib} sesi wajib</p>
+            <p className="text-[11px] text-gray-400">30 hari terakhir · libur tidak dihitung</p>
+          </div>
         </div>
-        <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
-          <div className="h-full rounded-full bg-emerald-700 transition-all duration-300" style={{ width: `${c.persen}%` }} />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 flex-1">
+          {ringkas.map(x => (
+            <div key={x.label} className="p-3.5 rounded-xl bg-gray-50/70 border border-gray-100">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-gray-600">{x.label}</span>
+                <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${x.warna}`}>{x.ikon}</span>
+              </div>
+              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{x.nilai}</p>
+            </div>
+          ))}
         </div>
       </div>
 
       {children}
 
-      <div className="bg-white rounded-xl overflow-hidden border border-gray-200 shadow-2xs">
-        <div className="px-5 py-4 border-b border-gray-200">
-          <SectionTitle subtitle="Seluruh sesi wajib Anda, termasuk sesi yang terlewat">Log Riwayat Presensi</SectionTitle>
+      {/* Log riwayat */}
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Log Riwayat Presensi</h3>
+          <p className="text-xs text-gray-500">{riwayat.length} sesi wajib · termasuk yang terlewat</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {['Tanggal', 'Sesi', 'Waktu Masuk', 'Lokasi Presensi', 'Status', 'Validasi Foto', 'Keterangan'].map(h => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider" style={{ fontFamily: 'Plus Jakarta Sans' }}>{h}</th>
+              <tr className="bg-gray-50/70 border-b border-gray-100">
+                {['Tanggal & sesi', 'Waktu masuk', 'Lokasi', 'Status', 'Validasi foto', 'Keterangan'].map(h => (
+                  <th key={h} className="text-left px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
-              {riwayat.map(({ tanggal, sesi, detail }) => {
+            <tbody className="divide-y divide-gray-100">
+              {riwayat.length === 0 && (
+                <tr><td colSpan={6} className="px-5 py-10 text-center text-sm text-gray-400">Belum ada riwayat presensi.</td></tr>
+              )}
+              {tampil.map(({ tanggal, sesi, detail }) => {
                 const rec = detail.presensi
+                const otomatis = !!rec?.otomatis
                 return (
-                  <tr key={`${tanggal}-${sesi.nama}`} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-5 py-3 font-semibold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatTanggal(tanggal)}</td>
+                  <tr key={`${tanggal}-${sesi.nama}`} className="hover:bg-gray-50/80 transition-colors">
                     <td className="px-5 py-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-800 border border-gray-200">
-                        <SesiIcon nama={sesi.nama} className="w-3 h-3" />
-                        <span>{sesi.nama}</span>
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center"><SesiIcon nama={sesi.nama} className="w-4 h-4" /></span>
+                        <div>
+                          <p className="font-semibold text-gray-900 whitespace-nowrap" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatTanggal(tanggal)}</p>
+                          <p className="text-[11px] text-gray-500">Sesi {sesi.nama} · {sesi.jamMulai}–{sesi.jamSelesai}</p>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-5 py-3 mono text-xs text-gray-600">{jamPresensi(rec) || '–'}</td>
-                    <td className="px-5 py-3 mono text-[11px] text-gray-500">
-                      {rec && rec.latitude !== null && rec.longitude !== null ? `${Number(rec.latitude).toFixed(5)}, ${Number(rec.longitude).toFixed(5)}` : '–'}
+                    <td className="px-5 py-3 mono text-xs font-semibold text-gray-700">{jamPresensi(rec) || <span className="text-gray-300">–</span>}</td>
+                    <td className="px-5 py-3 mono text-[11px] text-gray-500 whitespace-nowrap">
+                      {rec && rec.latitude !== null && rec.longitude !== null ? `${Number(rec.latitude).toFixed(5)}, ${Number(rec.longitude).toFixed(5)}` : <span className="text-gray-300">–</span>}
                     </td>
                     <td className="px-5 py-3"><Badge status={detail.status} /></td>
                     <td className="px-5 py-3 text-xs">
@@ -1201,13 +1239,25 @@ function PenghuniRiwayat({ riwayat, children }: { riwayat: ReturnType<typeof riw
                         </div>
                       ) : <span className="text-gray-300">–</span>}
                     </td>
-                    <td className="px-5 py-3 text-xs text-gray-500">{keteranganStatus(detail) || '–'}</td>
+                    <td className={`px-5 py-3 text-xs ${otomatis ? 'text-gray-400' : 'text-gray-600'}`}>{keteranganStatus(detail) || <span className="text-gray-300">–</span>}</td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
         </div>
+        {riwayat.length > BATAS && (
+          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3 text-xs text-gray-500">
+            <span>Menampilkan {tampil.length} dari {riwayat.length} sesi</span>
+            <button
+              type="button"
+              onClick={() => setSemua(v => !v)}
+              className="px-3.5 py-2 rounded-lg font-bold text-emerald-800 bg-[#fff] border border-emerald-200 hover:bg-emerald-50 cursor-pointer"
+            >
+              {semua ? 'Tampilkan lebih sedikit' : 'Tampilkan semua'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
