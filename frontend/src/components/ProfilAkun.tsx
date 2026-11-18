@@ -186,14 +186,14 @@ export function ProfilHeader({ user, peran, keterangan, stats, onPesan }: {
           {stats.map(s => {
             const isi = (
               <>
-                <p className="text-[11px] font-semibold text-emerald-50/75 truncate">{s.label}</p>
-                <p className="mt-0.5 text-lg font-extrabold tabular-nums flex items-center gap-1.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                <p className="text-[11px] font-semibold text-emerald-50/75 leading-tight sm:truncate">{s.label}</p>
+                <p className="mt-0.5 text-base sm:text-lg font-extrabold tabular-nums flex items-center gap-1.5 leading-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
                   {s.nilai}
                   {s.sorot && <span className="w-2 h-2 rounded-full bg-amber-300" aria-label="perlu tindakan" />}
                 </p>
               </>
             )
-            const kelas = 'min-w-0 lg:w-36 text-left px-4 py-3 rounded-xl bg-white/10 border border-white/15'
+            const kelas = 'min-w-0 lg:w-36 text-left px-3 py-2.5 sm:px-4 sm:py-3 rounded-xl bg-white/10 border border-white/15'
             return s.onClick ? (
               <button key={s.label} type="button" onClick={s.onClick} className={`${kelas} hover:bg-white/20 transition-colors cursor-pointer relative group`}>
                 {isi}
@@ -224,7 +224,7 @@ export function KartuProfil({ ikon, judul, sub, kanan, children, className = '' 
         <div className="w-9 h-9 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center [&_svg]:w-[18px] [&_svg]:h-[18px]">{ikon}</div>
         <div className="flex-1 min-w-0">
           <h4 className="text-sm font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{judul}</h4>
-          {sub && <p className="text-[11px] text-gray-400 truncate">{sub}</p>}
+          {sub && <p className="text-[11px] text-gray-400 leading-snug sm:truncate">{sub}</p>}
         </div>
         {kanan}
       </div>
@@ -287,7 +287,7 @@ export function KartuGantiPassword({ user, onLogout, pesanLuar, susun = false }:
                 <button
                   type="button"
                   onClick={() => setShowPassword(showPassword === index ? null : index)}
-                  className="absolute right-2.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                  className="absolute right-1 p-2 rounded-lg text-gray-400 hover:text-gray-700 cursor-pointer"
                   aria-label={showPassword === index ? 'Sembunyikan password' : 'Tampilkan password'}
                 >
                   {showPassword === index ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}

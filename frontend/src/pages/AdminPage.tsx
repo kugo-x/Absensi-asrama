@@ -547,16 +547,16 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
 
 function DefaultPasswordNotice({ count, onClose }: { count: number; onClose: () => void }) {
   return (
-    <div className="fixed left-4 right-4 bottom-4 sm:left-auto sm:right-5 sm:bottom-auto sm:top-20 z-40 sm:w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-amber-200 bg-white p-4 shadow-xl">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">!</div>
+    <div className="fixed left-3 right-3 bottom-3 sm:left-auto sm:right-5 sm:bottom-auto sm:top-20 z-40 sm:w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-amber-200 bg-[#fff] p-3 sm:p-4 shadow-xl">
+      <div className="flex items-center sm:items-start gap-3">
+        <div className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 font-bold">!</div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-extrabold text-gray-900">Password default terdeteksi</p>
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-700 cursor-pointer" aria-label="Tutup pemberitahuan"><X className="h-4 w-4" /></button>
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-gray-600">{count} akun penghuni aktif masih menggunakan password default <strong>penghuni123</strong>. Minta penghuni segera menggantinya melalui menu Profil.</p>
+          <p className="text-sm font-extrabold text-gray-900">Password default terdeteksi</p>
+          {/* Di HP cukup satu baris agar tidak menutupi isi halaman */}
+          <p className="sm:hidden text-[11px] text-gray-600 truncate">{count} akun penghuni masih memakai <strong>penghuni123</strong></p>
+          <p className="hidden sm:block mt-1 text-xs leading-relaxed text-gray-600">{count} akun penghuni aktif masih menggunakan password default <strong>penghuni123</strong>. Minta penghuni segera menggantinya melalui menu Profil.</p>
         </div>
+        <button type="button" onClick={onClose} className="-m-1 p-2 shrink-0 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer self-start" aria-label="Tutup pemberitahuan"><X className="h-4 w-4" /></button>
       </div>
     </div>
   )
@@ -707,7 +707,7 @@ function AdminDashboard({
               { label: 'Fasilitator', nilai: fasil, ket: 'aktif', tab: 'penghuni' },
               { label: 'Hunian', nilai: `${persenHunian}%`, ket: `${terisi}/${kapasitas} tempat`, tab: 'gedung' },
             ].map(x => (
-              <button key={x.label} type="button" onClick={() => buka(x.tab)} className="text-left rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 px-3 py-2.5 cursor-pointer transition-colors">
+              <button key={x.label} type="button" onClick={() => buka(x.tab)} className={`text-left rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 px-3 py-2.5 cursor-pointer transition-colors ${x.label === 'Kehadiran' ? 'col-span-2 sm:col-span-1' : ''}`}>
                 <p className="text-[11px] font-semibold text-emerald-200">{x.label}</p>
                 <p className="text-xl font-extrabold leading-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>{x.nilai}</p>
                 <p className="text-[10px] text-emerald-100/70">{x.ket}</p>
@@ -755,7 +755,7 @@ function AdminDashboard({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-xs font-semibold text-gray-700">Jadwal sesi hari ini</p>
-                  <button type="button" onClick={() => buka('pengaturan')} className="text-[11px] font-bold text-emerald-700 hover:underline cursor-pointer">Atur</button>
+                  <button type="button" onClick={() => buka('pengaturan')} className="px-2 -mx-2 text-[11px] font-bold text-emerald-700 hover:underline cursor-pointer">Atur</button>
                 </div>
                 {sesiHariIni.length === 0 ? (
                   <p className="text-xs text-gray-400">{liburHariIni ? 'Libur, tidak ada sesi wajib.' : 'Belum ada sesi aktif.'}</p>
@@ -1013,14 +1013,14 @@ function AdminPenghuni({ penghuni, gedungList = [], kamarList = [], onImported, 
               role="tab"
               aria-selected={aktif}
               onClick={() => { setFilterStatus(u.nilai); setPage(1) }}
-              className={`text-left bg-[#fff] rounded-2xl border p-4 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+              className={`text-left bg-[#fff] rounded-2xl border p-3 sm:p-4 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-gray-600 truncate">{u.label}</span>
-                <span className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+                <span className="text-xs font-semibold text-gray-600 sm:truncate">{u.label}</span>
+                <span className={`hidden sm:flex w-8 h-8 shrink-0 rounded-lg items-center justify-center ${u.warna}`}>{u.ikon}</span>
               </div>
               <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{jumlah[u.nilai]}</p>
-              <p className="text-[11px] text-gray-400 truncate">{u.ket}</p>
+              <p className="hidden sm:block text-[11px] text-gray-400 truncate">{u.ket}</p>
             </button>
           )
         })}
@@ -1068,7 +1068,45 @@ function AdminPenghuni({ penghuni, gedungList = [], kamarList = [], onImported, 
         </div>
         {importMessage && <p className={`px-5 pt-3 text-xs font-semibold ${/Gagal|tidak|Format|kosong/.test(importMessage) ? 'text-amber-700' : 'text-emerald-700'}`}>{importMessage}</p>}
 
-        <div className="overflow-x-auto">
+        {/* HP: kartu per penghuni */}
+        <ul className="md:hidden divide-y divide-gray-100">
+          {rows.length === 0 && (
+            <li className="px-4 py-10 text-center">
+              <Users className="w-7 h-7 text-gray-300 mx-auto" />
+              <p className="mt-2 text-sm font-semibold text-gray-600">Tidak ada data yang cocok</p>
+              <p className="text-xs text-gray-400">Ubah kata kunci atau filter di atas.</p>
+            </li>
+          )}
+          {rows.map(p => (
+            <li key={p.nim} className={`px-4 py-3.5 ${p.statusAktif ? '' : 'opacity-70'}`}>
+              <div className="flex items-start gap-3">
+                <span className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${p.role === 'fasil' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`}>{inisialNama(p.nama)}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{p.nama}</p>
+                    <Badge status={p.statusAktif ? 'Aktif' : 'Non-aktif'} />
+                  </div>
+                  <p className="text-[11px] text-gray-500"><span className="mono">{p.nim}</span>{p.jenisKelamin ? ` · ${p.jenisKelamin === 'P' ? 'Perempuan' : 'Laki-laki'}` : ''}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[10px] font-semibold text-gray-700">{p.nomorKamar ? `Kamar ${p.nomorKamar}` : 'Belum ada kamar'}</span>
+                    {p.namaGedung && <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[10px] font-semibold text-gray-700">{p.namaGedung}</span>}
+                    {p.role === 'fasil' && <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-bold text-slate-700">Fasil{gedungList.some(g => g.nimPj === p.nim) ? ' · PJ' : ''}</span>}
+                    {!p.jenisKelamin && <span className="px-1.5 py-0.5 rounded bg-amber-50 text-[10px] font-semibold text-amber-700">L/P belum diisi</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-2.5">
+                <button onClick={() => onKelola(p)} className="inline-flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-lg text-gray-800 bg-[#fff] border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                  <Edit className="w-3.5 h-3.5" />Kelola
+                </button>
+                <button onClick={() => onResetPassword(p.nim)} className="inline-flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-lg text-amber-800 bg-[#fff] border border-amber-200 hover:bg-amber-50 cursor-pointer">
+                  <KeyRound className="w-3.5 h-3.5" />Reset sandi
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/70">
@@ -1295,7 +1333,7 @@ function ResetPasswordDialog({ target, onClose }: { target: Penghuni; onClose: (
               className={`${inputCls} pr-10`}
               placeholder="Masukkan password admin"
             />
-            <button type="button" onClick={() => setShowPassword(value => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 cursor-pointer" aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}>
+            <button type="button" onClick={() => setShowPassword(value => !value)} className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 rounded-lg text-gray-400 hover:text-gray-700 cursor-pointer" aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}>
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
@@ -2099,7 +2137,32 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
           </div>
           <BarisSaringIzin saring={saring} gedungList={gedungList} />
         </div>
-        <div className="overflow-x-auto">
+        {/* HP: kartu per izin */}
+        <ul className="md:hidden divide-y divide-gray-100">
+          {izinRows.length === 0 && <li><KosongSaringIzin saring={saring} teksKosong="Belum ada data izin" /></li>}
+          {izinTampil.map(i => (
+            <li key={i.id} className="px-4 py-3.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-gray-900 truncate">{i.namaPenghuni}</p>
+                  <p className="text-[11px] text-gray-500 truncate"><span className="mono">{i.nim}</span>{i.nomorKamar ? ` · Kamar ${i.nomorKamar}` : ''}{i.namaGedung ? ` · ${i.namaGedung}` : ''}</p>
+                </div>
+                <Badge status={i.statusPersetujuan} />
+              </div>
+              <p className="mt-1.5 text-xs font-semibold text-gray-800">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}</p>
+              <p className="text-xs text-gray-600 mt-0.5 leading-snug">{i.alasan}</p>
+              {i.fileBukti && <BuktiIzin fileBukti={i.fileBukti} className="mt-1.5 inline-flex items-center gap-1 py-1 text-[11px] font-semibold text-slate-700" />}
+              {(i.namaApprover || i.catatanApprover || i.idIzinSebelumnya != null) && (
+                <div className="mt-2 pt-2 border-t border-gray-100 text-[11px] text-gray-500 space-y-0.5">
+                  {i.idIzinSebelumnya != null && <p className="font-semibold text-amber-700">Pengajuan ulang</p>}
+                  {i.namaApprover && <p>Diputuskan {i.namaApprover} · {formatTanggal(i.tanggalApproval || '', 'tanpaHari')}</p>}
+                  {i.catatanApprover && <p>Catatan: {i.catatanApprover}</p>}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50/70 border-b border-gray-100">

@@ -24,7 +24,7 @@ export default function JamDigital() {
   const [hh, mm] = [pad(now.getHours()), pad(now.getMinutes())]
   return (
     <div
-      className="flex items-center gap-2 h-10 rounded-full px-3.5 bg-white/60 border border-white/80 shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_2px_8px_-4px_rgb(17_24_39/0.15)] backdrop-blur-xl text-gray-800"
+      className="hidden sm:flex items-center gap-2 h-10 rounded-full px-3.5 bg-white/60 border border-white/80 shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_2px_8px_-4px_rgb(17_24_39/0.15)] backdrop-blur-xl text-gray-800"
       title={now.toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'medium' })}
       aria-label={`Pukul ${jam} WIB`}
     >

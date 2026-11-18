@@ -90,13 +90,13 @@ export default function KartuEvent({ ev, status, onEdit, onHapus, kehadiran, pen
             <div className="flex items-center gap-1">
               {onEdit && (
                 <button type="button" onClick={onEdit} title="Edit event" aria-label={`Edit ${ev.judul}`}
-                  className={`p-1.5 rounded-lg text-white hover:bg-white hover:text-emerald-800 cursor-pointer transition-colors ${sampul ? 'bg-black/50 backdrop-blur-sm' : 'bg-white/15'}`}>
+                  className={`p-2 rounded-lg text-white hover:bg-white hover:text-emerald-800 cursor-pointer transition-colors ${sampul ? 'bg-black/50 backdrop-blur-sm' : 'bg-white/15'}`}>
                   <Edit className="w-3.5 h-3.5" />
                 </button>
               )}
               {onHapus && (
                 <button type="button" onClick={onHapus} title="Hapus event" aria-label={`Hapus ${ev.judul}`}
-                  className={`p-1.5 rounded-lg text-white hover:bg-white hover:text-rose-700 cursor-pointer transition-colors ${sampul ? 'bg-black/50 backdrop-blur-sm' : 'bg-white/15'}`}>
+                  className={`p-2 rounded-lg text-white hover:bg-white hover:text-rose-700 cursor-pointer transition-colors ${sampul ? 'bg-black/50 backdrop-blur-sm' : 'bg-white/15'}`}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               )}

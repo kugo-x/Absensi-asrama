@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult, FotoEvent, EventInput } from '../types'
-import AppLayout, { SectionTitle, Badge, ConfirmDialog, StatCard } from '../components/AppLayout'
+import AppLayout, { Badge, ConfirmDialog } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
 import { useRealtime, bilaBerubah } from '../realtime'
 import KartuEvent, { UbinBuatEvent } from '../components/KartuEvent'
@@ -30,7 +30,7 @@ import {
 } from '../api'
 import {
   cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, toHM, todayLocal, type DataPresensi,
-  addDays, formatRentangTanggal, teksHariBerulang, hariIso, maxDate, dateRangeDesc, NAMA_HARI, kehadiranHariIni, kehadiranGabungan, HARI_RINGKASAN } from '../logic'
+  addDays, formatRentangTanggal, teksHariBerulang, hariIso, maxDate, dateRangeDesc, NAMA_HARI, kehadiranHariIni, kehadiranGabungan, HARI_RINGKASAN, type RiwayatRow } from '../logic'
 import {
   LayoutDashboard,
   ClipboardCheck,
@@ -716,7 +716,7 @@ function FasilDashboard({
             <div>
               <p className={judulKartu} style={{ fontFamily: 'Plus Jakarta Sans' }}>Pantauan Sesi Hari Ini</p>
               {s && (
-                <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5">
+                <p className="text-xs text-gray-500 mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   {fase === 'buka' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
                   <span className={fase === 'buka' ? 'font-semibold text-emerald-700' : ''}>
                     Sesi {sesi} {fase === 'buka' ? 'sedang dibuka' : fase === 'belum' ? 'belum dibuka' : 'ditutup'}
@@ -886,8 +886,6 @@ function FasilDashboard({
   )
 }
 
-// Filter status di Monitor; urutannya mendahulukan yang perlu tindakan
-const STATUS_MONITOR: PresensiStatus[] = ['Belum', 'Tidak Hadir', 'Hadir', 'Izin', 'Libur']
 
 // Tempat data presensi lengkap per tanggal & sesi; dirancang untuk gedung berpenghuni ratusan
 // (pencarian, filter status, dan pembagian halaman)
@@ -1267,14 +1265,14 @@ function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, on
               role="tab"
               aria-selected={aktif}
               onClick={() => setFilter(u.status)}
-              className={`text-left bg-[#fff] rounded-2xl border p-4 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+              className={`text-left bg-[#fff] rounded-2xl border p-3 sm:p-4 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-gray-600">{u.status}</span>
-                <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+                <span className={`hidden sm:flex w-8 h-8 rounded-lg items-center justify-center ${u.warna}`}>{u.ikon}</span>
               </div>
               <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{dicari.filter(i => i.statusFoto === u.status).length}</p>
-              <p className="text-[11px] text-gray-400 truncate">{u.ket}</p>
+              <p className="hidden sm:block text-[11px] text-gray-400 truncate">{u.ket}</p>
             </button>
           )
         })}
@@ -1480,6 +1478,47 @@ function DetailValidasiFoto({ item, onClose, onPutuskan }: {
 // Ambang "perlu ditegur" diatur admin (pengaturan batas_tidak_hadir) dan dihitung dalam periode yang dipilih.
 type UrutanRekap = 'alpa' | 'kehadiran' | 'nama' | 'kamar'
 
+// Rincian tidak hadir & izin, dikelompokkan per tanggal (terbaru dulu)
+function RincianRekap({ riwayat }: { riwayat: RiwayatRow[] }) {
+  const per = new Map<string, { sesi: string; status: PresensiStatus }[]>()
+  for (const r of riwayat) {
+    if (r.detail.status !== 'Tidak Hadir' && r.detail.status !== 'Izin') continue
+    per.set(r.tanggal, [...(per.get(r.tanggal) ?? []), { sesi: r.sesi.nama, status: r.detail.status }])
+  }
+  const tanggal = [...per.keys()].sort().reverse()
+  const [semuaTgl, setSemuaTgl] = useState(false)
+  const terlihat = semuaTgl ? tanggal : tanggal.slice(0, 8)
+  if (tanggal.length === 0) return <p className="text-xs text-gray-400">Tidak ada catatan tidak hadir atau izin pada periode ini.</p>
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3 mb-2 text-[11px] text-gray-500">
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500" />Tidak hadir</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />Izin</span>
+      </div>
+      {/* Sengaja tidak memakai .grid: anak .grid di main mendapat animasi masuk bertahap */}
+      <ul className="sm:columns-2 gap-x-6 space-y-1.5">
+        {terlihat.map(t => (
+          <li key={t} className="flex items-center gap-3 text-xs break-inside-avoid">
+            <span className="w-32 shrink-0 font-semibold text-gray-700">{formatTanggal(t)}</span>
+            <span className="flex flex-wrap gap-1">
+              {per.get(t)!.map(x => (
+                <span key={x.sesi} className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${x.status === 'Izin' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
+                  {x.sesi}
+                </span>
+              ))}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {tanggal.length > 8 && (
+        <button type="button" onClick={() => setSemuaTgl(v => !v)} className="mt-2 text-xs font-bold text-gray-600 hover:text-gray-900 cursor-pointer">
+          {semuaTgl ? 'Tampilkan lebih sedikit' : `Tampilkan semua (${tanggal.length} tanggal)`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function FasilRekap({ fasil, anggota, sesiList, data, now, batas: BATAS_ALPA, namaGedung }: {
   // Fasil yang mencetak; dicantumkan sebagai penanda tangan laporan
   fasil: CurrentUser
@@ -1557,154 +1596,242 @@ function FasilRekap({ fasil, anggota, sesiList, data, now, batas: BATAS_ALPA, na
     }, format)
   }
 
-  const saringCls = 'px-3 py-2 rounded-lg border border-gray-300 hover:border-gray-400 text-sm text-gray-800 bg-white outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 transition-colors placeholder:text-gray-400'
+  const saringCls = 'px-3 py-2.5 rounded-xl border border-gray-200 hover:border-gray-300 text-sm font-medium text-gray-800 bg-[#fff] outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-colors placeholder:text-gray-400'
+  const tombolUnduh = 'inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-gray-700 bg-[#fff] border border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
+
+  // Pembagian halaman tabel
+  const [perHalaman, setPerHalaman] = useState(10)
+  const [halaman, setHalaman] = useState(1)
+  useEffect(() => setHalaman(1), [kata, hanyaDitegur, urutan, perHalaman, dari, sampai, sesiPilih])
+  const jumlahHalaman = Math.max(1, Math.ceil(rows.length / perHalaman))
+  const aktifHal = Math.min(halaman, jumlahHalaman)
+  const awalHal = (aktifHal - 1) * perHalaman
+  const tampil = rows.slice(awalHal, awalHal + perHalaman)
+  const tombolHal = 'px-3 py-1.5 rounded-lg border border-gray-200 bg-[#fff] font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
+
+  const warnaPersen = (p: number) => p >= 80 ? 'bg-emerald-600' : p >= 60 ? 'bg-amber-500' : 'bg-rose-500'
+  const inisial = (nama: string) => nama.split(/\s+/).filter(Boolean).slice(0, 2).map(k => k[0]?.toUpperCase()).join('')
+
+  const ubin = [
+    { kunci: 'hadir', label: 'Kehadiran', nilai: `${persenGedung}%`, ket: `${total.hadir} dari ${total.wajib} sesi wajib`, ikon: <BarChart3 className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-700', bar: persenGedung },
+    { kunci: 'alpa', label: 'Tidak hadir', nilai: total.alpa, ket: 'sesi pada periode ini', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600' },
+    { kunci: 'izin', label: 'Izin', nilai: total.izin, ket: 'sesi pada periode ini', ikon: <FileCheck className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
+  ]
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<BarChart3 className="w-5 h-5 text-emerald-700" />} label="Kehadiran Gedung" value={`${persenGedung}%`} sub={`${total.hadir} dari ${total.wajib} sesi wajib`} color="#141a17" />
-        <StatCard icon={<XCircle className="w-5 h-5 text-rose-600" />} label="Total Tidak Hadir" value={total.alpa} sub="sesi" color="#be123c" />
-        <StatCard icon={<FileCheck className="w-5 h-5 text-amber-700" />} label="Total Izin" value={total.izin} sub="sesi" color="#b45309" />
-        <StatCard icon={<AlertCircle className="w-5 h-5 text-rose-600" />} label="Perlu Ditegur" value={jumlahDitegur} sub={`≥ ${BATAS_ALPA} sesi tidak hadir`} color="#e11d48" />
+    <div className="space-y-5">
+      {/* 1. Saring periode & sesi (berlaku untuk seluruh halaman) + unduh */}
+      <div className="bg-[#fff] rounded-2xl border border-gray-200/90 shadow-2xs px-5 py-4 flex flex-col xl:flex-row xl:items-center gap-3">
+        <div className="xl:mr-auto min-w-0">
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Rekap Kehadiran {namaGedung}</h3>
+          <p className="text-xs text-gray-500">{keteranganSaring} · {semua.length} penghuni wajib absen</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <PilihPeriodeLaporan nilai={saringPeriode} onChange={setSaringPeriode} today={today} className={saringCls} />
+          <select value={sesiPilih} onChange={e => setSesiPilih(e.target.value)} aria-label="Sesi" className={saringCls}>
+            <option value="">Semua sesi</option>
+            {namaSesi.map(n => <option key={n} value={n}>Sesi {n}</option>)}
+          </select>
+          <span className="hidden sm:block w-px h-7 bg-gray-200 mx-1" aria-hidden />
+          {([['xlsx', 'Excel'], ['pdf', 'PDF']] as const).map(([format, label]) => (
+            <button key={format} onClick={() => unduh(format)} disabled={rows.length === 0} className={tombolUnduh} title={`Unduh rekap yang ditampilkan sebagai ${label}`}>
+              <Download className="w-3.5 h-3.5" />{label}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {/* 2. Ringkasan; "Perlu ditegur" sekaligus penyaring tabel */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {ubin.map(u => (
+          <div key={u.kunci} className="bg-[#fff] rounded-2xl border border-gray-200/90 p-4 shadow-2xs min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-gray-600 truncate">{u.label}</span>
+              <span className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+            </div>
+            <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{u.nilai}</p>
+            {'bar' in u && u.bar !== undefined ? (
+              <div className="mt-1.5 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div className={`h-full rounded-full ${warnaPersen(u.bar)}`} style={{ width: `${u.bar}%` }} /></div>
+            ) : null}
+            <p className="text-[11px] text-gray-400 truncate mt-1">{u.ket}</p>
+          </div>
+        ))}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setHanyaDitegur(v => !v)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHanyaDitegur(v => !v) } }}
+          aria-pressed={hanyaDitegur}
+          title="Klik untuk menyaring tabel"
+          className={`bg-[#fff] rounded-2xl border p-4 shadow-2xs min-w-0 transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${hanyaDitegur ? 'border-rose-400 ring-2 ring-rose-400/20' : 'border-gray-200/90'}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-gray-600 truncate">Perlu ditegur</span>
+            <span className="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center bg-rose-50 text-rose-600"><AlertCircle className="w-4 h-4" /></span>
+          </div>
+          <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{jumlahDitegur}</p>
+          <p className="text-[11px] text-gray-400 truncate mt-1">{hanyaDitegur ? 'Klik untuk tampilkan semua' : `≥ ${BATAS_ALPA} sesi tidak hadir`}</p>
+        </div>
+      </div>
+
+      {/* 3. Grafik */}
       <div className="grid lg:grid-cols-5 gap-5">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-2xs p-5 lg:col-span-3">
+        <div className="bg-[#fff] rounded-2xl border border-gray-200/90 shadow-2xs p-5 lg:col-span-3">
           <p className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pola Kehadiran Mingguan</p>
-          <p className="text-xs text-gray-500 mt-0.5 mb-4">Tingkat kehadiran per hari dan sesi pada periode ini. Makin gelap makin tinggi; kotak bergaris merah = paling rendah.</p>
+          <p className="text-xs text-gray-500 mt-0.5 mb-4">Tingkat kehadiran per hari dan sesi. Makin gelap makin tinggi; kotak bergaris merah = paling rendah.</p>
           <PetaPanasPola pola={hitungPolaMingguan(semua.flatMap(r => r.riwayat))} />
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 shadow-2xs p-5 lg:col-span-2">
+        <div className="bg-[#fff] rounded-2xl border border-gray-200/90 shadow-2xs p-5 lg:col-span-2">
           <p className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Sebaran Tingkat Kehadiran</p>
           <p className="text-xs text-gray-500 mt-0.5 mb-3">Jumlah penghuni pada tiap rentang tingkat kehadiran</p>
           <HistogramSebaran persen={semua.filter(r => r.c.wajib > 0).map(r => r.c.persen)} />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-        <div className="px-5 pt-4 pb-4 border-b border-gray-100 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-            <SectionTitle subtitle={`${keteranganSaring}. Klik nama penghuni untuk melihat tanggal tidak hadir & izinnya.`}>
-              Rekap Kehadiran Penghuni
-            </SectionTitle>
-            <div className="flex gap-2 shrink-0">
-              {([['xlsx', 'Excel'], ['pdf', 'PDF']] as const).map(([format, label]) => (
-                <button
-                  key={format}
-                  onClick={() => unduh(format)}
-                  disabled={rows.length === 0}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-700 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
-                  title={`Unduh rekap yang ditampilkan sebagai ${label}`}
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  {label}
-                </button>
-              ))}
-            </div>
+      {/* 4. Daftar penghuni */}
+      <div className="bg-[#fff] rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center gap-3">
+          <div className="lg:mr-auto">
+            <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              {hanyaDitegur ? 'Penghuni yang perlu ditegur' : 'Rekap per penghuni'} <span className="text-gray-400 font-semibold">· {rows.length}</span>
+            </h3>
+            <p className="text-xs text-gray-500">Klik baris untuk melihat tanggal tidak hadir & izin</p>
           </div>
-
-          <div className="flex flex-col lg:flex-row gap-2">
-            <div className="relative flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full sm:w-60">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input type="search" value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari nama, NIM, atau kamar..." aria-label="Cari penghuni" className={`${saringCls} w-full pl-9`} />
+              <input type="search" value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari nama, NIM, kamar..." aria-label="Cari penghuni" className={`${saringCls} w-full pl-9`} />
             </div>
-            <div className="flex flex-wrap gap-2">
-              <PilihPeriodeLaporan nilai={saringPeriode} onChange={setSaringPeriode} today={today} className={saringCls} />
-              <select value={sesiPilih} onChange={e => setSesiPilih(e.target.value)} aria-label="Sesi" className={saringCls}>
-                <option value="">Semua sesi</option>
-                {namaSesi.map(n => <option key={n} value={n}>Sesi {n}</option>)}
-              </select>
-              <select value={urutan} onChange={e => setUrutan(e.target.value as UrutanRekap)} aria-label="Urutkan" className={saringCls}>
-                <option value="alpa">Tidak hadir terbanyak</option>
-                <option value="kehadiran">Kehadiran terendah</option>
-                <option value="nama">Nama (A–Z)</option>
-                <option value="kamar">Nomor kamar</option>
-              </select>
-            </div>
+            <select value={urutan} onChange={e => setUrutan(e.target.value as UrutanRekap)} aria-label="Urutkan" className={saringCls}>
+              <option value="alpa">Tidak hadir terbanyak</option>
+              <option value="kehadiran">Kehadiran terendah</option>
+              <option value="nama">Nama (A–Z)</option>
+              <option value="kamar">Nomor kamar</option>
+            </select>
           </div>
-
-          <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none">
-            <input type="checkbox" className="accent-rose-600 w-4 h-4" checked={hanyaDitegur} onChange={e => setHanyaDitegur(e.target.checked)} />
-            Hanya yang perlu ditegur ({jumlahDitegur})
-          </label>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {['Penghuni', 'Kamar', 'Hadir', 'Izin', 'Tidak Hadir', 'Kehadiran', 'Catatan'].map(h => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider text-gray-600" style={{ fontFamily: 'Plus Jakarta Sans' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {rows.length === 0 && (
-                <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">
-                  {anggota.length === 0 ? 'Belum ada penghuni wajib absen di gedung ini' : 'Tidak ada penghuni yang cocok dengan filter'}
-                </td></tr>
-              )}
-              {rows.map(({ penghuni: p, c, riwayat }) => {
+        {rows.length === 0 ? (
+          <p className="px-5 py-12 text-center text-sm text-gray-400">
+            {!rentang ? 'Pilih rentang tanggal yang valid.' : anggota.length === 0 ? 'Belum ada penghuni wajib absen di gedung ini.' : 'Tidak ada penghuni yang cocok dengan filter.'}
+          </p>
+        ) : (
+          <>
+            {/* Tabel (layar lebar) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50/70 border-b border-gray-100">
+                    {[['Penghuni', 'text-left'], ['Kamar', 'text-left'], ['Hadir', 'text-center'], ['Izin', 'text-center'], ['Tidak hadir', 'text-center'], ['Kehadiran', 'text-left'], ['Status', 'text-left']].map(([h, al]) => (
+                      <th key={h} className={`${al} px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {tampil.map(({ penghuni: p, c, riwayat }) => {
+                    const ditegur = perluDitegur(c)
+                    const terbuka = dibuka === p.nim
+                    return (
+                      <Fragment key={p.nim}>
+                        <tr className={`cursor-pointer transition-colors ${terbuka ? 'bg-gray-50' : 'hover:bg-gray-50/70'}`} onClick={() => setDibuka(terbuka ? null : p.nim)}>
+                          <td className="px-5 py-3">
+                            <button type="button" aria-expanded={terbuka} className="flex items-center gap-3 text-left cursor-pointer">
+                              <ChevronRight className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${terbuka ? 'rotate-90' : ''}`} />
+                              <span className="w-8 h-8 shrink-0 rounded-full bg-gray-100 text-gray-700 text-[11px] font-bold flex items-center justify-center">{inisial(p.nama)}</span>
+                              <span className="min-w-0">
+                                <span className="block font-semibold text-gray-900 truncate">{p.nama}</span>
+                                <span className="block mono text-[11px] text-gray-500">{p.nim}</span>
+                              </span>
+                            </button>
+                          </td>
+                          <td className="px-5 py-3"><span className="px-2 py-0.5 rounded-md bg-gray-100 text-xs font-semibold text-gray-700 mono">{p.nomorKamar}</span></td>
+                          <td className="px-5 py-3 text-center font-bold tabular-nums text-emerald-700">{c.Hadir}</td>
+                          <td className="px-5 py-3 text-center font-bold tabular-nums text-amber-700">{c.Izin}</td>
+                          <td className="px-5 py-3 text-center font-bold tabular-nums text-rose-600">{c['Tidak Hadir']}</td>
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-24 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div className={`h-full rounded-full ${warnaPersen(c.persen)}`} style={{ width: `${c.persen}%` }} /></div>
+                              <span className="text-xs font-bold text-gray-800 tabular-nums w-9">{c.wajib > 0 ? `${c.persen}%` : '–'}</span>
+                              <span className="text-[11px] text-gray-400 tabular-nums whitespace-nowrap">{c.Hadir}/{c.wajib}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3">
+                            {ditegur
+                              ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-[11px] font-bold text-rose-700"><AlertCircle className="w-3 h-3" />Perlu ditegur</span>
+                              : <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50 text-[11px] font-semibold text-gray-500">Aman</span>}
+                          </td>
+                        </tr>
+                        {terbuka && (
+                          <tr className="bg-gray-50/60">
+                            <td colSpan={7} className="px-5 pt-1 pb-4 pl-[4.25rem]"><RincianRekap riwayat={riwayat} /></td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Kartu (HP) */}
+            <ul className="md:hidden divide-y divide-gray-100">
+              {tampil.map(({ penghuni: p, c, riwayat }) => {
                 const ditegur = perluDitegur(c)
                 const terbuka = dibuka === p.nim
-                const alpa = riwayat.filter(r => r.detail.status === 'Tidak Hadir')
-                const izin = riwayat.filter(r => r.detail.status === 'Izin')
                 return (
-                  <Fragment key={p.nim}>
-                    <tr className={`${ditegur ? 'bg-rose-50/50' : ''} hover:bg-gray-50 cursor-pointer`} onClick={() => setDibuka(terbuka ? null : p.nim)}>
-                      <td className="px-5 py-3">
-                        <button type="button" aria-expanded={terbuka} className="text-left cursor-pointer">
-                          <p className="font-bold text-gray-900 flex items-center gap-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                            <ChevronRight className={`w-3.5 h-3.5 text-gray-400 transition-transform ${terbuka ? 'rotate-90' : ''}`} />
-                            {p.nama}
-                          </p>
-                          <p className="mono text-[11px] text-gray-500 pl-[18px]">{p.nim}</p>
-                        </button>
-                      </td>
-                      <td className="px-5 py-3 mono text-xs font-bold text-emerald-800">{p.nomorKamar}</td>
-                      <td className="px-5 py-3 font-semibold text-emerald-700">{c.Hadir}</td>
-                      <td className="px-5 py-3 font-semibold text-amber-700">{c.Izin}</td>
-                      <td className="px-5 py-3 font-semibold text-rose-700">{c['Tidak Hadir']}</td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                            <div className={`h-full ${c.persen >= 80 ? 'bg-emerald-600' : c.persen >= 60 ? 'bg-amber-500' : 'bg-rose-500'}`} style={{ width: `${c.persen}%` }} />
-                          </div>
-                          <span className="text-xs font-bold text-gray-700">{c.wajib > 0 ? `${c.persen}%` : '–'}</span>
+                  <li key={p.nim} className="px-4 py-3.5">
+                    <button type="button" aria-expanded={terbuka} onClick={() => setDibuka(terbuka ? null : p.nim)} className="w-full text-left cursor-pointer">
+                      <div className="flex items-center gap-3">
+                        <span className="w-9 h-9 shrink-0 rounded-full bg-gray-100 text-gray-700 text-xs font-bold flex items-center justify-center">{inisial(p.nama)}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{p.nama}</p>
+                          <p className="text-[11px] text-gray-500"><span className="mono">{p.nim}</span> · Kamar {p.nomorKamar}</p>
                         </div>
-                      </td>
-                      <td className="px-5 py-3 text-xs">
-                        {ditegur ? <span className="font-bold text-rose-700">Perlu ditegur</span> : <span className="text-gray-400">–</span>}
-                      </td>
-                    </tr>
-                    {terbuka && (
-                      <tr className="bg-gray-50/70">
-                        <td colSpan={7} className="px-5 py-3">
-                          <div className="grid sm:grid-cols-2 gap-4 text-xs">
-                            {([['Tidak hadir', alpa, 'bg-rose-50 border-rose-200 text-rose-800'], ['Izin', izin, 'bg-amber-50 border-amber-200 text-amber-800']] as const).map(([judul, daftar, warna]) => (
-                              <div key={judul}>
-                                <p className="font-bold text-gray-700 mb-1.5">{judul} ({daftar.length} sesi)</p>
-                                {daftar.length === 0 ? <p className="text-gray-400">Tidak ada</p> : (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {daftar.map(r => (
-                                      <span key={`${r.tanggal}-${r.sesi.nama}`} className={`px-2 py-0.5 rounded-md border font-semibold ${warna}`}>
-                                        {formatTanggal(r.tanggal, 'tanpaHari')} · {r.sesi.nama}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                        {ditegur && <span className="shrink-0 px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-[10px] font-bold text-rose-700">Ditegur</span>}
+                        <ChevronRight className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${terbuka ? 'rotate-90' : ''}`} />
+                      </div>
+                      <div className="mt-2.5 flex items-center gap-2.5">
+                        <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div className={`h-full rounded-full ${warnaPersen(c.persen)}`} style={{ width: `${c.persen}%` }} /></div>
+                        <span className="text-xs font-bold text-gray-800 tabular-nums">{c.wajib > 0 ? `${c.persen}%` : '–'}</span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                        {[['Hadir', c.Hadir, 'text-emerald-700'], ['Izin', c.Izin, 'text-amber-700'], ['Tidak hadir', c['Tidak Hadir'], 'text-rose-600']].map(([l, n, w]) => (
+                          <span key={l as string} className="rounded-lg bg-gray-50 border border-gray-100 py-1.5">
+                            <span className={`block text-sm font-extrabold tabular-nums ${w}`}>{n}</span>
+                            <span className="block text-[10px] text-gray-500">{l}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                    {terbuka && <div className="mt-3 pt-3 border-t border-gray-100"><RincianRekap riwayat={riwayat} /></div>}
+                  </li>
                 )
               })}
-            </tbody>
-          </table>
-        </div>
+            </ul>
+
+            {/* Halaman */}
+            <div className="px-5 py-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <label className="inline-flex items-center gap-2">
+                  <span>Tampilkan</span>
+                  <select value={perHalaman} onChange={e => setPerHalaman(Number(e.target.value))} aria-label="Jumlah baris per halaman"
+                    className="px-2 py-1.5 rounded-lg border border-gray-200 bg-[#fff] text-xs font-semibold text-gray-800 outline-none focus:border-emerald-600 cursor-pointer">
+                    {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <span>baris</span>
+                </label>
+                <span>Menampilkan {awalHal + 1}–{awalHal + tampil.length} dari {rows.length} penghuni</span>
+              </div>
+              {jumlahHalaman > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <button type="button" className={tombolHal} disabled={aktifHal === 1} onClick={() => setHalaman(aktifHal - 1)}>‹ Sebelumnya</button>
+                  <span className="px-2 font-semibold text-gray-700 tabular-nums">{aktifHal} / {jumlahHalaman}</span>
+                  <button type="button" className={tombolHal} disabled={aktifHal === jumlahHalaman} onClick={() => setHalaman(aktifHal + 1)}>Berikutnya ›</button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

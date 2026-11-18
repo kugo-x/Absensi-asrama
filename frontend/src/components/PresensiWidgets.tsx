@@ -86,11 +86,11 @@ export function UbinStatusRekap({ rows, value, onChange }: { rows: RekapRow[]; v
             role="tab"
             aria-selected={aktif}
             onClick={() => onChange(u.status)}
-            className={`text-left bg-[#fff] rounded-2xl border p-3.5 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+            className={`text-left bg-[#fff] rounded-2xl border p-3 sm:p-3.5 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-gray-600 truncate">{u.label}</span>
-              <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+              <span className="text-xs font-semibold text-gray-600 leading-tight sm:truncate">{u.label}</span>
+              <span className={`hidden sm:flex w-7 h-7 shrink-0 rounded-lg items-center justify-center ${u.warna}`}>{u.ikon}</span>
             </div>
             <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{u.status ? jumlah(u.status) : rows.length}</p>
           </button>
@@ -178,7 +178,50 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
   const sorted = urutkanRekap(rows)
 
   return (
-    <div className="overflow-x-auto">
+    <>
+    {/* HP: kartu per penghuni */}
+    <ul className="md:hidden divide-y divide-gray-100">
+      {sorted.length === 0 && <li className="px-4 py-10 text-center text-sm text-gray-400 font-medium">{emptyText}</li>}
+      {sorted.map(({ penghuni: p, detail }) => {
+        const rec = detail.presensi
+        const ket = keteranganStatus(detail)
+        const jam = jamPresensi(rec)
+        const bisaKoreksi = onKoreksi && detail.fase !== 'belum-dibuka' && detail.status !== 'Libur'
+        return (
+          <li key={p.nim} className="px-4 py-3">
+            <div className="flex items-start gap-3">
+              {rec?.fotoWajah
+                ? <FotoWajah foto={rec.fotoWajah} alt={`Foto ${p.nama}`} className="w-11 h-11 rounded-xl shrink-0" />
+                : <span className="w-11 h-11 rounded-xl shrink-0 bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center">{p.nama.split(/\s+/).slice(0, 2).map(k => k[0]?.toUpperCase()).join('')}</span>}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{p.nama}</p>
+                  <Badge status={detail.status} />
+                </div>
+                <p className="text-[11px] text-gray-500 truncate"><span className="mono">{p.nim}</span> · Kamar {p.nomorKamar}{showGedung && p.namaGedung ? ` · ${p.namaGedung}` : ''}</p>
+                {(jam || rec?.statusFoto) && (
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    {jam && <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[10px] font-semibold text-gray-700">Masuk {jam}</span>}
+                    {rec?.statusFoto && <FotoBadge status={rec.statusFoto} />}
+                  </div>
+                )}
+                {ket && <p className={`text-[11px] mt-1 leading-snug ${rec?.otomatis ? 'text-gray-400' : 'text-gray-600'}`}>{ket}</p>}
+              </div>
+            </div>
+            {bisaKoreksi && (
+              <button
+                onClick={() => onKoreksi!({ penghuni: p, detail })}
+                className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-lg text-gray-700 bg-[#fff] hover:bg-gray-50 border border-gray-200 transition-colors cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Koreksi status</span>
+              </button>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+    <div className="hidden md:block overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-gray-50/70 border-b border-gray-100">
@@ -247,6 +290,7 @@ export function RekapTable({ rows, showGedung = false, onKoreksi, emptyText = 'T
         </tbody>
       </table>
     </div>
+    </>
   )
 }
 

@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Moon, Sun } from 'lucide-react'
 import type { PresensiStatus, Sesi } from '../types'
-import { formatTanggal, hitungStatus, jamPresensi, keteranganStatus, riwayatPenghuni, todayLocal, type DataPresensi, type RiwayatRow } from '../logic'
-import { SectionTitle } from './AppLayout'
+import { formatTanggal, hitungStatus, jamPresensi, riwayatPenghuni, todayLocal, type DataPresensi, type RiwayatRow } from '../logic'
+import { Badge, SectionTitle } from './AppLayout'
 
 /**
  * Kalender kehadiran sebulan untuk penghuni.
@@ -39,14 +39,6 @@ const LEGENDA: [string, string][] = [
   ['bg-slate-400', 'Libur'],
   ['bg-gray-300', 'Belum absen'],
 ]
-
-const WARNA_STATUS: Record<PresensiStatus, string> = {
-  Hadir: 'text-emerald-700',
-  'Tidak Hadir': 'text-rose-700',
-  Izin: 'text-amber-700',
-  Libur: 'text-slate-700',
-  Belum: 'text-gray-400',
-}
 
 function ringkas(baris: RiwayatRow[]): Ringkas {
   const st = baris.map(r => r.detail.status).filter(s => s !== 'Belum')
@@ -107,9 +99,9 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
 
   return (
     <div className="bg-white rounded-2xl p-5 border border-gray-200/90 shadow-2xs">
-      <div className="flex items-start justify-between gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 sm:gap-3 mb-4">
         <SectionTitle subtitle={`Kehadiran ${c.persen}% · Hadir ${c.Hadir} dari ${c.wajib} sesi wajib bulan ini`}>Kalender Kehadiran</SectionTitle>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 self-start sm:self-auto -ml-1.5 sm:ml-0">
           <button onClick={() => geser(-1)} disabled={!bisaMundur} aria-label="Bulan sebelumnya" className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed">
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -139,7 +131,7 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
                   onClick={() => setDipilih(t)}
                   data-tgl={t}
                   aria-pressed={dipilih === t}
-                  title={`${formatTanggal(t)}${rows.length ? ' · ' + rows.map(x => `${x.sesi.nama}: ${x.detail.status}`).join(', ') : ''}${ev.length ? ' · Event: ' + ev.map(e => e.judul).join(', ') : ''}`}
+                  aria-label={`${formatTanggal(t)}${rows.length ? ' · ' + rows.map(x => `${x.sesi.nama}: ${x.detail.status}`).join(', ') : ''}${ev.length ? ' · Event: ' + ev.map(e => e.judul).join(', ') : ''}`}
                   className={`h-12 sm:h-14 rounded-lg border p-1 flex flex-col items-center justify-between transition-all cursor-pointer hover:border-gray-400
                     ${nanti ? 'bg-[#fff] text-gray-300 border-dashed border-gray-200' : WARNA[r]}
                     ${dipilih === t ? 'ring-2 ring-gray-900 ring-offset-1' : ''}`}
@@ -163,34 +155,74 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
             <p className="text-xs text-gray-400">Pilih tanggal untuk melihat detail.</p>
           ) : (
             <>
-              <p className="text-sm font-bold text-gray-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatTanggal(dipilih)}</p>
-              {eventDipilih.length > 0 && (
-                <ul className="space-y-2 mb-3 pb-3 border-b border-gray-100">
-                  {eventDipilih.map(e => (
-                    <li key={e.judul} className="text-xs flex items-center justify-between gap-2">
-                      <span className="font-semibold text-gray-800 truncate">Event · {e.judul}{e.jam && <span className="font-normal text-gray-400"> · masuk {e.jam}</span>}</span>
-                      <span className={`font-bold shrink-0 ${WARNA_STATUS[e.status]}`}>{e.status}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {detail.length === 0 ? (
+              <div className="flex items-baseline justify-between gap-2 mb-3">
+                <p className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatTanggal(dipilih)}</p>
+                {(detail.length > 0 || eventDipilih.length > 0) && (
+                  <span className="text-[11px] text-gray-400 shrink-0">
+                    {[detail.length && `${detail.length} sesi`, eventDipilih.length && `${eventDipilih.length} event`].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+              </div>
+              {detail.length === 0 && eventDipilih.length === 0 ? (
                 <p className="text-xs text-gray-400">{dipilih > today ? 'Belum berlangsung.' : dipilih < mulaiHitung ? 'Sebelum Anda terdaftar.' : 'Tidak ada sesi wajib.'}</p>
               ) : (
                 <ul className="space-y-2">
                   {detail.map(({ sesi, detail: d }) => {
-                    const jam = jamPresensi(d.presensi)
-                    const ket = keteranganStatus(d)
+                    const pr = d.presensi
+                    const jam = jamPresensi(pr)
+                    const chip: { teks: string; kelas: string }[] = []
+                    if (jam) chip.push({ teks: `Masuk ${jam} WIB`, kelas: 'bg-gray-100 text-gray-700' })
+                    if (pr?.statusFoto === 'Menunggu') chip.push({ teks: 'Foto menunggu validasi', kelas: 'bg-amber-50 text-amber-800' })
+                    if (pr?.statusFoto === 'Diterima') chip.push({ teks: 'Foto diterima', kelas: 'bg-emerald-50 text-emerald-800' })
+                    if (pr?.statusFoto === 'Ditolak') chip.push({ teks: 'Foto ditolak', kelas: 'bg-rose-50 text-rose-700' })
+                    if (pr?.otomatis) chip.push({ teks: 'Dicatat otomatis', kelas: 'bg-gray-100 text-gray-500' })
+                    else if (pr?.dikoreksiOleh && pr.statusFoto !== 'Ditolak') chip.push({ teks: 'Dikoreksi fasil', kelas: 'bg-slate-100 text-slate-700' })
+                    // Satu baris keterangan saja, tanpa mengulang info chip
+                    const catatan = pr?.statusFoto === 'Ditolak' && pr.catatanValidasi ? `Catatan fasil: ${pr.catatanValidasi}`
+                      : d.libur ? d.libur.keterangan
+                      : d.izin ? `Izin: ${d.izin.alasan}`
+                      : pr?.dikoreksiOleh && pr.keterangan && !/^Foto ditolak/.test(pr.keterangan) ? pr.keterangan
+                      : ''
                     return (
-                      <li key={sesi.id} className="text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-gray-800">Sesi {sesi.nama} <span className="font-normal text-gray-400">{sesi.jamMulai}–{sesi.jamSelesai}</span></span>
-                          <span className={`font-bold ${WARNA_STATUS[d.status]}`}>{d.status}</span>
+                      <li key={sesi.id} className="flex items-start gap-3 rounded-lg bg-[#fff] border border-gray-100 px-3 py-2.5">
+                        <span className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-600">
+                          {/malam/i.test(sesi.nama) ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-gray-900">Sesi {sesi.nama}</p>
+                            <Badge status={d.status} />
+                          </div>
+                          <p className="text-[11px] text-gray-400 tabular-nums">{sesi.jamMulai}–{sesi.jamSelesai} WIB</p>
+                          {chip.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {chip.map(c => <span key={c.teks} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${c.kelas}`}>{c.teks}</span>)}
+                            </div>
+                          )}
+                          {catatan && <p className="text-[11px] text-gray-500 mt-1 leading-snug">{catatan}</p>}
                         </div>
-                        {(jam || ket) && <p className="text-[11px] text-gray-500 mt-0.5">{[jam && `Masuk ${jam}`, ket].filter(Boolean).join(' · ')}</p>}
                       </li>
                     )
                   })}
+                  {eventDipilih.map(e => (
+                    <li key={e.judul} className="flex items-start gap-3 rounded-lg bg-[#fff] border border-gray-100 px-3 py-2.5">
+                      <span className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-600">
+                        <CalendarDays className="w-4 h-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{e.judul}</p>
+                          <Badge status={e.status} />
+                        </div>
+                        <p className="text-[11px] text-gray-400">Absen event</p>
+                        {e.jam && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-700">Masuk {e.jam} WIB</span>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
                 </ul>
               )}
             </>

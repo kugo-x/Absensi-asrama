@@ -716,3 +716,14 @@ code, .mono {
   0%, 100% { opacity: 0.5; transform: scale(0.85); }
   50% { opacity: 1; transform: scale(1.15); }
 }
+
+/* Item grid tidak boleh melebar melampaui kolomnya: tanpa ini konten panjang
+   (deretan tombol sesi, tabel, teks panjang) mendorong kartu keluar layar di HP */
+main .grid > * { min-width: 0; }
+
+/* Perangkat sentuh (HP/tablet): tombol & tautan minimal 32px agar mudah disentuh jari.
+   Hanya berlaku untuk elemen blok/flex (tautan teks di dalam kalimat tidak terpengaruh). */
+@media (pointer: coarse) {
+  main button, main a[href], main [role='button'], header button, aside button { min-height: 32px; }
+  main button.inline-flex, main a.inline-flex { min-width: 32px; }
+}

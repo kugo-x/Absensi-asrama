@@ -852,8 +852,8 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
                       <SesiIcon nama={sesi.nama} className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi {sesi.nama}</span>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="font-bold text-sm text-gray-900 whitespace-nowrap" style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi {sesi.nama}</span>
                         {detail.fase === 'dibuka' && <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">DIBUKA</span>}
                       </div>
                       <div className="text-xs text-gray-500 font-medium">{sesi.jamMulai} – {sesi.jamSelesai} WIB</div>
@@ -2166,14 +2166,14 @@ function PenghuniEvent({
         </div>
 
         {/* Input Pencarian */}
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             placeholder="Cari event, kegiatan, lokasi..."
             value={cari}
             onChange={e => setCari(e.target.value)}
-            className="pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 w-52 sm:w-72 bg-gray-50/50"
+            className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 w-full sm:w-72 bg-gray-50/50"
           />
         </div>
       </div>
