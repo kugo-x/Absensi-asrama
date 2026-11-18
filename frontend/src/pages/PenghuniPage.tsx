@@ -18,7 +18,7 @@ import {
 import {
   awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, batalIzinApi, adalahBuktiTersimpan, fetchGedung, fetchSesi,
   fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT,
-  fetchEvent, absenEventApi,
+  fetchEvent, absenEventApi, fotoEventUrl,
 } from '../api'
 import KalenderKehadiran from '../components/KalenderKehadiran'
 import KartuEvent from '../components/KartuEvent'
@@ -137,9 +137,8 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       const pr = initialPresensiEvent.find(p => p.idEvent === ev.id && p.nim === user.nim)
       return {
         ...ev,
-        statusKehadiranSaya: pr ? (pr.status as 'Hadir' | 'Tidak Hadir') : ev.statusKehadiranSaya || null,
-        waktuPresensiSaya: pr ? pr.waktu : ev.waktuPresensiSaya || null,
-        fotoPresensiSaya: pr ? pr.foto : ev.fotoPresensiSaya || null,
+        statusKehadiran: pr ? (pr.status as 'Hadir' | 'Tidak Hadir') : (ev.statusKehadiran ?? 'Belum Absen'),
+        presensiSaya: pr ?? ev.presensiSaya ?? null,
       }
     })
   })
@@ -299,9 +298,20 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
         if (ev.id === data.idEvent) {
           return {
             ...ev,
-            statusKehadiranSaya: 'Hadir' as const,
-            waktuPresensiSaya: jam,
-            fotoPresensiSaya: data.foto,
+            statusKehadiran: 'Hadir' as const,
+            presensiSaya: {
+              id: ev.presensiSaya?.id ?? 0,
+              idEvent: data.idEvent,
+              nim: user.nim,
+              tanggal: todayLocal(),
+              waktu: jam,
+              latitude: data.latitude,
+              longitude: data.longitude,
+              jarakMeter: null,
+              foto: data.foto,
+              status: 'Hadir',
+              keterangan: null,
+            },
           }
         }
         return ev
@@ -477,7 +487,7 @@ function PenghuniDashboard({
   )
 
   const eventSedangBerlangsung = eventSaya.find(
-    ev => getStatusEvent(ev, today, now || new Date()) === 'Sedang Berlangsung' && ev.statusKehadiranSaya !== 'Hadir'
+    ev => getStatusEvent(ev, today, now || new Date()) === 'Sedang Berlangsung' && ev.statusKehadiran !== 'Hadir'
   )
 
   const eventTerdekat = eventSaya
@@ -844,7 +854,7 @@ function PenghuniDashboard({
                       </p>
                       <div className="flex items-center justify-between text-[11px] text-gray-500">
                         <span>{formatTanggal(ev.tanggal)} • {ev.jamMulai} WIB</span>
-                        {ev.statusKehadiranSaya === 'Hadir' ? (
+                        {ev.statusKehadiran === 'Hadir' ? (
                           <span className="text-emerald-700 font-bold">✓ Hadir</span>
                         ) : st === 'Sedang Berlangsung' && onBukaPresensiEvent ? (
                           <button
@@ -2104,7 +2114,7 @@ function PenghuniEvent({
   const totalEvent = eventSaya.length
   const sedangBerlangsung = eventSaya.filter(ev => getStatusEvent(ev, today, now) === 'Sedang Berlangsung').length
   const akanDatang = eventSaya.filter(ev => getStatusEvent(ev, today, now) === 'Akan Datang').length
-  const hadirCount = eventSaya.filter(ev => ev.statusKehadiranSaya === 'Hadir').length
+  const hadirCount = eventSaya.filter(ev => ev.statusKehadiran === 'Hadir').length
 
   return (
     <div className="space-y-6">
@@ -2221,8 +2231,8 @@ function PenghuniEvent({
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
           {filtered.map(ev => {
             const st = getStatusEvent(ev, today, now)
-            const sudahHadir = ev.statusKehadiranSaya === 'Hadir'
-            const tidakHadir = ev.statusKehadiranSaya === 'Tidak Hadir'
+            const sudahHadir = ev.statusKehadiran === 'Hadir'
+            const tidakHadir = ev.statusKehadiran === 'Tidak Hadir'
             const bisaAbsen = st === 'Sedang Berlangsung' && !sudahHadir
 
             return (
@@ -2251,16 +2261,25 @@ function PenghuniEvent({
                 {/* Bottom CTA / Status Info */}
                 <div className="pt-2 border-t border-gray-100">
                   {sudahHadir ? (
-                    <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
+                    <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 min-w-0">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>Kehadiran Anda telah tercatat</span>
+                        <span className="truncate">Kehadiran Anda telah tercatat</span>
                       </span>
-                      {ev.waktuPresensiSaya && (
-                        <span className="mono text-[11px] font-bold text-emerald-800">
-                          {ev.waktuPresensiSaya} WIB
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {ev.presensiSaya?.waktu && (
+                          <span className="mono text-[11px] font-bold text-emerald-800">
+                            {ev.presensiSaya.waktu} WIB
+                          </span>
+                        )}
+                        {ev.presensiSaya?.foto && (
+                          <img
+                            src={fotoEventUrl(ev.presensiSaya.foto) || undefined}
+                            alt="Bukti Presensi"
+                            className="w-7 h-7 rounded-lg object-cover border border-emerald-300"
+                          />
+                        )}
+                      </div>
                     </div>
                   ) : bisaAbsen ? (
                     <button

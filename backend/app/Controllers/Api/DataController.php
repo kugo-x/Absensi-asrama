@@ -89,8 +89,8 @@ class DataController extends BaseController
         }
 
         if ($nimPj !== null) {
-            $fasil = $this->db->table('user')->where('NIM', $nimPj)->get()->getRowArray();
-            if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || $fasil['Status_aktif'] !== 'Aktif') {
+            $fasil = $this->db->query("SELECT * FROM user WHERE BINARY NIM = BINARY ? LIMIT 1", [$nimPj])->getRowArray();
+            if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || strtolower($fasil['Status_aktif'] ?? '') !== 'aktif') {
                 return $this->fail('PJ gedung harus akun fasil yang aktif.', 400);
             }
         }
@@ -168,6 +168,19 @@ class DataController extends BaseController
             $updateData['Longitude'] = $lng;
         }
 
+        if (array_key_exists('nimPj', $input)) {
+            $nimPj = trim((string) $input['nimPj']) ?: null;
+            if ($nimPj !== null) {
+                $fasil = $this->db->query("SELECT * FROM user WHERE BINARY NIM = BINARY ? LIMIT 1", [$nimPj])->getRowArray();
+                if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || strtolower($fasil['Status_aktif'] ?? '') !== 'aktif') {
+                    return $this->fail('PJ gedung harus akun fasil yang aktif.', 400);
+                }
+                // Lepas dari gedung lain yang sebelumnya dipegang
+                $this->db->table('gedung')->where('NIM_Pj', $nimPj)->where('Id_Gedung !=', $id)->update(['NIM_Pj' => null]);
+            }
+            $updateData['NIM_Pj'] = $nimPj;
+        }
+
         $this->db->table('gedung')->where('Id_Gedung', $id)->update($updateData);
 
         return $this->respond(['status' => 'success', 'message' => 'Data gedung berhasil diperbarui']);
@@ -215,15 +228,15 @@ class DataController extends BaseController
     {
         $input = $this->request->getJSON(true) ?? $this->request->getPost();
         $id    = (int) ($input['id'] ?? 0);
-        $nimPj = $input['nimPj'] ?? null;
+        $nimPj = trim((string) ($input['nimPj'] ?? '')) ?: null;
 
         if (! $this->db->table('gedung')->where('Id_Gedung', $id)->countAllResults()) {
             return $this->failNotFound('Gedung tidak ditemukan.');
         }
 
         if ($nimPj !== null) {
-            $fasil = $this->db->table('user')->where('NIM', $nimPj)->get()->getRowArray();
-            if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || $fasil['Status_aktif'] !== 'Aktif') {
+            $fasil = $this->db->query("SELECT * FROM user WHERE BINARY NIM = BINARY ? LIMIT 1", [$nimPj])->getRowArray();
+            if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || strtolower($fasil['Status_aktif'] ?? '') !== 'aktif') {
                 return $this->fail('PJ gedung harus akun fasil yang aktif.', 400);
             }
             // Lepas dari gedung lain yang sebelumnya dipegang
@@ -470,7 +483,10 @@ class DataController extends BaseController
 
             $joinKamar = ($hasKamar) ? "LEFT JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar" : "";
             $joinGedung = ($hasGedung && $hasKamar) ? "LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung" : "";
-            $gedungCol = ($hasGedung && $hasKamar) ? "COALESCE(g.Nama, '') as namaGedung" : "'' as namaGedung";
+            $joinGedungPj = ($hasGedung) ? "LEFT JOIN gedung gpj ON BINARY gpj.NIM_Pj = BINARY u.NIM" : "";
+            $gedungCol = ($hasGedung)
+                ? ($hasKamar ? "COALESCE(g.Nama, gpj.Nama, '') as namaGedung" : "COALESCE(gpj.Nama, '') as namaGedung")
+                : "'' as namaGedung";
 
             $query = $this->db->query("
                 SELECT
@@ -488,6 +504,7 @@ class DataController extends BaseController
                 FROM user u
                 {$joinKamar}
                 {$joinGedung}
+                {$joinGedungPj}
                 WHERE LOWER(u.Role) <> 'admin'
                 ORDER BY u.Nama ASC
             ");

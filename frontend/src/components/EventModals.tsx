@@ -235,19 +235,19 @@ export function EventFormModal({
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
                 Tanggal Event <span className="text-rose-500">*</span>
               </label>
-              <DateInput value={tanggal} onChange={setTanggal} />
+              <DateInput value={tanggal} onChange={e => setTanggal(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
                 Jam Mulai <span className="text-rose-500">*</span>
               </label>
-              <TimeInput value={jamMulai} onChange={setJamMulai} />
+              <TimeInput value={jamMulai} onChange={e => setJamMulai(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
                 Jam Selesai <span className="text-rose-500">*</span>
               </label>
-              <TimeInput value={jamSelesai} onChange={setJamSelesai} />
+              <TimeInput value={jamSelesai} onChange={e => setJamSelesai(e.target.value)} />
             </div>
           </div>
 

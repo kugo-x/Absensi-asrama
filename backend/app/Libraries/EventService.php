@@ -12,68 +12,6 @@ class EventService
     public function __construct(?BaseConnection $db = null)
     {
         $this->db = $db ?? Database::connect();
-        $this->ensureTablesExist();
-    }
-
-    /**
-     * Pastikan tabel event dan presensi_event otomatis ada di database pengguna
-     */
-    public function ensureTablesExist(): void
-    {
-        try {
-            if (! $this->db->tableExists('event')) {
-                $this->db->query("
-                    CREATE TABLE IF NOT EXISTS `event` (
-                        `id` INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                        `judul` VARCHAR(150) NOT NULL,
-                        `deskripsi` TEXT NULL,
-                        `tipe` ENUM('seluruh','gedung') NOT NULL DEFAULT 'seluruh',
-                        `id_gedung` INT(11) NULL,
-                        `tanggal` DATE NOT NULL,
-                        `jam_mulai` TIME NOT NULL,
-                        `jam_selesai` TIME NOT NULL,
-                        `lokasi` VARCHAR(150) NOT NULL,
-                        `latitude` DECIMAL(10,8) NOT NULL,
-                        `longitude` DECIMAL(11,8) NOT NULL,
-                        `radius_meter` INT(11) NOT NULL DEFAULT 50,
-                        `created_by` VARCHAR(20) NOT NULL,
-                        `created_at` DATETIME NULL,
-                        `updated_at` DATETIME NULL,
-                        INDEX `idx_event_tanggal` (`tanggal`),
-                        INDEX `idx_event_tipe_gedung` (`tipe`, `id_gedung`)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-                ");
-            }
-
-            if (! $this->db->tableExists('presensi_event')) {
-                $this->db->query("
-                    CREATE TABLE IF NOT EXISTS `presensi_event` (
-                        `id` INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                        `id_event` INT(11) UNSIGNED NOT NULL,
-                        `nim` VARCHAR(20) NOT NULL,
-                        `tanggal` DATE NOT NULL,
-                        `waktu` TIME NULL,
-                        `latitude` DECIMAL(10,8) NULL,
-                        `longitude` DECIMAL(11,8) NULL,
-                        `jarak_meter` DECIMAL(8,2) NULL,
-                        `foto` MEDIUMTEXT NULL,
-                        `status` ENUM('Hadir','Tidak Hadir') NOT NULL DEFAULT 'Tidak Hadir',
-                        `keterangan` VARCHAR(255) NULL,
-                        `created_at` DATETIME NULL,
-                        `updated_at` DATETIME NULL,
-                        UNIQUE KEY `uk_event_nim` (`id_event`, `nim`),
-                        INDEX `idx_presensi_event_id` (`id_event`),
-                        INDEX `idx_presensi_event_nim` (`nim`)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-                ");
-            }
-
-            // Selaraskan collation tabel event dan presensi_event jika sudah dibuat sebelumnya
-            $this->db->query("ALTER TABLE `event` CONVERT TO CHARACTER SET utf8mb4");
-            $this->db->query("ALTER TABLE `presensi_event` CONVERT TO CHARACTER SET utf8mb4");
-        } catch (\Throwable $e) {
-            // Abaikan jika tidak diizinkan membuat tabel
-        }
     }
 
     /**

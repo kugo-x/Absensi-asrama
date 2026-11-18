@@ -48,17 +48,15 @@ class CreateEventTables extends Migration
             ],
             'lokasi' => [
                 'type'       => 'VARCHAR',
-                'constraint' => 200,
+                'constraint' => 150,
             ],
             'latitude' => [
                 'type'       => 'DECIMAL',
                 'constraint' => '10,8',
-                'null'       => true,
             ],
             'longitude' => [
                 'type'       => 'DECIMAL',
                 'constraint' => '11,8',
-                'null'       => true,
             ],
             'radius_meter' => [
                 'type'       => 'INT',
@@ -68,7 +66,6 @@ class CreateEventTables extends Migration
             'created_by' => [
                 'type'       => 'VARCHAR',
                 'constraint' => 20,
-                'null'       => true,
             ],
             'created_at' => [
                 'type' => 'DATETIME',
@@ -80,9 +77,17 @@ class CreateEventTables extends Migration
             ],
         ]);
         $this->forge->addKey('id', true);
-        $this->forge->addForeignKey('id_gedung', 'gedung', 'Id_Gedung', 'CASCADE', 'CASCADE');
-        $this->forge->addForeignKey('created_by', 'user', 'NIM', 'SET NULL', 'CASCADE');
-        $this->forge->createTable('event');
+        $this->forge->addKey('tanggal', false, false, 'idx_event_tanggal');
+        $this->forge->addKey(['tipe', 'id_gedung'], false, false, 'idx_event_tipe_gedung');
+        $this->forge->createTable('event', true);
+
+        // Tambah Foreign Key secara aman tanpa menggagalkan migrasi jika terjadi ketidakcocokan collation
+        try {
+            $this->db->query('ALTER TABLE `event` ADD CONSTRAINT `fk_event_id_gedung` FOREIGN KEY (`id_gedung`) REFERENCES `gedung` (`Id_Gedung`) ON DELETE CASCADE ON UPDATE CASCADE');
+        } catch (\Throwable $e) {}
+        try {
+            $this->db->query('ALTER TABLE `event` ADD CONSTRAINT `fk_event_created_by` FOREIGN KEY (`created_by`) REFERENCES `user` (`NIM`) ON DELETE SET NULL ON UPDATE CASCADE');
+        } catch (\Throwable $e) {}
 
         // ----------------------------------------------------
         // Tabel presensi_event
@@ -121,13 +126,13 @@ class CreateEventTables extends Migration
                 'null'       => true,
             ],
             'jarak_meter' => [
-                'type' => 'FLOAT',
-                'null' => true,
+                'type'       => 'DECIMAL',
+                'constraint' => '8,2',
+                'null'       => true,
             ],
             'foto' => [
-                'type'       => 'VARCHAR',
-                'constraint' => 255,
-                'null'       => true,
+                'type' => 'MEDIUMTEXT',
+                'null' => true,
             ],
             'status' => [
                 'type'       => 'ENUM',
@@ -149,10 +154,17 @@ class CreateEventTables extends Migration
             ],
         ]);
         $this->forge->addKey('id', true);
-        $this->forge->addUniqueKey(['id_event', 'nim']);
-        $this->forge->addForeignKey('id_event', 'event', 'id', 'CASCADE', 'CASCADE');
-        $this->forge->addForeignKey('nim', 'user', 'NIM', 'CASCADE', 'CASCADE');
-        $this->forge->createTable('presensi_event');
+        $this->forge->addUniqueKey(['id_event', 'nim'], 'uk_event_nim');
+        $this->forge->addKey('id_event', false, false, 'idx_presensi_event_id');
+        $this->forge->addKey('nim', false, false, 'idx_presensi_event_nim');
+        $this->forge->createTable('presensi_event', true);
+
+        try {
+            $this->db->query('ALTER TABLE `presensi_event` ADD CONSTRAINT `fk_pe_id_event` FOREIGN KEY (`id_event`) REFERENCES `event` (`id`) ON DELETE CASCADE ON UPDATE CASCADE');
+        } catch (\Throwable $e) {}
+        try {
+            $this->db->query('ALTER TABLE `presensi_event` ADD CONSTRAINT `fk_pe_nim` FOREIGN KEY (`nim`) REFERENCES `user` (`NIM`) ON DELETE CASCADE ON UPDATE CASCADE');
+        } catch (\Throwable $e) {}
     }
 
     public function down()

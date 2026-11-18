@@ -411,7 +411,7 @@ export function SectionTitle({ children, subtitle }: { children: React.ReactNode
   )
 }
 
-export function ConfirmDialog({ title, message, confirmLabel = 'Konfirmasi', onCancel, onConfirm, loading = false, hideCancel = false, children }: {
+export function ConfirmDialog({ title, message, confirmLabel = 'Konfirmasi', onCancel, onConfirm, loading = false, hideCancel = false, isDestructive = false, children }: {
   title: string
   message?: string
   confirmLabel?: string
@@ -419,6 +419,7 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Konfirmasi', onC
   onConfirm: () => void
   loading?: boolean
   hideCancel?: boolean
+  isDestructive?: boolean
   children?: React.ReactNode
 }) {
   return (
@@ -434,7 +435,14 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Konfirmasi', onC
         {children && <div className="mt-5">{children}</div>}
         <div className="mt-6 flex justify-end gap-2">
           {!hideCancel && <button type="button" onClick={onCancel} className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-200 cursor-pointer">Batal</button>}
-          <button type="button" onClick={onConfirm} disabled={loading} className="rounded-xl bg-[#141a17] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#2a332e] disabled:opacity-60 cursor-pointer">
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className={`rounded-xl px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60 cursor-pointer ${
+              isDestructive ? 'bg-rose-600 hover:bg-rose-700' : 'bg-[#141a17] hover:bg-[#2a332e]'
+            }`}
+          >
             {loading ? 'Memproses...' : confirmLabel}
           </button>
         </div>
