@@ -1,13 +1,34 @@
 import React, { useState, useEffect } from 'react'
-import type { EventAsrama, Gedung, RekapEventResult, PesertaRekapEvent, ModeUji } from '../types'
-import { X, Calendar, Clock, MapPin, Building2, CheckCircle2, XCircle, AlertCircle, Camera, Search, Download, UserCheck, ShieldAlert, Sparkles, CalendarPlus, CalendarDays, ScanFace } from 'lucide-react'
+import type { EventAsrama, EventInput, Gedung, RekapEventResult, PesertaRekapEvent, ModeUji } from '../types'
+import { X, Calendar, Clock, MapPin, Building2, CheckCircle2, XCircle, AlertCircle, Camera, Search, Download, UserCheck, ShieldAlert, Sparkles, CalendarPlus, CalendarDays, ScanFace, ImagePlus, RefreshCw, Trash2 } from 'lucide-react'
 import MapPicker from './MapPicker'
 import DateInput from './DateInput'
 import TimeInput from './TimeInput'
 import KameraWajah from './KameraWajah'
 import { getCurrentPosition, distanceMeters } from '../geo'
 import { downloadReport, type ExportFormat } from '../ekspor'
-import { fetchFotoEvent, fotoEventUrl, fetchFotoWajah, fotoWajahUrl } from '../api'
+import Pratinjau from './Pratinjau'
+import { useSampulEvent } from './KartuEvent'
+
+// Perkecil gambar sampul di browser (maks. 1600 px, JPEG) agar unggahan ringan
+function kecilkanGambar(file: File, lebarMaks = 1600, mutu = 0.82): Promise<string> {
+  return new Promise((selesai, gagal) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const skala = Math.min(1, lebarMaks / img.naturalWidth)
+      const c = document.createElement('canvas')
+      c.width = Math.round(img.naturalWidth * skala)
+      c.height = Math.round(img.naturalHeight * skala)
+      c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height)
+      URL.revokeObjectURL(url)
+      selesai(c.toDataURL('image/jpeg', mutu))
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); gagal(new Error('Berkas bukan gambar yang valid.')) }
+    img.src = url
+  })
+}
+import { fetchFotoEvent, fetchFotoWajah, fotoWajahUrl } from '../api'
 
 // ----------------------------------------------------
 // 1. Modal Form Tambah / Edit Event
@@ -18,7 +39,7 @@ export interface EventFormModalProps {
   role: 'admin' | 'fasil'
   fasilIdGedung?: number | null
   onClose: () => void
-  onSave: (data: Partial<EventAsrama>) => Promise<{ ok: boolean; message: string }>
+  onSave: (data: EventInput) => Promise<{ ok: boolean; message: string }>
 }
 
 export function EventFormModal({
@@ -45,6 +66,36 @@ export function EventFormModal({
   const [latitude, setLatitude] = useState<number | null>(event?.latitude ?? -0.914488)
   const [longitude, setLongitude] = useState<number | null>(event?.longitude ?? 100.466542)
   const [radiusMeter, setRadiusMeter] = useState(event?.radiusMeter ?? 50)
+  // Foto sampul: data URL baru (bila dipilih) atau tandai hapus sampul lama
+  const [sampulBaru, setSampulBaru] = useState<string | null>(null)
+  const [hapusSampul, setHapusSampul] = useState(false)
+  const [memprosesSampul, setMemprosesSampul] = useState(false)
+  const sampulLama = useSampulEvent(hapusSampul ? null : event?.fotoSampul)
+  const pratinjauSampul = sampulBaru ?? sampulLama
+  const pilihSampul = async (file: File | undefined) => {
+    if (!file) return
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      setErrorMsg('Foto sampul harus berformat JPG, PNG, atau WEBP.')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setErrorMsg('Ukuran foto sampul maksimal 10 MB.')
+      return
+    }
+    setErrorMsg('')
+    setMemprosesSampul(true)
+    try {
+      setSampulBaru(await kecilkanGambar(file))
+      setHapusSampul(false)
+    } catch (e) {
+      setErrorMsg((e as Error).message)
+    }
+    setMemprosesSampul(false)
+  }
+  const buangSampul = () => {
+    setSampulBaru(null)
+    if (event?.fotoSampul) setHapusSampul(true)
+  }
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -90,6 +141,8 @@ export function EventFormModal({
       latitude,
       longitude,
       radiusMeter,
+      ...(sampulBaru ? { fotoSampul: sampulBaru } : {}),
+      ...(hapusSampul && !sampulBaru ? { hapusSampul: true } : {}),
     })
     setLoading(false)
 
@@ -162,6 +215,39 @@ export function EventFormModal({
               onChange={e => setDeskripsi(e.target.value)}
               className="w-full px-3.5 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 resize-none font-medium"
             />
+          </div>
+
+          {/* Foto sampul (opsional) */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
+              Foto Sampul <span className="normal-case tracking-normal font-medium text-gray-400">(opsional)</span>
+            </label>
+            {pratinjauSampul ? (
+              <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-100 aspect-[3/1]">
+                <img src={pratinjauSampul} alt="Pratinjau foto sampul" className="w-full h-full object-cover" />
+                <div className="absolute right-2 bottom-2 flex gap-1.5">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/95 text-xs font-bold text-gray-800 shadow-sm hover:bg-white cursor-pointer">
+                    <RefreshCw className="w-3.5 h-3.5" />Ganti
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => { pilihSampul(e.target.files?.[0]); e.target.value = '' }} />
+                  </label>
+                  <button type="button" onClick={buangSampul} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/95 text-xs font-bold text-rose-700 shadow-sm hover:bg-white cursor-pointer">
+                    <Trash2 className="w-3.5 h-3.5" />Hapus
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <label
+                className={`flex flex-col items-center justify-center gap-1.5 aspect-[3/1] rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/60 text-center px-4 transition-colors ${memprosesSampul ? 'opacity-60' : 'hover:border-emerald-400 hover:bg-emerald-50/40 cursor-pointer'}`}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); pilihSampul(e.dataTransfer.files?.[0]) }}
+              >
+                <span className="w-10 h-10 rounded-xl bg-[#fff] border border-gray-200 flex items-center justify-center text-gray-500"><ImagePlus className="w-5 h-5" /></span>
+                <span className="text-xs font-bold text-gray-700">{memprosesSampul ? 'Memproses foto…' : 'Pilih atau seret foto sampul'}</span>
+                <span className="text-[11px] text-gray-400">JPG, PNG, atau WEBP · tampil sebagai cover di kartu event</span>
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={memprosesSampul} onChange={e => { pilihSampul(e.target.files?.[0]); e.target.value = '' }} />
+              </label>
+            )}
+            {hapusSampul && !sampulBaru && <p className="text-[11px] text-amber-700 font-semibold mt-1.5">Sampul lama akan dihapus saat disimpan.</p>}
           </div>
 
           {/* Cakupan Peserta (Admin can choose seluruh or gedung; Fasil only gedung) */}
@@ -568,7 +654,6 @@ export interface EventPresensiModalProps {
 
 export function EventPresensiModal({
   event,
-  penghuniNim,
   onClose,
   onSuccess,
   onAbsen,
@@ -576,42 +661,44 @@ export function EventPresensiModal({
   const [foto, setFoto] = useState<string | null>(null)
   const [lat, setLat] = useState<number | null>(null)
   const [lng, setLng] = useState<number | null>(null)
+  const [akurasi, setAkurasi] = useState<number | null>(null)
   const [jarak, setJarak] = useState<number | null>(null)
   const [bacaGps, setBacaGps] = useState(true)
   const [gpsError, setGpsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [ulang, setUlang] = useState(0)
+  const punyaTitik = event.latitude !== null && event.longitude !== null
+  const absenUlang = event.presensiSaya?.statusFoto === 'Ditolak'
 
-  // Baca GPS Penghuni
+  // Baca GPS penghuni (diulang saat tombol "Perbarui" ditekan)
   useEffect(() => {
     let aktif = true
-    const cekLokasi = async () => {
-      setBacaGps(true)
-      setGpsError(null)
-      try {
-        const pos = await getCurrentPosition()
+    setBacaGps(true)
+    setGpsError(null)
+    getCurrentPosition()
+      .then(pos => {
         if (!aktif) return
         setLat(pos.latitude)
         setLng(pos.longitude)
-
-        if (event.latitude !== null && event.longitude !== null) {
-          const d = distanceMeters(pos.latitude, pos.longitude, event.latitude, event.longitude)
-          setJarak(d)
-        } else {
-          setJarak(0)
-        }
-      } catch (err) {
-        if (!aktif) return
-        setGpsError((err as Error).message)
-      } finally {
-        if (aktif) setBacaGps(false)
-      }
-    }
-    cekLokasi()
+        setAkurasi(pos.accuracy)
+        setJarak(event.latitude !== null && event.longitude !== null ? distanceMeters(pos.latitude, pos.longitude, event.latitude, event.longitude) : 0)
+      })
+      .catch(err => { if (aktif) setGpsError((err as Error).message) })
+      .finally(() => { if (aktif) setBacaGps(false) })
     return () => { aktif = false }
-  }, [event.latitude, event.longitude])
+  }, [event.latitude, event.longitude, ulang])
 
-  const diLuarRadius = event.latitude !== null && event.longitude !== null && jarak !== null && jarak > event.radiusMeter
+  // Esc menutup modal (kecuali sedang mengirim)
+  useEffect(() => {
+    const tutup = (e: KeyboardEvent) => { if (e.key === 'Escape' && !loading) onClose() }
+    window.addEventListener('keydown', tutup)
+    return () => window.removeEventListener('keydown', tutup)
+  }, [onClose, loading])
+
+  const diLuarRadius = punyaTitik && jarak !== null && jarak > event.radiusMeter
+  const lokasiSiap = lat !== null && lng !== null && !bacaGps
+  const barPct = jarak !== null && event.radiusMeter > 0 ? Math.min(100, (jarak / (event.radiusMeter * 2)) * 100) : 0
 
   const handleKirim = async () => {
     setErrorMsg('')
@@ -624,19 +711,12 @@ export function EventPresensiModal({
       return
     }
     if (!foto) {
-      setErrorMsg('Foto wajah selfie wajib diambil.')
+      setErrorMsg('Foto wajah wajib diambil.')
       return
     }
-
     setLoading(true)
-    const res = await onAbsen({
-      idEvent: event.id,
-      latitude: lat,
-      longitude: lng,
-      foto,
-    })
+    const res = await onAbsen({ idEvent: event.id, latitude: lat, longitude: lng, foto })
     setLoading(false)
-
     if (res.ok) {
       onSuccess()
       onClose()
@@ -645,114 +725,128 @@ export function EventPresensiModal({
     }
   }
 
+  const labelTombol = loading ? 'Mengirim…'
+    : bacaGps ? 'Membaca lokasi…'
+    : !lokasiSiap ? 'Lokasi belum terbaca'
+    : diLuarRadius ? 'Di luar radius acara'
+    : !foto ? 'Ambil foto terlebih dahulu'
+    : absenUlang ? 'Kirim Absen Ulang' : 'Kirim Presensi Hadir'
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-emerald-100 overflow-hidden my-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs motion-safe:[animation:lg-pudar_0.2s_ease-out]"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Presensi event ${event.judul}`}
+    >
+      <div className="bg-[#fff] rounded-2xl w-full max-w-3xl max-h-[94vh] flex flex-col shadow-2xl border border-gray-200 overflow-hidden motion-safe:[animation:lg-muncul_0.3s_cubic-bezier(0.22,1,0.36,1)]">
         {/* Header */}
-        <div className="px-6 py-4 modal-header bg-white border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between">
+        <div className="px-5 py-4 modal-header bg-[#fff] border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center"><ScanFace className="w-5 h-5" /></span>
+            <span className="w-10 h-10 shrink-0 rounded-xl bg-gray-100 text-gray-700 flex items-center justify-center"><ScanFace className="w-5 h-5" /></span>
             <div className="min-w-0">
-              <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Presensi Event Asrama</span>
-              <h3 className="text-base font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                {event.judul}
-              </h3>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">{absenUlang ? 'Absen ulang event' : 'Presensi event'}</span>
+              <h3 className="text-base font-extrabold text-gray-900 tracking-tight truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{event.judul}</h3>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
-          >
+          <button type="button" onClick={onClose} disabled={loading} className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer" aria-label="Tutup">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
-          {errorMsg && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {/* Info Waktu & Radius */}
-          <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-100 space-y-2 text-xs">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 font-medium">Lokasi Acara</span>
-              <span className="font-bold text-emerald-950 text-right">{event.lokasi}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 font-medium">Jadwal</span>
-              <span className="font-bold text-emerald-900">{event.jamMulai}–{event.jamSelesai} WIB</span>
-            </div>
-            <div className="flex justify-between items-center border-t border-emerald-100/80 pt-2">
-              <span className="text-gray-500 font-medium">Radius Maksimal</span>
-              <span className="font-bold text-emerald-950">{event.radiusMeter} Meter</span>
-            </div>
-          </div>
-
-          {/* Status GPS Penghuni */}
-          <div className="p-3.5 rounded-xl border border-gray-100 bg-gray-50 text-xs">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="font-bold uppercase tracking-wider text-gray-700 text-[11px] flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-emerald-700" />
-                Validasi Lokasi Anda
-              </span>
-              {bacaGps && <span className="text-[11px] text-amber-700 font-semibold animate-pulse">Membaca GPS...</span>}
-            </div>
-
-            {gpsError ? (
-              <div className="text-rose-700 font-semibold text-[11px] flex items-center gap-1.5">
-                <ShieldAlert className="w-4 h-4 shrink-0" />
-                <span>{gpsError}</span>
-              </div>
-            ) : jarak !== null ? (
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600 font-medium">Jarak ke titik acara:</span>
-                <span className={`font-extrabold ${diLuarRadius ? 'text-rose-700' : 'text-emerald-700'}`}>
-                  {Math.round(jarak)} meter {diLuarRadius ? '(Di Luar Radius)' : '(Dalam Jangkauan)'}
-                </span>
-              </div>
-            ) : (
-              <span className="text-gray-400">Menunggu koordinat...</span>
-            )}
-
-            {diLuarRadius && (
-              <p className="mt-1.5 text-[11px] text-rose-700 font-medium">
-                Anda berada {Math.round(jarak! - event.radiusMeter)} m di luar batas. Silakan mendekat ke lokasi acara.
-              </p>
-            )}
-          </div>
-
-          {/* Kamera Selfie */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
-              Ambil Foto Wajah (Swafoto) <span className="text-rose-500">*</span>
-            </label>
+        <div className="flex-1 overflow-y-auto p-5 grid md:grid-cols-2 gap-5">
+          {/* Kolom kiri: kamera */}
+          <div className="flex flex-col gap-2 min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-700">Foto wajah <span className="text-rose-500">*</span></p>
             <KameraWajah foto={foto} onChange={setFoto} disabled={loading} />
+            <p className="text-[11px] text-gray-400">Foto akan diperiksa fasil. Jika ditolak, Anda bisa absen ulang selama event berlangsung.</p>
           </div>
 
-          {/* Buttons */}
-          <div className="pt-2 flex items-center justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
-            >
-              Batal
-            </button>
-            <button
-              type="button"
-              onClick={handleKirim}
-              disabled={loading || !foto || diLuarRadius || bacaGps}
-              className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-700/20 transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <UserCheck className="w-4 h-4" />
-              <span>{loading ? 'Mengirim Presensi...' : 'Kirim Presensi Hadir'}</span>
-            </button>
+          {/* Kolom kanan: info acara + lokasi */}
+          <div className="flex flex-col gap-4 min-w-0">
+            {absenUlang && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs font-medium flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                <span>Foto sebelumnya ditolak{event.presensiSaya?.catatanValidasi ? `: "${event.presensiSaya.catatanValidasi}"` : ''}. Ambil foto baru dengan wajah terlihat jelas.</span>
+              </div>
+            )}
+
+            <dl className="rounded-xl border border-gray-200 divide-y divide-gray-100 text-xs">
+              {[
+                ['Lokasi acara', event.lokasi],
+                ['Jadwal', `${event.jamMulai}–${event.jamSelesai} WIB`],
+                ['Radius maksimal', punyaTitik ? `${event.radiusMeter} m dari titik acara` : 'Tanpa batas lokasi'],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+                  <dt className="text-gray-500">{k}</dt>
+                  <dd className="font-semibold text-gray-900 text-right">{v}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div className="rounded-xl border border-gray-200 p-3.5 text-xs space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-gray-800 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-gray-500" />Lokasi Anda</span>
+                <button
+                  type="button"
+                  onClick={() => setUlang(n => n + 1)}
+                  disabled={bacaGps || loading}
+                  className="text-[11px] font-bold text-gray-600 hover:text-gray-900 px-2 py-1 rounded-lg hover:bg-gray-100 cursor-pointer disabled:opacity-50"
+                >
+                  {bacaGps ? 'Membaca…' : 'Perbarui'}
+                </button>
+              </div>
+              {gpsError ? (
+                <p className="text-rose-700 font-semibold flex items-start gap-1.5"><ShieldAlert className="w-4 h-4 shrink-0" /><span>{gpsError}</span></p>
+              ) : jarak !== null && punyaTitik ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500">Jarak ke titik acara{akurasi !== null ? ` · akurasi ±${Math.round(akurasi)} m` : ''}</span>
+                    <span className={`font-extrabold ${diLuarRadius ? 'text-rose-700' : 'text-emerald-700'}`}>{Math.round(jarak)} m</span>
+                  </div>
+                  <div className="relative h-2 rounded-full bg-gray-200 overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${diLuarRadius ? 'bg-rose-500' : 'bg-emerald-600'}`} style={{ width: `${barPct}%` }} />
+                    <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-gray-500" />
+                  </div>
+                  <p className={`font-semibold ${diLuarRadius ? 'text-rose-700' : 'text-emerald-700'}`}>
+                    {diLuarRadius ? `${Math.round(jarak - event.radiusMeter)} m di luar batas, silakan mendekat.` : 'Dalam jangkauan acara.'}
+                  </p>
+                </>
+              ) : jarak !== null ? (
+                <p className="text-emerald-700 font-semibold">Lokasi terbaca.</p>
+              ) : (
+                <p className="text-gray-400">Menunggu koordinat…</p>
+              )}
+            </div>
+
+            {errorMsg && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleKirim}
+            disabled={loading || !foto || diLuarRadius || !lokasiSiap}
+            className="px-5 py-2.5 rounded-xl bg-[#141a17] hover:bg-[#2a332e] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <UserCheck className="w-4 h-4" />}
+            <span>{labelTombol}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -772,45 +866,21 @@ export function FotoBuktiModal({
   onClose: () => void
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(foto.startsWith('data:') ? foto : null)
+  const [gagal, setGagal] = useState(false)
 
   useEffect(() => {
     let aktif = true
+    let dibuat: string | null = null
     if (!foto.startsWith('data:')) {
       fetchFotoEvent(foto).then(url => {
-        if (aktif) setBlobUrl(url)
+        if (!aktif) { if (url?.startsWith('blob:')) URL.revokeObjectURL(url); return }
+        if (url?.startsWith('blob:')) dibuat = url
+        setBlobUrl(url)
+        setGagal(!url)
       })
     }
-    return () => { aktif = false }
+    return () => { aktif = false; if (dibuat) URL.revokeObjectURL(dibuat) }
   }, [foto])
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-sm w-full overflow-hidden shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95">
-        <div className="p-4 bg-emerald-900 text-white flex items-center justify-between">
-          <div className="font-bold text-sm">Foto Bukti: {namaPenghuni}</div>
-          <button type="button" onClick={onClose} className="p-1 rounded-lg text-emerald-200 hover:text-white cursor-pointer">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="p-4 flex items-center justify-center bg-gray-950">
-          {blobUrl ? (
-            <img src={blobUrl} alt={namaPenghuni} className="w-full aspect-[4/3] object-cover rounded-xl" />
-          ) : (
-            <div className="w-full aspect-[4/3] flex items-center justify-center text-gray-400 text-xs font-medium">
-              Memuat foto...
-            </div>
-          )}
-        </div>
-        <div className="p-3 bg-gray-50 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-xs font-bold text-gray-800 cursor-pointer"
-          >
-            Tutup
-          </button>
-        </div>
-      </div>
-    </div>
-  )
+  return <Pratinjau judul={`Foto bukti absen · ${namaPenghuni}`} url={blobUrl} gagal={gagal} onClose={onClose} />
 }

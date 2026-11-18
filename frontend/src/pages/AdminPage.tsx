@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react'
-import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, PresensiStatus, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput } from '../types'
+import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, PresensiStatus, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput, EventInput, FotoEvent } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
-import { BuktiIzin, KotakTanggalIzin, RekapStats, RekapTableBerhalaman, SesiToggle, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
+import { BuktiIzin, KotakTanggalIzin, RekapTableBerhalaman, SesiToggle, UbinStatusRekap, type FilterStatusRekap, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import { BarisSaringIzin, KosongSaringIzin, useSaringIzin } from '../components/SaringIzin'
 import { BilahKomposisi, DaftarMeter, GrafikTrenKehadiran, HistogramSebaran, PetaPanasPola, TARGET_KEHADIRAN, WARNA_STATUS_GRAFIK, hitungPolaMingguan } from '../components/GrafikKehadiran'
 import logoUnand from '../assets/logo-unand.png'
@@ -22,10 +22,9 @@ import {
   fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, updateGedungApi, setPjGedungApi,
   addGedungApi, updateGedungFullApi, deleteGedungApi, addKamarApi, updateKamarApi, deleteKamarApi,
   fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent,
-  fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, type ApiResult, type UbahPenghuni,
+  fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, updateLiburApi, type ApiResult, type UbahPenghuni,
   fetchModeUji, saveModeUjiApi, MODE_UJI_MATI, resetPasswordApi,
-  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT, awalDemo, seedDatabaseApi,
-} from '../api'
+  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT, awalDemo, seedDatabaseApi, fetchFotoValidasiEvent } from '../api'
 import MapPicker from '../components/MapPicker'
 import { EventFormModal, EventRekapModal } from '../components/EventModals'
 import { GedungFormModal, KamarFormModal } from '../components/GedungKamarModals'
@@ -34,14 +33,14 @@ import DateInput from '../components/DateInput'
 import TimeInput from '../components/TimeInput'
 import { notifikasiAdmin } from '../notifikasiPeran'
 import { JadwalMalamAdmin } from '../components/JadwalMalam'
+import { useRealtime, bilaBerubah } from '../realtime'
 import { KartuProfil } from '../components/ProfilAkun'
 import KartuEvent, { UbinBuatEvent } from '../components/KartuEvent'
 import { unduhLaporan, type ExportFormat, type LaporanFormal } from '../ekspor'
 import * as XLSX from 'xlsx'
 import {
   addDays, cariLibur, faseSesi, formatTanggal, hitungStatus, hunianKamar, penghuniWajibAbsen, namaSesiAktif, riwayatPenghuni, sesiAktif, sesiPadaTanggal, sesiUntuk, statusSesi, todayLocal, type DataPresensi,
-  jamPresensi, keteranganStatus, maxDate, formatRentangTanggal, dateRangeDesc,
-} from '../logic'
+  jamPresensi, keteranganStatus, maxDate, formatRentangTanggal, dateRangeDesc, kehadiranHariIni, kehadiranGabungan, HARI_RINGKASAN, periodeRekap } from '../logic'
 import {
   LayoutDashboard,
   Users,
@@ -175,6 +174,25 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     fetchAturanPresensi().then(setAturan)
   }, [])
 
+  // Realtime: data seluruh asrama diperbarui berkala tanpa refresh halaman
+  const [, setDetak] = useState(0)
+  useRealtime(() => {
+    setDetak(n => n + 1)
+    fetchPenghuni().then(bilaBerubah(setPenghuni))
+    fetchGedung().then(bilaBerubah(setGedungList))
+    fetchKamar().then(bilaBerubah(setKamarList))
+    fetchPresensi().then(bilaBerubah(setPresensi))
+    fetchIzin().then(bilaBerubah(setIzin))
+    fetchSesi().then(bilaBerubah(setSesiList))
+    fetchLibur().then(bilaBerubah(setLibur))
+    fetchEvent().then(bilaBerubah(setEventList))
+    fetchModeUji().then(bilaBerubah(setModeUji))
+    fetchFotoValidasiEvent().then(bilaBerubah(setFotoEvent))
+  })
+  // Foto absen event seluruh gedung (admin hanya melihat jumlahnya; validasi oleh fasil)
+  const [fotoEvent, setFotoEvent] = useState<FotoEvent[]>([])
+  useEffect(() => { fetchFotoValidasiEvent().then(setFotoEvent) }, [])
+
   const data: DataPresensi = { presensi, izin, libur }
   const defaultPasswordCount = penghuni.filter(p => p.role === 'penghuni' && p.statusAktif && p.passwordDefault).length
   const namaGedungKamar = (nomorKamar: string) => kamarList.find(k => k.nomorKamar === nomorKamar)?.namaGedung || ''
@@ -244,6 +262,13 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     const result = await addLiburApi(l)
     if (result.ok) fetchLibur().then(setLibur)
     else if (result.offline) setLibur(prev => [...prev, { ...l, id: Date.now() }].sort((a, b) => b.tanggalMulai.localeCompare(a.tanggalMulai)))
+    return result
+  }
+
+  const handleUpdateLibur = async (l: HariLibur) => {
+    const result = await updateLiburApi(l)
+    if (result.ok) fetchLibur().then(setLibur)
+    else if (result.offline) setLibur(prev => prev.map(x => x.id === l.id ? l : x))
     return result
   }
 
@@ -349,7 +374,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     })
   }
 
-  const handleSaveEvent = async (data: Partial<EventAsrama>): Promise<ApiResult> => {
+  const handleSaveEvent = async (data: EventInput): Promise<ApiResult> => {
     const res = eventModal.event ? await updateEventApi(eventModal.event.id, data) : await addEventApi(data)
     if (res.ok || res.offline) {
       fetchEvent().then(setEventList)
@@ -397,13 +422,14 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
           data={data}
           now={now}
           modeUji={modeUji}
+          fotoEventMenunggu={fotoEvent.filter(f => f.statusFoto === 'Menunggu').length}
           onNavigateTab={setActiveTab}
           onSeed={handleSeed}
           loadingSeed={loadingSeed}
         />
       )}
       {activeTab === 'penghuni' && (
-        <AdminPenghuni penghuni={penghuni} gedungList={gedungList} onAddClick={() => setShowAddModal(true)} onKelola={setKelola} onResetPassword={nim => setResetTarget(penghuni.find(p => p.nim === nim) || null)} />
+        <AdminPenghuni penghuni={penghuni} gedungList={gedungList} kamarList={kamarList} onImported={() => { fetchPenghuni().then(setPenghuni); fetchKamar().then(setKamarList) }} onAddClick={() => setShowAddModal(true)} onKelola={setKelola} onResetPassword={nim => setResetTarget(penghuni.find(p => p.nim === nim) || null)} />
       )}
       {activeTab === 'gedung' && (
         <AdminGedung
@@ -435,11 +461,8 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
       {activeTab === 'presensi' && <AdminPresensiIzin penghuni={penghuni} gedungList={gedungList} sesiList={sesiList} data={data} now={now} />}
       {activeTab === 'pengaturan' && (
         <div className="space-y-5">
-          <div className="grid lg:grid-cols-2 gap-5 items-stretch">
-            <AturanPresensiCard aturan={aturan} onSave={handleSaveAturan} />
-            <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
-          </div>
-          <AdminPengaturan sesiList={sesiList} gedungList={gedungList} libur={libur} onSaveSesi={handleSaveSesi} onAddLibur={handleAddLibur} onDeleteLibur={handleDeleteLibur} />
+          <AdminPengaturan sesiList={sesiList} gedungList={gedungList} libur={libur} onSaveSesi={handleSaveSesi} onAddLibur={handleAddLibur} onUpdateLibur={handleUpdateLibur} onDeleteLibur={handleDeleteLibur} />
+          <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
         </div>
       )}
       {activeTab === 'log' && <HalamanLogAktivitas />}
@@ -480,6 +503,11 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
         <KamarFormModal
           kamar={kamarModal.kamar}
           gedungList={gedungList}
+          penghuni={penghuni}
+          onTempatkan={(p, nomorKamar) => handleUpdatePenghuni(p.nim, {
+            nim: p.nim, nama: p.nama, email: p.email, noHp: p.noHp, asal: p.asal, role: p.role,
+            statusAktif: true, nomorKamar, jenisKelamin: p.jenisKelamin ?? undefined,
+          })}
           defaultGedungId={kamarModal.defaultGedungId}
           onClose={() => setKamarModal({ open: false, kamar: null })}
           onSave={handleSaveKamar}
@@ -538,11 +566,6 @@ function DefaultPasswordNotice({ count, onClose }: { count: number; onClose: () 
 // Dashboard
 // ---------------------------------------------------------------------------
 
-function salamAdmin(now: Date): string {
-  const jam = now.getHours()
-  return jam < 11 ? 'Selamat pagi' : jam < 15 ? 'Selamat siang' : jam < 18 ? 'Selamat sore' : 'Selamat malam'
-}
-
 function AdminDashboard({
   admin,
   penghuni,
@@ -552,6 +575,7 @@ function AdminDashboard({
   data,
   now,
   modeUji,
+  fotoEventMenunggu = 0,
   onNavigateTab,
   onSeed,
   loadingSeed,
@@ -564,12 +588,13 @@ function AdminDashboard({
   data: DataPresensi
   now: Date
   modeUji?: ModeUji
+  fotoEventMenunggu?: number
   onNavigateTab?: (tab: string) => void
   onSeed?: () => void
   loadingSeed?: boolean
 }) {
   const today = todayLocal()
-  const [rentangGedung, setRentangGedung] = useState<'hari-ini' | '7-hari'>('hari-ini')
+  const [rentangGedung, setRentangGedung] = useState<'hari-ini' | '7-hari' | '30-hari'>('30-hari')
   const buka = (tab: string) => onNavigateTab?.(tab)
 
   const wajib = penghuniWajibAbsen(penghuni)
@@ -585,8 +610,9 @@ function AdminDashboard({
 
   // Status hari ini: setiap penghuni pada setiap sesi wajib gedungnya
   const statusHariIni = wajib.flatMap(p => sesiAktif(sesiList, p.namaGedung, today).map(s => ({ p, status: statusSesi(p.nim, today, s, data, now).status })))
-  const rekapHariIni = hitungStatus(statusHariIni.map(x => x.status))
-  const persenHariIni = statusHariIni.length > 0 ? Math.round((rekapHariIni.Hadir / statusHariIni.length) * 100) : 0
+  // Rumus sama dengan dashboard fasil: hadir / sesi wajib hari ini (libur tidak dihitung)
+  const rekapHariIni = kehadiranHariIni(statusHariIni.map(x => x.status))
+  const persenHariIni = rekapHariIni.persen
   const sesiBerjalan = sesiHariIni.filter(s => faseSesi(s, today, now) === 'dibuka')
 
   // Riwayat 7 hari tiap penghuni (sejak tanggal masuknya) untuk perbandingan gedung
@@ -595,16 +621,27 @@ function AdminDashboard({
     p,
     riwayat: riwayatPenghuni(p.nim, p.tanggalMasuk ? maxDate(awalTren, p.tanggalMasuk) : awalTren, today, sesiList, data, now, p.namaGedung),
   }))
+  // Rekap 30 hari tiap penghuni: periode & rumus sama dengan dashboard fasil dan penghuni
+  const rekap30 = wajib.map(p => ({
+    p,
+    c: hitungStatus(riwayatPenghuni(p.nim, periodeRekap(today, p.tanggalMasuk, HARI_RINGKASAN), today, sesiList, data, now, p.namaGedung).map(r => r.detail.status)),
+  }))
+  const kehadiran30 = kehadiranGabungan(rekap30.map(x => x.c))
   const perbandinganGedung = gedungList.map(g => {
     const anggota = new Set(wajib.filter(p => p.namaGedung === g.nama).map(p => p.nim))
+    if (rentangGedung === '30-hari') {
+      const k = kehadiranGabungan(rekap30.filter(x => anggota.has(x.p.nim)).map(x => x.c))
+      return { label: g.nama, sub: `${anggota.size} penghuni`, c: { ...hitungStatus([]), Hadir: k.hadir, wajib: k.wajib, persen: k.persen } }
+    }
     const statuses = rentangGedung === 'hari-ini'
       ? statusHariIni.filter(x => anggota.has(x.p.nim)).map(x => x.status)
       : riwayat7.filter(x => anggota.has(x.p.nim)).flatMap(x => x.riwayat.map(r => r.detail.status))
-    return { label: g.nama, sub: `${anggota.size} penghuni`, c: hitungStatus(statuses) }
+    return { label: g.nama, sub: `${anggota.size} penghuni`, c: rentangGedung === 'hari-ini' ? kehadiranHariIni(statuses) : hitungStatus(statuses) }
   }).sort((a, b) => b.c.persen - a.c.persen)
 
   const izinMenunggu = data.izin.filter(i => i.statusPersetujuan === 'Pending')
-  const fotoMenunggu = data.presensi.filter(r => r.statusFoto === 'Menunggu').length
+  // Foto presensi harian + foto absen event (sama dengan hitungan di dashboard fasil)
+  const fotoMenunggu = data.presensi.filter(r => r.statusFoto === 'Menunggu').length + fotoEventMenunggu
   const modeUjiAktif = !!(modeUji?.abaikanJam || modeUji?.abaikanRadius)
   const izinTerbaru = [...data.izin].sort((a, b) => b.id - a.id).slice(0, 5)
 
@@ -614,7 +651,7 @@ function AdminDashboard({
     tanpaPj.length > 0 && { kunci: 'pj', ikon: <UserCheck className="w-4 h-4 text-rose-600" />, judul: `${tanpaPj.length} gedung belum punya fasilitator`, ket: 'Izin & foto penghuninya tidak dapat diproses', tab: 'gedung' },
     tanpaKoordinat.length > 0 && { kunci: 'gps', ikon: <Building className="w-4 h-4 text-rose-600" />, judul: `${tanpaKoordinat.length} gedung belum diatur koordinatnya`, ket: 'Penghuninya belum dapat presensi mandiri', tab: 'gedung' },
     izinMenunggu.length > 0 && { kunci: 'izin', ikon: <FileBarChart className="w-4 h-4 text-amber-600" />, judul: `${izinMenunggu.length} izin menunggu fasilitator`, ket: 'Diputuskan oleh fasil gedung masing-masing', tab: 'presensi' },
-    fotoMenunggu > 0 && { kunci: 'foto', ikon: <UserCheck className="w-4 h-4 text-amber-600" />, judul: `${fotoMenunggu} foto presensi belum divalidasi`, ket: 'Divalidasi oleh fasil gedung masing-masing', tab: 'presensi' },
+    fotoMenunggu > 0 && { kunci: 'foto', ikon: <UserCheck className="w-4 h-4 text-amber-600" />, judul: `${fotoMenunggu} foto belum divalidasi`, ket: `Presensi harian & absen event · divalidasi fasil gedung masing-masing`, tab: 'presensi' },
   ].filter(Boolean) as { kunci: string; ikon: React.ReactNode; judul: string; ket: string; tab: string }[]
 
 
@@ -652,7 +689,7 @@ function AdminDashboard({
             <div>
               <p className="text-xs font-semibold text-emerald-200">{formatTanggal(today)}</p>
               <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                {salamAdmin(now)}, {admin.nama.split(' ')[0]}
+                {admin.nama}
               </h2>
               <p className="text-sm text-emerald-100/90 mt-0.5">Pengelola Asrama Mahasiswa · Universitas Andalas</p>
               {liburHariIni && (
@@ -662,8 +699,9 @@ function AdminDashboard({
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:w-[520px]">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3 lg:w-[640px]">
             {[
+              { label: 'Kehadiran', nilai: `${kehadiran30.persen}%`, ket: `${HARI_RINGKASAN} hari terakhir`, tab: 'laporan' },
               { label: 'Penghuni', nilai: wajib.length, ket: `${penghuni.filter(p => !p.statusAktif).length} nonaktif`, tab: 'penghuni' },
               { label: 'Gedung', nilai: gedungList.length, ket: `${gedungList.length - tanpaPj.length} ber-PJ`, tab: 'gedung' },
               { label: 'Fasilitator', nilai: fasil, ket: 'aktif', tab: 'penghuni' },
@@ -697,8 +735,12 @@ function AdminDashboard({
 
           <div className="space-y-5">
             <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-              <span className="text-5xl font-extrabold text-gray-900 leading-none" style={{ fontFamily: 'Plus Jakarta Sans' }}>{persenHariIni}%</span>
-              <span className="text-sm text-gray-500 pb-1">hadir · <strong className="text-gray-800">{rekapHariIni.Hadir}</strong> dari {statusHariIni.length} sesi wajib hari ini</span>
+              <span className="text-5xl font-extrabold text-gray-900 leading-none" style={{ fontFamily: 'Plus Jakarta Sans' }}>{rekapHariIni.total > 0 ? `${persenHariIni}%` : '–'}</span>
+              <span className="text-sm text-gray-500 pb-1">
+                {rekapHariIni.total > 0
+                  ? <>hadir · <strong className="text-gray-800">{rekapHariIni.Hadir}</strong> dari {rekapHariIni.total} sesi wajib hari ini</>
+                  : <>tidak ada sesi wajib hari ini{rekapHariIni.Libur > 0 ? ' (hari libur)' : ''}</>}
+              </span>
             </div>
 
             <BilahKomposisi
@@ -777,7 +819,7 @@ function AdminDashboard({
           <div className="flex items-start justify-between gap-3 mb-1">
             <p className={judulKartu} style={{ fontFamily: 'Plus Jakarta Sans' }}>Kehadiran per Gedung</p>
             <div className="flex rounded-lg bg-gray-100 p-0.5 shrink-0" role="radiogroup" aria-label="Rentang perbandingan">
-              {([['hari-ini', 'Hari ini'], ['7-hari', '7 hari']] as const).map(([k, label]) => (
+              {([['hari-ini', 'Hari ini'], ['7-hari', '7 hari'], ['30-hari', '30 hari']] as const).map(([k, label]) => (
                 <button
                   key={k}
                   type="button"
@@ -827,9 +869,38 @@ function AdminDashboard({
 // Data Penghuni
 // ---------------------------------------------------------------------------
 
-function AdminPenghuni({ penghuni, gedungList = [], onAddClick, onKelola, onResetPassword }: {
+// Template impor penghuni: kolom harus persis seperti ini
+const KOLOM_TEMPLATE = ['NIM', 'Nama Lengkap', 'Jenis Kelamin (L/P)', 'Email', 'No HP', 'Asal Daerah', 'Nomor Kamar'] as const
+
+function unduhTemplateImpor() {
+  const data = XLSX.utils.aoa_to_sheet([[...KOLOM_TEMPLATE]])
+  data['!cols'] = KOLOM_TEMPLATE.map(k => ({ wch: Math.max(14, k.length + 4) }))
+  const petunjuk = XLSX.utils.aoa_to_sheet([
+    ['Petunjuk pengisian template impor penghuni'],
+    [],
+    ['Kolom', 'Wajib', 'Keterangan'],
+    ['NIM', 'Ya', 'Huruf/angka tanpa spasi, belum terdaftar'],
+    ['Nama Lengkap', 'Ya', ''],
+    ['Jenis Kelamin (L/P)', 'Ya', 'L = laki-laki, P = perempuan; harus sesuai jenis gedung kamar'],
+    ['Email', 'Tidak', ''],
+    ['No HP', 'Tidak', ''],
+    ['Asal Daerah', 'Tidak', ''],
+    ['Nomor Kamar', 'Ya', 'Harus sudah terdaftar di menu Gedung & Kamar dan masih ada tempat'],
+    [],
+    ['Isi data mulai baris 2 pada sheet "Data". Jangan mengubah judul kolom. Password awal: penghuni123'],
+  ])
+  petunjuk['!cols'] = [{ wch: 22 }, { wch: 8 }, { wch: 70 }]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, data, 'Data')
+  XLSX.utils.book_append_sheet(wb, petunjuk, 'Petunjuk')
+  XLSX.writeFile(wb, 'template-impor-penghuni.xlsx')
+}
+
+function AdminPenghuni({ penghuni, gedungList = [], kamarList = [], onImported, onAddClick, onKelola, onResetPassword }: {
   penghuni: Penghuni[]
   gedungList?: Gedung[]
+  kamarList?: Kamar[]
+  onImported?: () => void
   onAddClick: () => void
   onKelola: (p: Penghuni) => void
   onResetPassword: (nim: string) => void
@@ -843,29 +914,74 @@ function AdminPenghuni({ penghuni, gedungList = [], onAddClick, onKelola, onRese
   const q = search.toLowerCase()
   const filtered = penghuni
     .filter(p => filterStatus === 'semua' || (filterStatus === 'aktif' ? p.statusAktif : !p.statusAktif))
-    .filter(p => filterGedung === 'semua' || p.namaGedung === filterGedung)
+    .filter(p => filterGedung === 'semua' || (filterGedung === '' ? !p.nomorKamar : p.namaGedung === filterGedung))
     .filter(p => p.nama.toLowerCase().includes(q) || p.nim.includes(search) || p.nomorKamar.toLowerCase().includes(q) || p.namaGedung.toLowerCase().includes(q) || p.asal.toLowerCase().includes(q))
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const rows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
+  const [mengimpor, setMengimpor] = useState(false)
   const importSpreadsheet = (file: File | undefined) => {
     if (!file) return
+    setImportMessage('')
     const reader = new FileReader()
-    reader.onload = () => {
-      const workbook = XLSX.read(reader.result, { type: 'array' })
-      const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const sourceRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
-      const normalize = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, '')
-      const required = ['nim', 'nama']
-      const imported = sourceRows.map(sourceRow => {
-        const row = Object.fromEntries(Object.entries(sourceRow).map(([key, value]) => [normalize(key), String(value).trim()]))
-        return { nim: row.nim || '', nama: row.nama || '', email: row.email || '', noHp: row.nohp || '', asal: row.asal || '', nomorKamar: row.nomorkamar || '', namaGedung: row.namagedung || '', statusAktif: true, role: 'penghuni' as const, tanggalMasuk: todayLocal() }
-      }).filter(p => p.nim && p.nama && !penghuni.some(existing => existing.nim === p.nim))
-      if (!sourceRows.length || !required.every(h => normalize(Object.keys(sourceRows[0]).find(key => normalize(key) === h) || '') === h)) return setImportMessage('File wajib memiliki kolom NIM dan Nama.')
-      if (!imported.length) return setImportMessage('Tidak ada baris baru yang dapat diimpor.')
-      imported.forEach(p => addPenghuniApi(p))
-      setImportMessage(`${imported.length} data berhasil diimpor.`)
-      window.location.reload()
+    reader.onload = async () => {
+      let baris: unknown[][]
+      try {
+        const workbook = XLSX.read(reader.result, { type: 'array' })
+        const sheet = workbook.Sheets['Data'] ?? workbook.Sheets[workbook.SheetNames[0]]
+        baris = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
+      } catch {
+        return setImportMessage('Berkas tidak dapat dibaca. Gunakan template .xlsx dari tombol "Template".')
+      }
+      const norm = (v: unknown) => String(v ?? '').trim().toLowerCase()
+      const header = (baris[0] ?? []).map(norm)
+      const hilang = KOLOM_TEMPLATE.filter(k => !header.includes(k.toLowerCase()))
+      if (hilang.length > 0) {
+        return setImportMessage(`Format tidak sesuai template. Kolom tidak ditemukan: ${hilang.join(', ')}. Unduh template lalu salin data ke sana.`)
+      }
+      const kol = (nama: string) => header.indexOf(nama.toLowerCase())
+      const isi = baris.slice(1).filter(b => b.some(v => String(v ?? '').trim() !== ''))
+      if (isi.length === 0) return setImportMessage('Template kosong: isi data mulai baris 2.')
+
+      const terpakai = new Map(kamarList.map(k => [k.nomorKamar, hunianKamar(k, penghuni)]))
+      const nimDipakai = new Set(penghuni.map(p => p.nim))
+      const gagal: string[] = []
+      const siap: Partial<Penghuni>[] = []
+      isi.forEach((b, i) => {
+        const nomorBaris = i + 2
+        const ambil = (k: string) => String(b[kol(k)] ?? '').trim()
+        const nim = ambil('NIM'), nama = ambil('Nama Lengkap'), kamar = ambil('Nomor Kamar').toUpperCase()
+        const jkMentah = ambil('Jenis Kelamin (L/P)').toUpperCase()
+        const jk = jkMentah.startsWith('L') ? 'L' : jkMentah.startsWith('P') ? 'P' : ''
+        const k = kamarList.find(x => x.nomorKamar.toUpperCase() === kamar)
+        const g = k ? gedungList.find(x => x.id === k.idGedung) : undefined
+        const alasan = !nim || !nama ? 'NIM & nama wajib diisi'
+          : !/^[A-Za-z0-9]+$/.test(nim) ? 'NIM hanya huruf/angka'
+          : nimDipakai.has(nim) ? `NIM ${nim} sudah terdaftar`
+          : !jk ? 'jenis kelamin harus L atau P'
+          : !k ? `kamar "${kamar || '-'}" tidak ditemukan`
+          : g && (jk === 'P') !== (g.jenis === 'Putri') ? `kamar ${k.nomorKamar} ada di asrama ${g.jenis.toLowerCase()}`
+          : (terpakai.get(k.nomorKamar) ?? 0) >= k.kapasitas ? `kamar ${k.nomorKamar} penuh`
+          : ''
+        if (alasan) {
+          gagal.push(`baris ${nomorBaris}: ${alasan}`)
+          return
+        }
+        nimDipakai.add(nim)
+        terpakai.set(k!.nomorKamar, (terpakai.get(k!.nomorKamar) ?? 0) + 1)
+        siap.push({ nim, nama, jenisKelamin: jk as 'L' | 'P', email: ambil('Email'), noHp: ambil('No HP'), asal: ambil('Asal Daerah'), nomorKamar: k!.nomorKamar, statusAktif: true, role: 'penghuni' })
+      })
+
+      setMengimpor(true)
+      let berhasil = 0
+      for (const p of siap) {
+        const r = await addPenghuniApi(p)
+        if (r.ok || r.offline) berhasil++
+        else gagal.push(`${p.nim}: ${r.message}`)
+      }
+      setMengimpor(false)
+      onImported?.()
+      setImportMessage(`${berhasil} dari ${isi.length} baris berhasil diimpor.${gagal.length ? ` Gagal: ${gagal.slice(0, 5).join('; ')}${gagal.length > 5 ? `; dan ${gagal.length - 5} lainnya` : ''}.` : ''}`)
     }
     reader.readAsArrayBuffer(file)
   }
@@ -925,11 +1041,20 @@ function AdminPenghuni({ penghuni, gedungList = [], onAddClick, onKelola, onRese
           <div className="flex flex-wrap items-center gap-2">
             <select className={saringCls} value={filterGedung} onChange={e => { setFilterGedung(e.target.value); setPage(1) }} aria-label="Gedung">
               <option value="semua">Semua gedung</option>
-              {[...new Set(penghuni.map(p => p.namaGedung).filter(Boolean))].sort().map(gedung => <option key={gedung} value={gedung}>{gedung}</option>)}
+              {gedungList.map(g => <option key={g.id} value={g.nama}>{g.nama}</option>)}
+              <option value="">Belum ada kamar</option>
             </select>
-            <label className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-emerald-800 bg-[#fff] hover:bg-emerald-50 border border-emerald-200 cursor-pointer">
-              <FileSpreadsheet className="w-4 h-4" /> Impor
-              <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={e => importSpreadsheet(e.target.files?.[0])} />
+            <button
+              type="button"
+              onClick={unduhTemplateImpor}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-gray-700 bg-[#fff] hover:bg-gray-50 border border-gray-200 cursor-pointer"
+              title="Unduh template impor (.xlsx)"
+            >
+              <Download className="w-4 h-4" /> Template
+            </button>
+            <label className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-emerald-800 bg-[#fff] hover:bg-emerald-50 border border-emerald-200 ${mengimpor ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`} title="Impor dari template">
+              <FileSpreadsheet className="w-4 h-4" /> {mengimpor ? 'Mengimpor…' : 'Impor'}
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => { importSpreadsheet(e.target.files?.[0]); e.target.value = '' }} />
             </label>
             <button
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-sm cursor-pointer"
@@ -941,13 +1066,13 @@ function AdminPenghuni({ penghuni, gedungList = [], onAddClick, onKelola, onRese
             </button>
           </div>
         </div>
-        {importMessage && <p className="px-5 pt-3 text-xs font-semibold text-emerald-700">{importMessage}</p>}
+        {importMessage && <p className={`px-5 pt-3 text-xs font-semibold ${/Gagal|tidak|Format|kosong/.test(importMessage) ? 'text-amber-700' : 'text-emerald-700'}`}>{importMessage}</p>}
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/70">
-                {['Penghuni', 'Kamar', 'Asal Daerah', 'Peran', 'Status', ''].map((h, i) => (
+                {['Penghuni', 'L/P', 'Kamar', 'Asal Daerah', 'Peran', 'Status', ''].map((h, i) => (
                   <th key={h || i} className={`px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 ${h ? 'text-left' : 'text-right'}`}>{h}</th>
                 ))}
               </tr>
@@ -955,7 +1080,7 @@ function AdminPenghuni({ penghuni, gedungList = [], onAddClick, onKelola, onRese
             <tbody className="divide-y divide-gray-100">
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center">
+                  <td colSpan={7} className="px-5 py-12 text-center">
                     <Users className="w-7 h-7 text-gray-300 mx-auto" />
                     <p className="mt-2 text-sm font-semibold text-gray-600">Tidak ada data yang cocok</p>
                     <p className="text-xs text-gray-400">Ubah kata kunci atau filter di atas.</p>
@@ -972,6 +1097,11 @@ function AdminPenghuni({ penghuni, gedungList = [], onAddClick, onKelola, onRese
                         <p className="mono text-[11px] text-gray-500">{p.nim}</p>
                       </div>
                     </div>
+                  </td>
+                  <td className="px-5 py-3">
+                    {p.jenisKelamin
+                      ? <span className={`inline-flex w-7 h-7 rounded-lg items-center justify-center text-xs font-bold ${p.jenisKelamin === 'P' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-50 text-emerald-800'}`} title={p.jenisKelamin === 'P' ? 'Perempuan' : 'Laki-laki'}>{p.jenisKelamin}</span>
+                      : <span className="text-[11px] font-semibold text-amber-700" title="Lengkapi lewat tombol Kelola">belum diisi</span>}
                   </td>
                   <td className="px-5 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
@@ -1024,7 +1154,33 @@ function AdminPenghuni({ penghuni, gedungList = [], onAddClick, onKelola, onRese
 }
 
 // Pilihan gedung & kamar dengan informasi kapasitas; kamar penuh tidak bisa dipilih
-function KamarPicker({ gedungList, kamarList, penghuni, gedung, kamar, kamarSaatIni, onGedung, onKamar }: {
+// Pilihan jenis kelamin (L/P)
+function PilihGender({ value, onChange }: { value: 'L' | 'P' | '' | null | undefined; onChange: (v: 'L' | 'P') => void }) {
+  return (
+    <div>
+      <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Jenis Kelamin</label>
+      <div className="grid grid-cols-2 gap-2">
+        {([['L', 'Laki-laki'], ['P', 'Perempuan']] as const).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(v)}
+            aria-pressed={value === v}
+            className={`py-2.5 rounded-xl border text-sm font-bold cursor-pointer transition-colors ${value === v ? 'bg-[#141a17] border-[#141a17] text-white' : 'bg-[#fff] border-gray-200 text-gray-700 hover:border-emerald-300'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const gedungCocok = (g: Gedung, jk?: 'L' | 'P' | '' | null) => !jk || (jk === 'P') === (g.jenis === 'Putri')
+
+function KamarPicker({ gedungList, kamarList, penghuni, gedung, kamar, kamarSaatIni, onGedung, onKamar, jenisKelamin }: {
+  // Hanya gedung yang sesuai gender ditampilkan
+  jenisKelamin?: 'L' | 'P' | '' | null
   gedungList: Gedung[]
   kamarList: Kamar[]
   penghuni: Penghuni[]
@@ -1039,8 +1195,8 @@ function KamarPicker({ gedungList, kamarList, penghuni, gedung, kamar, kamarSaat
       <div>
         <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Gedung Asrama</label>
         <select className={inputCls} value={gedung} onChange={e => { onGedung(e.target.value); onKamar('') }}>
-          <option value="">Pilih Gedung</option>
-          {gedungList.map(g => <option key={g.id} value={g.nama}>{g.nama}</option>)}
+          <option value="">{jenisKelamin ? 'Pilih Gedung' : 'Pilih jenis kelamin dulu'}</option>
+          {gedungList.filter(g => gedungCocok(g, jenisKelamin)).map(g => <option key={g.id} value={g.nama}>{g.nama}</option>)}
         </select>
       </div>
       <div>
@@ -1167,23 +1323,25 @@ function TambahPenghuniModal({ penghuni, gedungList, kamarList, onClose, onSave 
   onClose: () => void
   onSave: (p: Penghuni) => void
 }) {
-  const [form, setForm] = useState({ nim: '', nama: '', email: '', noHp: '', asal: '', namaGedung: '', nomorKamar: '' })
+  const [form, setForm] = useState({ nim: '', nama: '', email: '', noHp: '', asal: '', namaGedung: '', nomorKamar: '', jenisKelamin: '' as 'L' | 'P' | '' })
   const [error, setError] = useState('')
 
   const simpan = () => {
-    const pesan = validasiDataDiri(form, penghuni) || (!form.nomorKamar ? 'Kamar wajib dipilih.' : '')
+    const pesan = validasiDataDiri(form, penghuni) || (!form.jenisKelamin ? 'Jenis kelamin wajib dipilih.' : '') || (!form.nomorKamar ? 'Kamar wajib dipilih.' : '')
     if (pesan) {
       setError(pesan)
       return
     }
-    onSave({ ...form, nim: form.nim.trim(), nama: form.nama.trim(), email: form.email.trim(), statusAktif: true, role: 'penghuni', tanggalMasuk: todayLocal() })
+    onSave({ ...form, jenisKelamin: form.jenisKelamin || null, nim: form.nim.trim(), nama: form.nama.trim(), email: form.email.trim(), statusAktif: true, role: 'penghuni', tanggalMasuk: todayLocal() })
   }
 
   return (
     <ModalShell title="Tambah Penghuni Baru" subtitle="Daftarkan mahasiswa dan tempatkan ke kamar" icon={<UserPlus className="w-5 h-5" />} onClose={onClose}>
       <div className="space-y-3.5 max-h-[65vh] overflow-y-auto pr-1">
         <FormDataDiri value={form} onChange={d => setForm(prev => ({ ...prev, ...d }))} />
+        <PilihGender value={form.jenisKelamin} onChange={v => setForm(p => ({ ...p, jenisKelamin: v, ...(gedungList.find(g => g.nama === p.namaGedung && !gedungCocok(g, v)) ? { namaGedung: '', nomorKamar: '' } : {}) }))} />
         <KamarPicker
+          jenisKelamin={form.jenisKelamin}
           gedungList={gedungList} kamarList={kamarList} penghuni={penghuni}
           gedung={form.namaGedung} kamar={form.nomorKamar}
           onGedung={v => setForm(p => ({ ...p, namaGedung: v }))}
@@ -1212,6 +1370,7 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
   const [namaGedung, setNamaGedung] = useState(target.namaGedung)
   const [nomorKamar, setNomorKamar] = useState(target.nomorKamar)
   const [role, setRole] = useState(target.role)
+  const [jk, setJk] = useState<'L' | 'P' | ''>(target.jenisKelamin ?? '')
   const [konfirmasiKeluar, setKonfirmasiKeluar] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -1226,7 +1385,12 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
     setSaving(true)
     setError('')
     const d = { nim: dataDiri.nim.trim(), nama: dataDiri.nama.trim(), email: dataDiri.email.trim(), noHp: dataDiri.noHp.trim(), asal: dataDiri.asal.trim() }
-    const result = await onSave({ ...d, ...changes })
+    if (!jk) {
+      setError('Jenis kelamin wajib dipilih.')
+      setSaving(false)
+      return
+    }
+    const result = await onSave({ ...d, ...changes, jenisKelamin: jk })
     // Modal ditutup oleh induk jika berhasil; tampilkan alasan jika ditolak server
     if (!result.ok && !result.offline) {
       setError(result.message)
@@ -1248,6 +1412,11 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
         <div className="space-y-3.5">
           <p className="text-xs font-bold text-gray-700">Data Diri</p>
           <FormDataDiri value={dataDiri} onChange={setDataDiri} />
+          <PilihGender value={jk} onChange={v => {
+            setJk(v)
+            if (gedungList.find(g => g.nama === namaGedung && !gedungCocok(g, v))) { setNamaGedung(''); setNomorKamar('') }
+          }} />
+          {!target.jenisKelamin && <p className="text-[11px] text-amber-700 font-semibold">Jenis kelamin akun ini belum diisi.</p>}
           {dataDiri.nim.trim() !== target.nim && (
             <p className="text-[11px] text-amber-700 font-semibold">
               NIM akan diubah dari {target.nim}. Riwayat presensi, izin, dan jabatan PJ ikut pindah ke NIM baru; penghuni login dengan NIM baru.
@@ -1258,6 +1427,7 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
         <div className="pt-4 border-t border-gray-100">
           <p className="text-xs font-bold text-gray-700 mb-2">{target.statusAktif ? 'Pindah Kamar' : 'Aktifkan Kembali & Tempatkan ke Kamar'}</p>
           <KamarPicker
+            jenisKelamin={jk}
             gedungList={gedungList} kamarList={kamarList} penghuni={penghuni}
             gedung={namaGedung} kamar={nomorKamar} kamarSaatIni={target.statusAktif ? target.nomorKamar : undefined}
             onGedung={setNamaGedung} onKamar={v => { setNomorKamar(v); setError('') }}
@@ -1540,23 +1710,34 @@ function AdminGedung({
                     {kamarGedung.length === 0 ? (
                       <p className="text-xs text-gray-400">Belum ada kamar.</p>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="rounded-xl border border-gray-200 bg-[#fff] divide-y divide-gray-100 overflow-hidden">
                         {kamarGedung.map(k => {
-                          const isi = hunianKamar(k, penghuni)
-                          const warna = isi >= k.kapasitas ? 'bg-rose-50 text-rose-800 border-rose-200' : isi === 0 ? 'bg-white text-gray-600 border-gray-200' : 'bg-emerald-50 text-emerald-800 border-emerald-100'
+                          const isiKamar = penghuni.filter(p => p.statusAktif && p.nomorKamar === k.nomorKamar)
+                          const isi = isiKamar.length
+                          const titik = isi >= k.kapasitas ? 'bg-rose-400' : isi === 0 ? 'bg-gray-300' : 'bg-emerald-400'
                           return (
-                            <div
-                              key={k.nomorKamar}
-                              className={`group mono text-xs font-semibold pl-2.5 pr-1 py-1 rounded-lg border flex items-center gap-1.5 ${warna}`}
-                              title={`Lantai ${k.lantai} · kapasitas ${k.kapasitas} orang, terisi ${isi}`}
-                            >
-                              <span>{k.nomorKamar} · {isi}/{k.kapasitas}</span>
-                              <button type="button" onClick={() => onEditKamar(k)} title="Edit kamar" aria-label={`Edit kamar ${k.nomorKamar}`} className="p-0.5 hover:bg-black/10 rounded cursor-pointer">
-                                <Edit className="w-3 h-3" />
-                              </button>
-                              <button type="button" onClick={() => onHapusKamar(k.nomorKamar)} title="Hapus kamar" aria-label={`Hapus kamar ${k.nomorKamar}`} className="p-0.5 hover:bg-black/10 rounded cursor-pointer">
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                            <div key={k.nomorKamar} className="flex items-start gap-3 px-3 py-2.5">
+                              <div className="w-24 shrink-0">
+                                <p className="flex items-center gap-1.5 mono text-xs font-bold text-gray-900"><span className={`w-2 h-2 rounded-full ${titik}`} />{k.nomorKamar}</p>
+                                <p className="text-[11px] text-gray-500 mt-0.5">Lt {k.lantai} · {isi}/{k.kapasitas}</p>
+                              </div>
+                              <div className="flex-1 min-w-0 flex flex-wrap gap-1">
+                                {isiKamar.length === 0
+                                  ? <span className="text-[11px] text-gray-400 py-0.5">Kosong</span>
+                                  : isiKamar.map(p => (
+                                    <span key={p.nim} className="px-2 py-0.5 rounded-md bg-gray-50 border border-gray-100 text-[11px] font-medium text-gray-700" title={p.nim}>
+                                      {p.nama}{p.role === 'fasil' ? ' · fasil' : ''}
+                                    </span>
+                                  ))}
+                              </div>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <button type="button" onClick={() => onEditKamar(k)} title="Edit kamar & penghuni" aria-label={`Edit kamar ${k.nomorKamar}`} className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer">
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button type="button" onClick={() => onHapusKamar(k.nomorKamar)} title="Hapus kamar" aria-label={`Hapus kamar ${k.nomorKamar}`} className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
                           )
                         })}
@@ -1859,6 +2040,8 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
   const [tanggal, setTanggal] = useState(today)
   const [sesi, setSesi] = useState(aktif[0]?.nama || '')
   const [gedung, setGedung] = useState('')
+  const [cariRekap, setCariRekap] = useState('')
+  const [statusRekap, setStatusRekap] = useState<FilterStatusRekap>('')
   // Data perizinan punya filter sendiri (termasuk gedung), terpisah dari filter rekap presensi di atas
   const saring = useSaringIzin(data.izin)
   const [batasTampil, setBatasTampil] = useState(PER_HALAMAN_IZIN)
@@ -1868,6 +2051,9 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
     const s = sesiUntuk(sesiList, sesi, p.namaGedung, tanggal)
     return s ? [{ penghuni: p, detail: statusSesi(p.nim, tanggal, s, data, now) }] : []
   })
+  const kataRekap = cariRekap.trim().toLowerCase()
+  const rowsDicari = kataRekap ? rows.filter(r => `${r.penghuni.nama} ${r.penghuni.nim} ${r.penghuni.nomorKamar ?? ''} ${r.penghuni.namaGedung ?? ''}`.toLowerCase().includes(kataRekap)) : rows
+  const rowsTampil = statusRekap ? rowsDicari.filter(r => r.detail.status === statusRekap) : rowsDicari
   const izinRows = [...saring.hasil].sort((a, b) => b.tanggal.localeCompare(a.tanggal) || b.id - a.id)
   const izinTampil = izinRows.slice(0, batasTampil)
 
@@ -1886,17 +2072,23 @@ function AdminPresensiIzin({ penghuni, gedungList, sesiList, data, now }: {
             <option value="">Seluruh gedung</option>
             {gedungList.map(g => <option key={g.id} value={g.nama}>{g.nama}</option>)}
           </select>
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input type="search" value={cariRekap} onChange={e => setCariRekap(e.target.value)} placeholder="Cari nama, NIM, kamar, gedung..." aria-label="Cari penghuni"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400" />
+          </div>
         </div>
       </div>
 
-      <RekapStats rows={rows} />
+      <UbinStatusRekap rows={rowsDicari} value={statusRekap} onChange={setStatusRekap} />
 
       <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
         <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Daftar Penghuni</h3>
-          <p className="text-xs text-gray-500">{rows.length} penghuni wajib absen · koreksi dilakukan fasil gedung masing-masing</p>
+          <p className="text-xs text-gray-500">{rowsTampil.length} dari {rows.length} penghuni wajib absen · koreksi dilakukan fasil gedung masing-masing</p>
         </div>
-        <RekapTableBerhalaman rows={rows} showGedung kunciReset={`${tanggal}|${sesi}|${gedung}`} />
+        <RekapTableBerhalaman rows={rowsTampil} showGedung kunciReset={`${tanggal}|${sesi}|${gedung}|${statusRekap}|${kataRekap}`}
+          emptyText={kataRekap ? 'Tidak ada penghuni yang cocok dengan pencarian' : 'Tidak ada penghuni untuk filter yang dipilih'} />
       </div>
 
       <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
@@ -2000,6 +2192,7 @@ function ModeUjiCard({ modeUji, onSave }: { modeUji: ModeUji; onSave: (mode: Mod
       }
     >
       <div className="p-5 flex-1 flex flex-col gap-3">
+        <div className="grid md:grid-cols-2 gap-3">
         {opsi.map(o => {
           const nyala = modeUji[o.key]
           return (
@@ -2017,6 +2210,7 @@ function ModeUjiCard({ modeUji, onSave }: { modeUji: ModeUji; onSave: (mode: Mod
             </label>
           )
         })}
+        </div>
         <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between gap-3 text-xs">
           <p className="text-gray-400">Presensi uji ditandai label <span className="font-semibold text-gray-600">[Mode Uji]</span></p>
           {msg && <span className={`font-semibold ${msg.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{msg.text}</span>}
@@ -2091,14 +2285,17 @@ function AturanPresensiCard({ aturan, onSave }: { aturan: AturanPresensi; onSave
   )
 }
 
-function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, onDeleteLibur }: {
+function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, onUpdateLibur, onDeleteLibur }: {
   sesiList: Sesi[]
   gedungList: Gedung[]
   libur: HariLibur[]
   onSaveSesi: (list: Sesi[]) => Promise<ApiResult>
   onAddLibur: (l: Omit<HariLibur, 'id'>) => Promise<ApiResult>
+  onUpdateLibur: (l: HariLibur) => Promise<ApiResult>
   onDeleteLibur: (id: number) => Promise<ApiResult>
 }) {
+  // Hari libur yang sedang diedit (form kiri berubah jadi mode edit)
+  const [editLibur, setEditLibur] = useState<number | null>(null)
   // Admin hanya mengatur sesi global (mis. Subuh); absen malam diatur fasil per gedung
   const sesiGlobal = useMemo(() => sesiList.filter(s => s.idGedung == null), [sesiList])
   const [draft, setDraft] = useState<Sesi[]>(sesiGlobal)
@@ -2137,6 +2334,17 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
     setSesiMsg(result.ok || result.offline ? { type: 'success', text: 'Jadwal sesi disimpan.' } : { type: 'error', text: result.message })
   }
 
+  const mulaiEditLibur = (l: HariLibur) => {
+    setEditLibur(l.id)
+    setLiburForm({ tanggalMulai: l.tanggalMulai, tanggalSelesai: l.tanggalSelesai === l.tanggalMulai ? '' : l.tanggalSelesai, keterangan: l.keterangan })
+    setLiburMsg(null)
+  }
+  const batalEditLibur = () => {
+    setEditLibur(null)
+    setLiburForm({ tanggalMulai: '', tanggalSelesai: '', keterangan: '' })
+    setLiburMsg(null)
+  }
+
   const tambahLibur = async () => {
     const selesai = liburForm.tanggalSelesai || liburForm.tanggalMulai
     if (!liburForm.tanggalMulai || !liburForm.keterangan.trim()) {
@@ -2147,11 +2355,15 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
       setLiburMsg({ type: 'error', text: 'Tanggal selesai tidak boleh sebelum tanggal mulai.' })
       return
     }
-    const result = await onAddLibur({ tanggalMulai: liburForm.tanggalMulai, tanggalSelesai: selesai, keterangan: liburForm.keterangan.trim() })
+    const isi = { tanggalMulai: liburForm.tanggalMulai, tanggalSelesai: selesai, keterangan: liburForm.keterangan.trim() }
+    const result = editLibur !== null ? await onUpdateLibur({ id: editLibur, ...isi }) : await onAddLibur(isi)
     const berhasil = result.ok || result.offline
-    setLiburMsg(berhasil ? { type: 'success', text: 'Hari libur ditambahkan.' } : { type: 'error', text: result.message })
+    setLiburMsg(berhasil ? { type: 'success', text: editLibur !== null ? 'Hari libur diperbarui.' : 'Hari libur ditambahkan.' } : { type: 'error', text: result.message })
     // Form hanya dikosongkan bila tersimpan, agar isian tidak hilang saat gagal
-    if (berhasil) setLiburForm({ tanggalMulai: '', tanggalSelesai: '', keterangan: '' })
+    if (berhasil) {
+      setLiburForm({ tanggalMulai: '', tanggalSelesai: '', keterangan: '' })
+      setEditLibur(null)
+    }
   }
 
   const fieldCls = 'px-3 py-2 rounded-lg border border-gray-200 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15 bg-[#fff]'
@@ -2168,6 +2380,9 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
           kanan={<span className="px-2.5 py-1 rounded-full text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200">{draft.filter(x => x.aktif).length} sesi aktif</span>}
         >
           <div className="p-5 flex-1 flex flex-col gap-3">
+            {draft.length === 0 && (
+              <p className="text-xs text-gray-400 text-center py-6 rounded-xl border border-dashed border-gray-200">Belum ada sesi global. Klik "Tambah Sesi" untuk membuat.</p>
+            )}
             {draft.map(x => (
               <div key={x.id} className={`p-3.5 rounded-xl border transition-colors ${x.aktif ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 bg-gray-50/60'}`}>
                 <div className="grid grid-cols-2 sm:grid-cols-[1fr_auto_auto] gap-3 items-end">
@@ -2184,11 +2399,20 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
                     <TimeInput className={fieldCls} value={x.jamSelesai} onChange={e => updateDraft(x.id, { jamSelesai: e.target.value })} />
                   </div>
                 </div>
-                <label className="mt-3 flex items-center justify-between gap-3 cursor-pointer">
+                <div className="mt-3 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDraft(prev => prev.filter(y => y.id !== x.id))}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 -ml-2 rounded-lg cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />Hapus sesi
+                </button>
+                <label className="flex items-center gap-3 cursor-pointer">
                   <span className="text-xs font-semibold text-gray-700">Wajib presensi</span>
                   <input type="checkbox" className="peer sr-only" checked={x.aktif} onChange={e => updateDraft(x.id, { aktif: e.target.checked })} />
                   <span className="relative w-10 h-[22px] shrink-0 rounded-full bg-gray-200 transition-colors peer-checked:bg-emerald-600 peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-400/50 after:absolute after:top-0.5 after:left-0.5 after:w-[18px] after:h-[18px] after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-[18px]" />
                 </label>
+                </div>
               </div>
             ))}
 
@@ -2211,6 +2435,7 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
                   <span>Simpan Jadwal</span>
                 </button>
               </div>
+              {draft.length !== sesiGlobal.length && <p className="text-[11px] text-amber-700 font-semibold">Ada perubahan daftar sesi, klik "Simpan Jadwal" untuk menerapkan.</p>}
               {sesiMsg && <p className={`text-xs font-semibold ${sesiMsg.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{sesiMsg.text}</p>}
             </div>
           </div>
@@ -2228,7 +2453,7 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
       >
         <div className="p-5 grid lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-5">
           <div className="p-4 rounded-xl bg-gray-50/70 border border-gray-200 space-y-3 self-start">
-            <p className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Tambah periode libur</p>
+            <p className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{editLibur !== null ? 'Ubah periode libur' : 'Tambah periode libur'}</p>
             <div className="grid grid-cols-2 gap-2.5">
               <div>
                 <label className={labelCls}>Mulai</label>
@@ -2243,15 +2468,20 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
               <label className={labelCls}>Keterangan</label>
               <input className={`${fieldCls} w-full`} placeholder="cth: Libur Semester Ganjil" value={liburForm.keterangan} onChange={e => setLiburForm(v => ({ ...v, keterangan: e.target.value }))} />
             </div>
-            <p className="text-[11px] text-gray-400">Kosongkan tanggal selesai untuk libur satu hari.</p>
-            <button
-              onClick={tambahLibur}
-              className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-              style={{ fontFamily: 'Plus Jakarta Sans' }}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Tambah Hari Libur</span>
-            </button>
+            <p className="text-[11px] text-gray-400">Kosongkan tanggal selesai untuk libur satu hari. Selama libur, semua absen (harian & event) dinonaktifkan.</p>
+            <div className="flex gap-2">
+              {editLibur !== null && (
+                <button onClick={batalEditLibur} className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-700 bg-[#fff] border border-gray-200 hover:bg-gray-50 cursor-pointer">Batal</button>
+              )}
+              <button
+                onClick={tambahLibur}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                style={{ fontFamily: 'Plus Jakarta Sans' }}
+              >
+                {editLibur !== null ? <Save className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                <span>{editLibur !== null ? 'Simpan Perubahan' : 'Tambah Hari Libur'}</span>
+              </button>
+            </div>
             {liburMsg && <p className={`text-xs font-semibold ${liburMsg.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{liburMsg.text}</p>}
           </div>
 
@@ -2267,7 +2497,7 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
                 {[...libur].sort((a, b) => b.tanggalMulai.localeCompare(a.tanggalMulai)).map(l => {
                   const hari = Math.round((new Date(l.tanggalSelesai).getTime() - new Date(l.tanggalMulai).getTime()) / 86400000) + 1
                   return (
-                    <div key={l.id} className="group flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-[#fff] hover:border-gray-300 transition-colors">
+                    <div key={l.id} className={`group flex items-center gap-3 p-3 rounded-xl border bg-[#fff] transition-colors ${editLibur === l.id ? 'border-emerald-400 ring-2 ring-emerald-400/20' : 'border-gray-200 hover:border-gray-300'}`}>
                       <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
                         <Palmtree className="w-[18px] h-[18px]" />
                       </div>
@@ -2276,7 +2506,15 @@ function AdminPengaturan({ sesiList, gedungList, libur, onSaveSesi, onAddLibur, 
                         <p className="text-xs text-gray-500">{formatRentangTanggal(l.tanggalMulai, l.tanggalSelesai)} · {hari} hari</p>
                       </div>
                       <button
-                        onClick={async () => { const r = await onDeleteLibur(l.id); if (!r.ok && !r.offline) setLiburMsg({ type: 'error', text: r.message }) }}
+                        onClick={() => mulaiEditLibur(l)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer shrink-0"
+                        title="Ubah"
+                        aria-label={`Ubah ${l.keterangan}`}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={async () => { const r = await onDeleteLibur(l.id); if (!r.ok && !r.offline) setLiburMsg({ type: 'error', text: r.message }); else if (editLibur === l.id) batalEditLibur() }}
                         className="p-2 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
                         title="Hapus"
                         aria-label={`Hapus ${l.keterangan}`}
@@ -2460,13 +2698,13 @@ function AdminLaporan({ admin, penghuni, gedungList, sesiList, data, now }: {
     <div className="space-y-6">
       {/* Kepala halaman + filter */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
-        <div className="px-6 py-5 bg-gradient-to-r from-[#0f3e2d] via-[#17603d] to-[#27a150] text-white flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-white/95 p-1 shrink-0 flex items-center justify-center">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-[#fff] border border-gray-200 p-1 shrink-0 flex items-center justify-center">
             <img src={logoUnand} alt="Logo Universitas Andalas" className="h-full w-auto object-contain" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-extrabold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>Laporan & Rekapitulasi Kehadiran</h2>
-            <p className="text-xs text-emerald-100/90">Atur filter, tinjau ringkasannya, lalu unduh laporan resmi berkop Universitas Andalas.</p>
+            <h2 className="text-lg font-extrabold tracking-tight text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Laporan & Rekapitulasi Kehadiran</h2>
+            <p className="text-xs text-gray-500">Atur filter, tinjau ringkasannya, lalu unduh laporan resmi berkop Universitas Andalas.</p>
           </div>
         </div>
         <div className="px-6 py-4 space-y-3">

@@ -26,10 +26,13 @@ export default function KameraWajah({ foto, onChange, disabled = false, polos = 
   const streamRef = useRef<MediaStream | null>(null)
   const [status, setStatus] = useState<StatusKamera>('mati')
   const [error, setError] = useState('')
+  // true setelah frame pertama tampil; sebelum itu foto belum bisa diambil (webcam laptop sering lambat)
+  const [adaGambar, setAdaGambar] = useState(false)
 
   const matikan = () => {
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
+    setAdaGambar(false)
   }
 
   // Pastikan kamera dimatikan saat pindah halaman
@@ -42,14 +45,20 @@ export default function KameraWajah({ foto, onChange, disabled = false, polos = 
       setError('Browser tidak mendukung kamera. Buka aplikasi melalui HTTPS atau localhost.')
       return
     }
+    matikan() // nyalakan ulang: lepaskan stream lama dulu
     setStatus('memuat')
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 } }, audio: false })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 } }, audio: false })
+      } catch (err) {
+        // Sebagian webcam laptop menolak batasan facingMode/ukuran: coba lagi dengan kamera apa saja
+        const name = (err as DOMException)?.name
+        if (name !== 'OverconstrainedError' && name !== 'NotReadableError' && name !== 'AbortError') throw err
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
       }
+      streamRef.current = stream
+      // Video dipasang & diputar oleh efek di bawah setelah elemen terlihat
       setStatus('siap')
     } catch (err) {
       matikan()
@@ -58,8 +67,33 @@ export default function KameraWajah({ foto, onChange, disabled = false, polos = 
     }
   }
 
+  // Pasang stream ke <video> saat kamera siap. play() TIDAK ditunggu sebelum video tampil:
+  // di sebagian browser laptop, play() pada video tersembunyi tidak pernah selesai (kamera "tidak keluar").
+  useEffect(() => {
+    const video = videoRef.current
+    const stream = streamRef.current
+    if (status !== 'siap' || !video || !stream) return
+    if (video.srcObject !== stream) video.srcObject = stream
+    const cekGambar = () => { if (video.videoWidth > 0) setAdaGambar(true) }
+    const peristiwa = ['loadeddata', 'playing', 'resize'] as const
+    peristiwa.forEach(e => video.addEventListener(e, cekGambar))
+    cekGambar()
+    video.play().then(cekGambar).catch(() => { /* autoplay muted biasanya diizinkan; abaikan AbortError saat re-render */ })
+    // Bila setelah 10 detik gambar belum muncul, beri tahu pengguna
+    const t = setTimeout(() => {
+      if (video.videoWidth === 0) {
+        setError('Gambar kamera belum muncul. Tutup aplikasi lain yang memakai kamera (Zoom/Meet/kamera Windows), lalu klik "Coba Nyalakan Lagi".')
+      }
+    }, 10000)
+    return () => {
+      clearTimeout(t)
+      peristiwa.forEach(e => video.removeEventListener(e, cekGambar))
+    }
+  }, [status])
+
   const ambilFoto = () => {
     const video = videoRef.current
+    // Tombol hanya aktif setelah ada gambar; penjagaan bila tetap terpanggil lebih awal
     if (!video || !video.videoWidth) return
     const skala = Math.min(1, LEBAR_FOTO / video.videoWidth)
     const canvas = document.createElement('canvas')
@@ -92,7 +126,7 @@ export default function KameraWajah({ foto, onChange, disabled = false, polos = 
       <div className={`relative aspect-[4/3] w-full mx-auto rounded-xl overflow-hidden bg-gray-900 ${polos ? '' : 'max-w-sm'}`}>
         {foto && <img src={foto} alt="Foto wajah" className="w-full h-full object-cover" />}
         {/* Pratinjau dicerminkan agar terasa seperti cermin; foto yang disimpan tidak dicerminkan */}
-        <video ref={videoRef} playsInline muted className={`w-full h-full object-cover -scale-x-100 ${kameraTampil ? '' : 'hidden'}`} />
+        <video ref={videoRef} playsInline muted autoPlay className={`absolute inset-0 w-full h-full object-cover -scale-x-100 transition-opacity duration-300 ${kameraTampil ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
         {kameraTampil && status === 'siap' && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div className="w-[45%] aspect-[3/4] rounded-[50%] border-2 border-dashed border-white/70" />
@@ -119,10 +153,10 @@ export default function KameraWajah({ foto, onChange, disabled = false, polos = 
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Ambil Ulang</span>
           </button>
-        ) : status === 'siap' ? (
-          <button type="button" onClick={ambilFoto} disabled={disabled} className={`${tombolCls} text-white bg-emerald-700 hover:bg-emerald-800`}>
+        ) : status === 'siap' && !error ? (
+          <button type="button" onClick={ambilFoto} disabled={disabled || !adaGambar} className={`${tombolCls} text-white bg-emerald-700 hover:bg-emerald-800`}>
             <Camera className="w-3.5 h-3.5" />
-            <span>Ambil Foto</span>
+            <span>{adaGambar ? 'Ambil Foto' : 'Menunggu gambar kamera…'}</span>
           </button>
         ) : (
           <button type="button" onClick={nyalakan} disabled={disabled || status === 'memuat'} className={`${tombolCls} text-emerald-800 bg-white border border-emerald-200 hover:bg-emerald-50`}>

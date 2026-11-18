@@ -51,6 +51,9 @@ class EventService
         $totalAlpaDibuat = 0;
 
         foreach ($events as $ev) {
+            if ($this->tanggalLibur($ev['tanggal'])) {
+                continue;
+            }
             $eventId = (int) $ev['id'];
             $tipe    = $ev['tipe'];
             $idGedung = $ev['id_gedung'] ? (int) $ev['id_gedung'] : null;
@@ -61,14 +64,14 @@ class EventService
                     SELECT u.NIM
                     FROM user u
                     JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar
-                    WHERE k.Id_Gedung = ? AND u.Role = 'penghuni' AND u.Status_aktif = 'Aktif'
+                    WHERE k.Id_Gedung = ? AND LOWER(u.Role) IN ('mahasiswa', 'penghuni') AND u.Status_aktif = 'Aktif'
                 ", [$idGedung])->getResultArray();
             } else {
                 // Seluruh asrama
                 $peserta = $this->db->query("
                     SELECT u.NIM
                     FROM user u
-                    WHERE u.Role = 'penghuni' AND u.Status_aktif = 'Aktif'
+                    WHERE LOWER(u.Role) IN ('mahasiswa', 'penghuni') AND u.Status_aktif = 'Aktif'
                 ")->getResultArray();
             }
 
@@ -113,6 +116,49 @@ class EventService
         ];
     }
 
+    /** Hari libur menonaktifkan seluruh absen, termasuk event */
+    public function tanggalLibur(string $tanggal): ?array
+    {
+        if (! $this->db->tableExists('hari_libur')) {
+            return null;
+        }
+
+        return $this->db->table('hari_libur')->where('Tanggal_mulai <=', $tanggal)->where('Tanggal_selesai >=', $tanggal)->get()->getRowArray();
+    }
+
+    /**
+     * Foto absen event milik penghuni gedung yang dipegang fasil (untuk halaman Validasi Foto).
+     * $nimFasil null = semua gedung (admin, hanya untuk dilihat/dihitung).
+     */
+    public function daftarFotoEvent(?string $nimFasil): array
+    {
+        $rows = $this->db->query("
+            SELECT pe.id, pe.id_event AS idEvent, e.judul AS judulEvent, pe.nim, u.Nama AS namaPenghuni,
+                   COALESCE(u.Nomor_kamar, '') AS nomorKamar, g.Nama AS namaGedung, pe.tanggal,
+                   DATE_FORMAT(pe.waktu, '%H:%i') AS waktu, pe.latitude, pe.longitude, pe.jarak_meter AS jarakMeter,
+                   pe.foto, pe.status, pe.Status_foto AS statusFoto, COALESCE(pe.Catatan_validasi, '') AS catatanValidasi,
+                   pe.Divalidasi_oleh AS divalidasiOleh, v.Nama AS namaValidator,
+                   COALESCE(DATE_FORMAT(pe.Divalidasi_pada, '%Y-%m-%d %H:%i'), '') AS divalidasiPada
+            FROM presensi_event pe
+            JOIN event e ON e.id = pe.id_event
+            JOIN user u ON BINARY u.NIM = BINARY pe.nim
+            JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar
+            JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
+            LEFT JOIN user v ON BINARY v.NIM = BINARY pe.Divalidasi_oleh
+            WHERE (? IS NULL OR g.NIM_Pj = ?) AND pe.foto IS NOT NULL AND pe.foto <> '' AND pe.Status_foto IS NOT NULL
+            ORDER BY pe.tanggal DESC, pe.waktu DESC
+        ", [$nimFasil, $nimFasil])->getResultArray();
+        foreach ($rows as &$row) {
+            $row['id']         = (int) $row['id'];
+            $row['idEvent']    = (int) $row['idEvent'];
+            $row['latitude']   = $row['latitude'] !== null ? (float) $row['latitude'] : null;
+            $row['longitude']  = $row['longitude'] !== null ? (float) $row['longitude'] : null;
+            $row['jarakMeter'] = $row['jarakMeter'] !== null ? (float) $row['jarakMeter'] : null;
+        }
+
+        return $rows;
+    }
+
     /**
      * Mengambil daftar event sesuai dengan peran pengguna
      */
@@ -139,6 +185,7 @@ class EventService
                 e.latitude,
                 e.longitude,
                 e.radius_meter as radiusMeter,
+                e.foto_sampul as fotoSampul,
                 e.created_by as createdBy,
                 u.Nama as namaPembuat,
                 DATE_FORMAT(e.created_at, '%Y-%m-%d %H:%i') as dibuatPada
@@ -187,7 +234,8 @@ class EventService
 
             if ($role === 'penghuni') {
                 $pRecord = $this->db->query("
-                    SELECT id, status, DATE_FORMAT(waktu, '%H:%i:%s') as waktu, jarak_meter as jarakMeter, foto, keterangan
+                    SELECT id, nim, tanggal, status, DATE_FORMAT(waktu, '%H:%i:%s') as waktu, jarak_meter as jarakMeter, foto, keterangan,
+                           Status_foto as statusFoto, Catatan_validasi as catatanValidasi
                     FROM presensi_event
                     WHERE id_event = ? AND nim = ?
                     LIMIT 1
@@ -197,11 +245,16 @@ class EventService
                     $ev['statusKehadiran'] = $pRecord['status'];
                     $ev['presensiSaya']    = [
                         'id'         => (int) $pRecord['id'],
+                        'idEvent'    => (int) $ev['id'],
+                        'nim'        => $pRecord['nim'],
+                        'tanggal'    => $pRecord['tanggal'],
                         'status'     => $pRecord['status'],
                         'waktu'      => $pRecord['waktu'],
                         'jarakMeter' => $pRecord['jarakMeter'] !== null ? (float) $pRecord['jarakMeter'] : null,
                         'foto'       => $pRecord['foto'],
                         'keterangan' => $pRecord['keterangan'],
+                        'statusFoto' => $pRecord['statusFoto'],
+                        'catatanValidasi' => $pRecord['catatanValidasi'],
                     ];
                 } else {
                     $ev['statusKehadiran'] = 'Belum Absen';
@@ -235,6 +288,7 @@ class EventService
                 e.latitude,
                 e.longitude,
                 e.radius_meter as radiusMeter,
+                e.foto_sampul as fotoSampul,
                 e.created_by as createdBy,
                 u.Nama as namaPembuat
             FROM event e
@@ -277,7 +331,7 @@ class EventService
                 FROM user u
                 JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar
                 JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
-                WHERE k.Id_Gedung = ? AND u.Role = 'penghuni' AND u.Status_aktif = 'Aktif'
+                WHERE k.Id_Gedung = ? AND LOWER(u.Role) IN ('mahasiswa', 'penghuni') AND u.Status_aktif = 'Aktif'
                 ORDER BY u.Nomor_kamar ASC, u.Nama ASC
             ", [$ev['idGedung']]);
         } else {
@@ -290,7 +344,7 @@ class EventService
                 FROM user u
                 LEFT JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar
                 LEFT JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
-                WHERE u.Role = 'penghuni' AND u.Status_aktif = 'Aktif'
+                WHERE LOWER(u.Role) IN ('mahasiswa', 'penghuni') AND u.Status_aktif = 'Aktif'
                 ORDER BY g.Nama ASC, u.Nomor_kamar ASC, u.Nama ASC
             ");
         }
@@ -305,7 +359,8 @@ class EventService
                 jarak_meter as jarakMeter,
                 foto,
                 status,
-                keterangan
+                keterangan,
+                Status_foto as statusFoto
             FROM presensi_event
             WHERE id_event = ?
         ", [$idEvent])->getResultArray();
@@ -342,6 +397,7 @@ class EventService
                 'jarakMeter' => isset($pr['jarakMeter']) && $pr['jarakMeter'] !== null ? (float) $pr['jarakMeter'] : null,
                 'foto'       => $pr['foto'] ?? null,
                 'keterangan' => $pr['keterangan'] ?? null,
+                'statusFoto' => $pr['statusFoto'] ?? null,
             ];
         }
 

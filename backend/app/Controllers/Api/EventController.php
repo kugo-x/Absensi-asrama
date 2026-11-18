@@ -126,7 +126,17 @@ class EventController extends BaseController
             }
         }
 
+        // Foto sampul (opsional): data URL gambar dari form
+        $sampul = null;
+        if (! empty($input['fotoSampul'])) {
+            $sampul = $this->simpanSampul((string) $input['fotoSampul']);
+            if ($sampul === null) {
+                return $this->fail('Foto sampul harus gambar JPG, PNG, atau WEBP dengan ukuran maksimal 3 MB.', 400);
+            }
+        }
+
         $eventModel = new EventModel();
+        try {
         $idBaru = $eventModel->insert([
             'judul'        => $judul,
             'deskripsi'    => $deskripsi,
@@ -139,8 +149,16 @@ class EventController extends BaseController
             'latitude'     => $latitude,
             'longitude'    => $longitude,
             'radius_meter' => $radiusMeter,
+            'foto_sampul'  => $sampul,
             'created_by'   => $nim,
         ]);
+        } catch (\Throwable $e) {
+            // Simpan gagal: jangan tinggalkan berkas sampul yatim
+            if ($sampul) {
+                $this->hapusBerkasSampul($sampul);
+            }
+            throw $e;
+        }
 
         return $this->respondCreated([
             'status'  => 'success',
@@ -212,7 +230,24 @@ class EventController extends BaseController
             $updateData['id_gedung'] = $tipe === 'gedung' ? $idGedung : null;
         }
 
+        // Foto sampul: data URL baru = ganti, hapusSampul = hapus, tidak dikirim = tetap
+        $sampulLama = $event['foto_sampul'] ?? null;
+        if (! empty($input['fotoSampul']) && str_starts_with((string) $input['fotoSampul'], 'data:')) {
+            $sampulBaru = $this->simpanSampul((string) $input['fotoSampul']);
+            if ($sampulBaru === null) {
+                return $this->fail('Foto sampul harus gambar JPG, PNG, atau WEBP dengan ukuran maksimal 3 MB.', 400);
+            }
+            $updateData['foto_sampul'] = $sampulBaru;
+        } elseif (! empty($input['hapusSampul'])) {
+            $updateData['foto_sampul'] = null;
+        }
+
         $this->db->table('event')->where('id', $id)->update($updateData);
+
+        // Berkas lama dihapus setelah data tersimpan
+        if ($sampulLama && array_key_exists('foto_sampul', $updateData) && $updateData['foto_sampul'] !== $sampulLama) {
+            $this->hapusBerkasSampul($sampulLama);
+        }
 
         return $this->respond([
             'status'  => 'success',
@@ -251,6 +286,9 @@ class EventController extends BaseController
         // Hapus presensi event dan event terkait
         $this->db->table('presensi_event')->where('id_event', $id)->delete();
         $this->db->table('event')->where('id', $id)->delete();
+        if (! empty($event['foto_sampul'])) {
+            $this->hapusBerkasSampul($event['foto_sampul']);
+        }
 
         return $this->respond([
             'status'  => 'success',
@@ -313,15 +351,22 @@ class EventController extends BaseController
             }
         }
 
+        // Hari libur: seluruh absen nonaktif, termasuk event
+        if ($libur = $this->eventService->tanggalLibur($event['tanggal'])) {
+            return $this->fail('Tanggal event bertepatan dengan hari libur (' . $libur['Keterangan'] . '), absen dinonaktifkan.', 400);
+        }
+
         // Periksa apakah sudah pernah presensi Hadir
         $presensiLama = $this->db->table('presensi_event')
             ->where('id_event', $idEvent)
             ->where('nim', $nim)
             ->get()->getRowArray();
 
+        // Hadir dengan foto yang belum/sudah diterima tidak bisa diulang; foto ditolak boleh absen ulang
         if ($presensiLama && $presensiLama['status'] === 'Hadir') {
             return $this->fail('Anda sudah melakukan presensi untuk event ini.', 400);
         }
+        $absenUlang = $presensiLama && ($presensiLama['Status_foto'] ?? null) === 'Ditolak';
 
         // Cek mode uji (abaikan jam / radius)
         $modeUjiRow = $this->db->table('pengaturan')->where('Kunci', 'mode_uji')->get()->getRowArray();
@@ -343,7 +388,9 @@ class EventController extends BaseController
             }
 
             // Izinkan presensi mulai 30 menit sebelum jam mulai hingga jam selesai
-            $toleransiMulai = date('H:i:s', strtotime($event['jam_mulai']) - 1800);
+            // Event mulai sebelum 00:30: toleransi jangan mundur ke hari sebelumnya (23:xx)
+            $mulaiDetik     = strtotime($event['jam_mulai']);
+            $toleransiMulai = date('Y-m-d', $mulaiDetik - 1800) !== date('Y-m-d', $mulaiDetik) ? '00:00:00' : date('H:i:s', $mulaiDetik - 1800);
             if ($jamSekarang < $toleransiMulai) {
                 return $this->fail('Presensi belum dibuka. Dibuka mulai pukul ' . substr($event['jam_mulai'], 0, 5) . ' WIB.', 400);
             }
@@ -401,7 +448,11 @@ class EventController extends BaseController
                 'jarak_meter' => $jarakMeter,
                 'foto'        => $namaFoto,
                 'status'      => 'Hadir',
-                'keterangan'  => 'Presensi mandiri via sistem',
+                'keterangan'  => $absenUlang ? 'Absen ulang setelah foto ditolak' : 'Presensi mandiri via sistem',
+                'Status_foto' => 'Menunggu',
+                'Catatan_validasi' => null,
+                'Divalidasi_oleh'  => null,
+                'Divalidasi_pada'  => null,
                 'updated_at'  => $now,
             ]);
         } else {
@@ -416,6 +467,7 @@ class EventController extends BaseController
                 'foto'        => $namaFoto,
                 'status'      => 'Hadir',
                 'keterangan'  => 'Presensi mandiri via sistem',
+                'Status_foto' => 'Menunggu',
                 'created_at'  => $now,
                 'updated_at'  => $now,
             ]);
@@ -423,9 +475,89 @@ class EventController extends BaseController
 
         return $this->respond([
             'status'     => 'success',
-            'message'    => 'Presensi event berhasil dicatat. Terima kasih!',
+            'message'    => 'Presensi event berhasil dicatat. Foto menunggu validasi fasil.',
             'jarakMeter' => round($jarakMeter, 1),
             'waktu'      => $waktuSekarang,
+        ]);
+    }
+
+    // ----------------------------------------------------
+    // GET /api/event/foto-validasi  (fasil)
+    // Foto absen event penghuni gedung binaan, untuk divalidasi seperti presensi harian
+    // ----------------------------------------------------
+    public function fotoValidasiEvent()
+    {
+        $user = $this->tokenUser();
+        $role = strtolower($user['role'] ?? '');
+        // Fasil: foto penghuni gedungnya. Admin: semua gedung (lihat saja; validasi tetap oleh fasil)
+        if ($role === 'admin') {
+            return $this->respond($this->eventService->daftarFotoEvent(null));
+        }
+        if ($role !== 'fasil') {
+            return $this->failForbidden('Hanya fasil dan admin yang dapat melihat foto event.');
+        }
+
+        return $this->respond($this->eventService->daftarFotoEvent($user['nim'] ?? ''));
+    }
+
+    // ----------------------------------------------------
+    // POST /api/event/validasi-foto  { id, status: Diterima|Ditolak, catatan }
+    // Foto ditolak = kehadiran event tidak terbukti -> Tidak Hadir (boleh absen ulang selama event berlangsung)
+    // ----------------------------------------------------
+    public function validasiFotoEvent()
+    {
+        $user = $this->tokenUser();
+        $nimFasil = $user['nim'] ?? '';
+        if (strtolower($user['role'] ?? '') !== 'fasil') {
+            return $this->failForbidden('Hanya fasil yang dapat memvalidasi foto event.');
+        }
+        $input   = $this->request->getJSON(true) ?? $this->request->getPost();
+        $id      = (int) ($input['id'] ?? 0);
+        $status  = $input['status'] ?? '';
+        $catatan = trim((string) ($input['catatan'] ?? ''));
+        if (! $id || ! in_array($status, ['Diterima', 'Ditolak'], true)) {
+            return $this->fail('ID presensi event dan status validasi (Diterima/Ditolak) wajib diisi.', 400);
+        }
+        if ($status === 'Ditolak' && $catatan === '') {
+            return $this->fail('Catatan wajib diisi saat menolak foto.', 400);
+        }
+
+        $row = $this->db->query("
+            SELECT pe.*, g.NIM_Pj FROM presensi_event pe
+            JOIN user u ON BINARY u.NIM = BINARY pe.nim
+            JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar
+            JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
+            WHERE pe.id = ?
+        ", [$id])->getRowArray();
+        if (! $row) {
+            return $this->failNotFound('Presensi event tidak ditemukan.');
+        }
+        if ($row['NIM_Pj'] !== $nimFasil) {
+            return $this->failForbidden('Hanya fasil PJ gedung penghuni ini yang dapat memvalidasi foto.');
+        }
+        if (($row['Status_foto'] ?? null) !== 'Menunggu') {
+            return $this->fail('Foto absen event ini sudah divalidasi.', 409);
+        }
+
+        $now  = date('Y-m-d H:i:s');
+        $data = [
+            'Status_foto'      => $status,
+            'Catatan_validasi' => $catatan !== '' ? $catatan : null,
+            'Divalidasi_oleh'  => $nimFasil,
+            'Divalidasi_pada'  => $now,
+            'updated_at'       => $now,
+        ];
+        if ($status === 'Ditolak') {
+            $data += ['status' => 'Tidak Hadir', 'keterangan' => 'Foto ditolak: ' . $catatan];
+        }
+        $this->db->table('presensi_event')->where('id', $id)->where('Status_foto', 'Menunggu')->update($data);
+        if ($this->db->affectedRows() === 0) {
+            return $this->fail('Foto absen event ini sudah divalidasi.', 409);
+        }
+
+        return $this->respond([
+            'status'  => 'success',
+            'message' => $status === 'Diterima' ? 'Foto absen event diterima' : 'Foto ditolak, kehadiran event dicatat Tidak Hadir',
         ]);
     }
 
@@ -448,6 +580,60 @@ class EventController extends BaseController
             ->setHeader('Content-Type', $mime ?: 'image/jpeg')
             ->setHeader('Cache-Control', 'private, max-age=86400')
             ->setBody(file_get_contents($path));
+    }
+
+    // ----------------------------------------------------
+    // GET /api/event/sampul/(:segment) — foto sampul event (semua pengguna yang login)
+    // ----------------------------------------------------
+    public function sampulEvent(string $nama)
+    {
+        $path = WRITEPATH . 'uploads/event_sampul/' . basename($nama);
+        if (! is_file($path)) {
+            return $this->failNotFound('Foto sampul tidak ditemukan.');
+        }
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime  = finfo_file($finfo, $path);
+        finfo_close($finfo);
+
+        return $this->response
+            ->setHeader('Content-Type', $mime ?: 'image/jpeg')
+            ->setHeader('Cache-Control', 'private, max-age=86400')
+            ->setBody(file_get_contents($path));
+    }
+
+    /** Simpan data URL gambar sampul; null bila bukan gambar valid atau > 3 MB */
+    private function simpanSampul(string $dataUrl): ?string
+    {
+        if (! preg_match('/^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/s', $dataUrl, $cocok)) {
+            return null;
+        }
+        $biner = base64_decode($cocok[2], true);
+        if ($biner === false || strlen($biner) < 100 || strlen($biner) > 3 * 1024 * 1024) {
+            return null;
+        }
+        // Pastikan isinya benar-benar gambar
+        $info = @getimagesizefromstring($biner);
+        if ($info === false || ! in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) {
+            return null;
+        }
+        $ekstensi = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp'][$info[2]];
+
+        $folder = WRITEPATH . 'uploads/event_sampul';
+        if (! is_dir($folder)) {
+            mkdir($folder, 0755, true);
+        }
+        $namaFile = 'sampul_' . date('Ymd') . '_' . bin2hex(random_bytes(8)) . '.' . $ekstensi;
+        file_put_contents($folder . '/' . $namaFile, $biner);
+
+        return $namaFile;
+    }
+
+    private function hapusBerkasSampul(string $nama): void
+    {
+        $path = WRITEPATH . 'uploads/event_sampul/' . basename($nama);
+        if (is_file($path)) {
+            @unlink($path);
+        }
     }
 
     private function simpanFotoWajahEvent(string $dataUrl, string $nim, int $idEvent): ?string

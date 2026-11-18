@@ -23,6 +23,48 @@ class DataController extends BaseController
     // ----------------------------------------------------
     // GET /api/gedung
     // ----------------------------------------------------
+    // ----------------------------------------------------
+    // Gender: L/P pada akun, Putra/Putri pada gedung
+    // ----------------------------------------------------
+    private const LABEL_JK = ['L' => 'laki-laki', 'P' => 'perempuan'];
+
+    private static function normalJk($v): ?string
+    {
+        $v = strtoupper(trim((string) $v));
+        if (in_array($v, ['L', 'LAKI-LAKI', 'LAKI LAKI', 'PRIA', 'PUTRA'], true)) {
+            return 'L';
+        }
+        if (in_array($v, ['P', 'PEREMPUAN', 'WANITA', 'PUTRI'], true)) {
+            return 'P';
+        }
+
+        return null;
+    }
+
+    private static function jkUntukGedung(string $jenisGedung): string
+    {
+        return $jenisGedung === 'Putri' ? 'P' : 'L';
+    }
+
+    /** Jenis (Putra/Putri) gedung tempat sebuah kamar berada */
+    private function jenisGedungKamar(string $nomorKamar): ?string
+    {
+        $row = $this->db->table('kamar k')->select('g.Jenis')->join('gedung g', 'g.Id_Gedung = k.Id_Gedung')
+            ->where('k.Nomor_kamar', $nomorKamar)->get()->getRowArray();
+
+        return $row['Jenis'] ?? null;
+    }
+
+    /** Pesan galat bila gender akun tidak sesuai jenis gedung; null bila cocok atau gender belum diisi */
+    private function cekGenderGedung(?string $jk, ?string $jenisGedung, string $siapa, string $namaGedung): ?string
+    {
+        if ($jk === null || $jenisGedung === null || $jk === self::jkUntukGedung($jenisGedung)) {
+            return null;
+        }
+
+        return sprintf('%s berjenis kelamin %s, tidak dapat ditempatkan di %s (asrama %s).', $siapa, self::LABEL_JK[$jk], $namaGedung, strtolower($jenisGedung));
+    }
+
     public function getGedung()
     {
         try {
@@ -37,7 +79,7 @@ class DataController extends BaseController
                         g.Longitude as longitude,
                         g.Radius_meter as radiusMeter,
                         (SELECT COUNT(*) FROM kamar k WHERE k.Id_Gedung = g.Id_Gedung) as totalKamar,
-                        CASE WHEN g.Nama LIKE '%Putri%' THEN 'Putri' ELSE 'Putra' END as jenis
+                        g.Jenis as jenis
                     FROM gedung g
                     LEFT JOIN user u ON BINARY u.NIM = BINARY g.NIM_Pj
                     ORDER BY g.Id_Gedung ASC
@@ -76,9 +118,13 @@ class DataController extends BaseController
         $lat    = isset($input['latitude']) && $input['latitude'] !== '' ? (float) $input['latitude'] : null;
         $lng    = isset($input['longitude']) && $input['longitude'] !== '' ? (float) $input['longitude'] : null;
         $radius = (int) ($input['radiusMeter'] ?? 50);
+        $jenis  = $input['jenis'] ?? '';
 
         if ($nama === '') {
             return $this->fail('Nama gedung wajib diisi.', 400);
+        }
+        if (! in_array($jenis, ['Putra', 'Putri'], true)) {
+            return $this->fail('Pilih jenis gedung: asrama putra atau asrama putri.', 400);
         }
         if ($radius < 1) {
             return $this->fail('Radius geofence minimal 1 meter.', 400);
@@ -93,11 +139,15 @@ class DataController extends BaseController
             if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || strtolower($fasil['Status_aktif'] ?? '') !== 'aktif') {
                 return $this->fail('PJ gedung harus akun fasil yang aktif.', 400);
             }
+            if ($err = $this->cekGenderGedung($fasil['Jenis_kelamin'] ?? null, $jenis, 'Fasil ' . $fasil['Nama'], $nama)) {
+                return $this->fail($err, 400);
+            }
         }
 
         $now = date('Y-m-d H:i:s');
         $this->db->table('gedung')->insert([
             'Nama'         => $nama,
+            'Jenis'        => $jenis,
             'NIM_Pj'       => $nimPj,
             'Latitude'     => $lat,
             'Longitude'    => $lng,
@@ -168,12 +218,31 @@ class DataController extends BaseController
             $updateData['Longitude'] = $lng;
         }
 
+        $jenisAkhir = $exists['Jenis'];
+        if (array_key_exists('jenis', $input) && $input['jenis'] !== $exists['Jenis']) {
+            if (! in_array($input['jenis'], ['Putra', 'Putri'], true)) {
+                return $this->fail('Jenis gedung tidak valid.', 400);
+            }
+            // Jenis tidak boleh diubah bila masih ada penghuni dengan gender lain di kamarnya
+            $bentrok = $this->db->table('user u')->join('kamar k', 'k.Nomor_kamar = u.Nomor_kamar')
+                ->where('k.Id_Gedung', $id)->where('u.Status_aktif', 'Aktif')
+                ->where('u.Jenis_kelamin', self::jkUntukGedung($input['jenis']) === 'L' ? 'P' : 'L')->countAllResults();
+            if ($bentrok > 0) {
+                return $this->fail(sprintf('Jenis gedung tidak dapat diubah: masih ada %d penghuni %s di gedung ini.', $bentrok, $exists['Jenis'] === 'Putri' ? 'perempuan' : 'laki-laki'), 400);
+            }
+            $jenisAkhir = $input['jenis'];
+            $updateData['Jenis'] = $jenisAkhir;
+        }
+
         if (array_key_exists('nimPj', $input)) {
             $nimPj = trim((string) $input['nimPj']) ?: null;
             if ($nimPj !== null) {
                 $fasil = $this->db->query("SELECT * FROM user WHERE BINARY NIM = BINARY ? LIMIT 1", [$nimPj])->getRowArray();
                 if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || strtolower($fasil['Status_aktif'] ?? '') !== 'aktif') {
                     return $this->fail('PJ gedung harus akun fasil yang aktif.', 400);
+                }
+                if ($err = $this->cekGenderGedung($fasil['Jenis_kelamin'] ?? null, $jenisAkhir, 'Fasil ' . $fasil['Nama'], $nama ?: $exists['Nama'])) {
+                    return $this->fail($err, 400);
                 }
                 // Lepas dari gedung lain yang sebelumnya dipegang
                 $this->db->table('gedung')->where('NIM_Pj', $nimPj)->where('Id_Gedung !=', $id)->update(['NIM_Pj' => null]);
@@ -230,7 +299,8 @@ class DataController extends BaseController
         $id    = (int) ($input['id'] ?? 0);
         $nimPj = trim((string) ($input['nimPj'] ?? '')) ?: null;
 
-        if (! $this->db->table('gedung')->where('Id_Gedung', $id)->countAllResults()) {
+        $gedungPj = $this->db->table('gedung')->where('Id_Gedung', $id)->get()->getRowArray();
+        if (! $gedungPj) {
             return $this->failNotFound('Gedung tidak ditemukan.');
         }
 
@@ -238,6 +308,9 @@ class DataController extends BaseController
             $fasil = $this->db->query("SELECT * FROM user WHERE BINARY NIM = BINARY ? LIMIT 1", [$nimPj])->getRowArray();
             if (! $fasil || strtolower($fasil['Role']) !== 'fasil' || strtolower($fasil['Status_aktif'] ?? '') !== 'aktif') {
                 return $this->fail('PJ gedung harus akun fasil yang aktif.', 400);
+            }
+            if ($err = $this->cekGenderGedung($fasil['Jenis_kelamin'] ?? null, $gedungPj['Jenis'], 'Fasil ' . $fasil['Nama'], $gedungPj['Nama'])) {
+                return $this->fail($err, 400);
             }
             // Lepas dari gedung lain yang sebelumnya dipegang
             $this->db->table('gedung')->where('NIM_Pj', $nimPj)->where('Id_Gedung !=', $id)->update(['NIM_Pj' => null]);
@@ -492,6 +565,7 @@ class DataController extends BaseController
                 SELECT
                     u.NIM as nim,
                     u.Nama as nama,
+                    u.Jenis_kelamin as jenisKelamin,
                     COALESCE(u.Nomor_kamar, '') as nomorKamar,
                     {$gedungCol},
                     u.Asal as asal,
@@ -556,8 +630,16 @@ class DataController extends BaseController
         $nama = trim($input['nama'] ?? '');
         $nomorKamar = $input['nomorKamar'] ?? '';
 
+        $jk = self::normalJk($input['jenisKelamin'] ?? '');
+
         if (!$nim || !$nama || !$nomorKamar) {
             return $this->fail('NIM, Nama, dan Kamar wajib diisi.', 400);
+        }
+        if ($jk === null) {
+            return $this->fail('Jenis kelamin wajib diisi (L atau P).', 400);
+        }
+        if ($err = $this->cekGenderGedung($jk, $this->jenisGedungKamar($nomorKamar), $nama, 'kamar ' . $nomorKamar)) {
+            return $this->fail($err, 400);
         }
 
         $exists = $this->db->table('user')->where('NIM', $nim)->countAllResults();
@@ -571,6 +653,7 @@ class DataController extends BaseController
         $newUser = [
             'NIM'          => $nim,
             'Nama'         => $nama,
+            'Jenis_kelamin' => $jk,
             'Nomor_kamar'  => $nomorKamar,
             'Asal'         => $input['asal'] ?? null,
             'No_HP'        => $input['noHp'] ?? null,
@@ -642,8 +725,23 @@ class DataController extends BaseController
             return $this->fail('Format email tidak valid.', 400);
         }
 
+        $jk = array_key_exists('jenisKelamin', $input) ? self::normalJk($input['jenisKelamin']) : ($user['Jenis_kelamin'] ?? null);
+        if (array_key_exists('jenisKelamin', $input) && $jk === null) {
+            return $this->fail('Jenis kelamin wajib diisi (L atau P).', 400);
+        }
+
         if ($statusAktif && ! $nomorKamar) {
             return $this->fail('Penghuni aktif wajib menempati kamar.', 400);
+        }
+        if ($statusAktif && $nomorKamar && ($err = $this->cekGenderGedung($jk, $this->jenisGedungKamar($nomorKamar), $nama, 'kamar ' . $nomorKamar))) {
+            return $this->fail($err, 400);
+        }
+        // Fasil yang sedang menjadi PJ gedung harus sesuai jenis gedung tersebut
+        if ($role === 'Fasil' && $statusAktif) {
+            $gedungPj = $this->db->table('gedung')->where('NIM_Pj', $nim)->get()->getRowArray();
+            if ($gedungPj && ($err = $this->cekGenderGedung($jk, $gedungPj['Jenis'], $nama, $gedungPj['Nama'] . ' (sebagai PJ)'))) {
+                return $this->fail($err, 400);
+            }
         }
         if ($statusAktif && ($nomorKamar !== $user['Nomor_kamar'] || $user['Status_aktif'] !== 'Aktif')) {
             if ($error = $this->kamarTersedia($nomorKamar, $nim)) {
@@ -656,6 +754,7 @@ class DataController extends BaseController
         $this->db->table('user')->where('NIM', $nim)->update([
             'NIM'          => $nimBaru,
             'Nama'         => $nama,
+            'Jenis_kelamin' => $jk,
             'Email'        => $email !== '' ? $email : null,
             'No_HP'        => array_key_exists('noHp', $input) ? (trim($input['noHp']) ?: null) : $user['No_HP'],
             'Asal'         => array_key_exists('asal', $input) ? (trim($input['asal']) ?: null) : $user['Asal'],
@@ -911,12 +1010,14 @@ class DataController extends BaseController
             ), 403);
         }
 
+        // Absen ulang hanya boleh bila foto sebelumnya ditolak fasil (dan sesi masih dibuka, sudah dicek di atas)
         $existing = $this->db->table('presensi')
             ->where('NIM', $nim)
             ->where('Tanggal', $tanggal)
             ->where('Sesi', $sesi)
-            ->countAllResults();
-        if ($existing) {
+            ->get()->getRowArray();
+        $absenUlang = $existing && ($existing['Status_foto'] ?? null) === 'Ditolak';
+        if ($existing && ! $absenUlang) {
             return $this->fail('Presensi sesi ' . $sesi . ' hari ini sudah tercatat.', 409);
         }
 
@@ -935,21 +1036,7 @@ class DataController extends BaseController
             return $this->fail('Koordinat gedung ' . $gedung['Nama'] . ' belum diatur oleh admin.', 400);
         }
 
-        // Lokasi yang terlalu tidak akurat tidak bisa membuktikan penghuni berada dalam radius gedung.
-        // Mode uji "abaikan radius" ikut melewati pemeriksaan ini karena keduanya soal validasi lokasi.
-        $akurasiMaks = (new PengaturanModel())->aturanPresensi()['gpsAkurasiMaks'];
-        if ($akurasiMaks > 0 && !$modeUji['abaikanRadius']) {
-            if ($akurasi === null) {
-                return $this->fail('Akurasi GPS tidak terbaca. Muat ulang halaman lalu coba lagi.', 400);
-            }
-            if ($akurasi > $akurasiMaks) {
-                return $this->fail(sprintf(
-                    'Akurasi GPS Anda ±%d m, melebihi batas %d m. Aktifkan GPS/mode akurasi tinggi, pindah ke area terbuka, lalu coba lagi.',
-                    round($akurasi), $akurasiMaks
-                ), 403);
-            }
-        }
-
+        // Validasi lokasi cukup radius gedung (batas akurasi GPS tidak lagi dipakai)
         $jarak  = $this->haversine((float) $latitude, (float) $longitude, (float) $gedung['Latitude'], (float) $gedung['Longitude']);
         $radius = (int) $gedung['Radius_meter'];
         if ($jarak > $radius && !$modeUji['abaikanRadius']) {
@@ -973,10 +1060,7 @@ class DataController extends BaseController
             return $this->failServerError('Foto wajah gagal disimpan.');
         }
 
-        $this->db->table('presensi')->insert([
-            'NIM'        => $nim,
-            'Tanggal'    => $tanggal,
-            'Sesi'       => $sesi,
+        $baris = [
             'Waktu'      => $waktu,
             'Latitude'   => $latitude,
             'Longitude'  => $longitude,
@@ -984,10 +1068,25 @@ class DataController extends BaseController
             'Status'     => 'Hadir',
             'Foto_wajah' => $namaFoto,
             'Status_foto' => 'Menunggu', // menunggu validasi fasil PJ gedung
-            'Keterangan' => $keterangan,
-            'created_at' => date('Y-m-d H:i:s'),
+            'Keterangan' => $absenUlang ? 'Absen ulang setelah foto ditolak' : $keterangan,
             'updated_at' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        if ($absenUlang) {
+            // Riwayat penolakan dikosongkan: foto baru menunggu validasi lagi
+            $this->db->table('presensi')->where('Id_presensi', $existing['Id_presensi'])->update($baris + [
+                'Catatan_validasi' => null, 'Divalidasi_oleh' => null, 'Divalidasi_pada' => null, 'Dikoreksi_oleh' => null,
+            ]);
+            if (! empty($existing['Foto_wajah']) && is_file($dir . $existing['Foto_wajah'])) {
+                @unlink($dir . $existing['Foto_wajah']);
+            }
+        } else {
+            $this->db->table('presensi')->insert($baris + [
+                'NIM'        => $nim,
+                'Tanggal'    => $tanggal,
+                'Sesi'       => $sesi,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
 
         return $this->respond([
             'status'  => 'success',

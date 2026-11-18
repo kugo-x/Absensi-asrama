@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sun, Moon, CheckCircle2, XCircle, FileCheck, Clock, Pencil, Paperclip, ImageOff } from 'lucide-react'
-import type { HariIso, IzinRecord, IzinStatus, Penghuni, Sesi, StatusFoto } from '../types'
+import type { HariIso, IzinRecord, IzinStatus, Penghuni, PresensiStatus, Sesi, StatusFoto } from '../types'
 import type { StatusDetail } from '../logic'
 import { formatRentangTanggal, teksHariBerulang, hitungStatus, jamPresensi, keteranganStatus, dateRangeDesc, hariIso, NAMA_HARI } from '../logic'
 import { StatCard, Badge } from './AppLayout'
+import Pratinjau from './Pratinjau'
 import { adalahBuktiTersimpan, fetchBuktiIzin, fetchFotoWajah } from '../api'
 
 export function SesiIcon({ nama, className = 'w-4 h-4' }: { nama: string; className?: string }) {
@@ -63,6 +64,50 @@ export function RekapStats({ rows }: { rows: RekapRow[] }) {
   )
 }
 
+// Ubin status presensi yang sekaligus menjadi penyaring (dipakai Monitor fasil & Presensi admin)
+export type FilterStatusRekap = PresensiStatus | ''
+export function UbinStatusRekap({ rows, value, onChange }: { rows: RekapRow[]; value: FilterStatusRekap; onChange: (v: FilterStatusRekap) => void }) {
+  const jumlah = (st: PresensiStatus) => rows.filter(r => r.detail.status === st).length
+  const ubin: { status: FilterStatusRekap; label: string; ikon: React.ReactNode; warna: string; aktifCls: string }[] = [
+    { status: '', label: 'Semua', ikon: <UsersIkon />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-800 ring-2 ring-gray-800/10' },
+    { status: 'Hadir', label: 'Hadir', ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700', aktifCls: 'border-emerald-500 ring-2 ring-emerald-500/20' },
+    { status: 'Belum', label: 'Belum absen', ikon: <Clock className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-500 ring-2 ring-gray-500/15' },
+    { status: 'Tidak Hadir', label: 'Tidak hadir', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600', aktifCls: 'border-rose-400 ring-2 ring-rose-400/20' },
+    { status: 'Izin', label: 'Izin', ikon: <FileCheck className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700', aktifCls: 'border-amber-400 ring-2 ring-amber-400/20' },
+  ]
+  return (
+    <div className="grid grid-cols-3 sm:grid-cols-5 gap-3" role="tablist" aria-label="Saring status presensi">
+      {ubin.map(u => {
+        const aktif = value === u.status
+        return (
+          <button
+            key={u.status || 'semua'}
+            type="button"
+            role="tab"
+            aria-selected={aktif}
+            onClick={() => onChange(u.status)}
+            className={`text-left bg-[#fff] rounded-2xl border p-3.5 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-gray-600 truncate">{u.label}</span>
+              <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+            </div>
+            <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{u.status ? jumlah(u.status) : rows.length}</p>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function UsersIkon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
 // Urutkan agar yang perlu perhatian (Tidak Hadir, Belum) tampil lebih dulu
 const URUTAN_STATUS_REKAP: Record<string, number> = { 'Tidak Hadir': 0, Belum: 1, Izin: 2, Libur: 3, Hadir: 4 }
 export function urutkanRekap(rows: RekapRow[]): RekapRow[] {
@@ -74,7 +119,9 @@ export function urutkanRekap(rows: RekapRow[]): RekapRow[] {
  * Hanya baris di halaman aktif yang dirender, sehingga foto wajah yang dimuat juga hanya untuk baris itu.
  * Halaman kembali ke 1 setiap kali `kunciReset` berubah (mis. tanggal/sesi/filter berganti).
  */
-export function RekapTableBerhalaman({ rows, perHalaman = 25, kunciReset = '', ...props }: {
+const PILIHAN_BARIS = [10, 25, 50, 100]
+
+export function RekapTableBerhalaman({ rows, perHalaman: perAwal = 25, kunciReset = '', ...props }: {
   rows: RekapRow[]
   perHalaman?: number
   kunciReset?: string
@@ -83,7 +130,8 @@ export function RekapTableBerhalaman({ rows, perHalaman = 25, kunciReset = '', .
   emptyText?: string
 }) {
   const [halaman, setHalaman] = useState(1)
-  useEffect(() => setHalaman(1), [kunciReset])
+  const [perHalaman, setPerHalaman] = useState(perAwal)
+  useEffect(() => setHalaman(1), [kunciReset, perHalaman])
 
   const urut = urutkanRekap(rows)
   const jumlahHalaman = Math.max(1, Math.ceil(urut.length / perHalaman))
@@ -95,14 +143,24 @@ export function RekapTableBerhalaman({ rows, perHalaman = 25, kunciReset = '', .
   return (
     <>
       <RekapTable rows={potongan} {...props} />
-      {urut.length > perHalaman && (
+      {urut.length > 0 && (
         <div className="px-5 py-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-          <span>Menampilkan {dari + 1}–{dari + potongan.length} dari {urut.length} penghuni</span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label className="inline-flex items-center gap-2">
+              <span>Tampilkan</span>
+              <select value={perHalaman} onChange={e => setPerHalaman(Number(e.target.value))} aria-label="Jumlah baris per halaman"
+                className="px-2 py-1.5 rounded-lg border border-gray-200 bg-[#fff] text-xs font-semibold text-gray-800 outline-none focus:border-emerald-600 cursor-pointer">
+                {PILIHAN_BARIS.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <span>baris</span>
+            </label>
+            <span>Menampilkan {dari + 1}–{dari + potongan.length} dari {urut.length} penghuni</span>
+          </div>
+          {jumlahHalaman > 1 && <div className="flex items-center gap-1.5">
             <button type="button" className={tombolCls} disabled={aktif === 1} onClick={() => setHalaman(aktif - 1)} aria-label="Halaman sebelumnya">‹ Sebelumnya</button>
             <span className="px-2 font-semibold text-gray-700">{aktif} / {jumlahHalaman}</span>
             <button type="button" className={tombolCls} disabled={aktif === jumlahHalaman} onClick={() => setHalaman(aktif + 1)} aria-label="Halaman berikutnya">Berikutnya ›</button>
-          </div>
+          </div>}
         </div>
       )}
     </>
@@ -207,6 +265,7 @@ export function FotoWajah({ foto, alt, className = 'w-10 h-10 rounded-lg', link 
 }) {
   const [src, setSrc] = useState<string | null>(null)
   const [gagal, setGagal] = useState(false)
+  const [pratinjau, setPratinjau] = useState(false)
   // Foto baru diambil saat mendekati layar, agar tabel panjang tidak memicu ratusan permintaan sekaligus
   const penampung = useRef<HTMLDivElement>(null)
   const [terlihat, setTerlihat] = useState(false)
@@ -259,7 +318,13 @@ export function FotoWajah({ foto, alt, className = 'w-10 h-10 rounded-lg', link 
   )
   if (!src) return <div ref={penampung} className={`${className} bg-gray-100 border border-gray-200 ${terlihat ? 'animate-pulse' : ''}`} />
   const img = <img src={src} alt={alt} className={`${className} object-cover border border-gray-200`} />
-  return link ? <a href={src} target="_blank" rel="noreferrer" title="Lihat foto wajah">{img}</a> : img
+  if (!link) return img
+  return (
+    <>
+      <button type="button" onClick={() => setPratinjau(true)} title="Lihat foto" className="block cursor-zoom-in">{img}</button>
+      {pratinjau && <Pratinjau judul={alt} url={src} onClose={() => setPratinjau(false)} />}
+    </>
+  )
 }
 
 // Tampilan status izin (nilai di database 'Pending' ditampilkan "Menunggu")
@@ -297,6 +362,8 @@ export function KotakTanggalIzin({ izin }: { izin: IzinRecord }) {
 export function BuktiIzin({ fileBukti, className }: { fileBukti: string; className: string }) {
   const [memuat, setMemuat] = useState(false)
   const [gagal, setGagal] = useState(false)
+  const [terbuka, setTerbuka] = useState(false)
+  const [url, setUrl] = useState<string | null>(null)
 
   if (!adalahBuktiTersimpan(fileBukti)) {
     return (
@@ -307,28 +374,34 @@ export function BuktiIzin({ fileBukti, className }: { fileBukti: string; classNa
     )
   }
 
+  const ekstensi = fileBukti.split('.').pop()?.toLowerCase() ?? ''
   const buka = async () => {
     setGagal(false)
     setMemuat(true)
-    // Tab dibuka lebih dulu (masih dalam klik) agar tidak diblokir browser, lalu diarahkan ke berkasnya
-    const tab = window.open('', '_blank')
-    const url = await fetchBuktiIzin(fileBukti)
+    setTerbuka(true)
+    const u = await fetchBuktiIzin(fileBukti)
     setMemuat(false)
-    if (!url) {
-      tab?.close()
+    if (!u) {
+      setTerbuka(false)
       setGagal(true)
       return
     }
-    if (tab) tab.location.href = url
-    else window.location.assign(url)
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    setUrl(u)
+  }
+  const tutup = () => {
+    setTerbuka(false)
+    if (url) URL.revokeObjectURL(url)
+    setUrl(null)
   }
 
   return (
-    <button type="button" onClick={buka} disabled={memuat} className={`${className} cursor-pointer hover:underline disabled:opacity-60`} title="Buka berkas bukti">
-      <Paperclip className="w-3 h-3 shrink-0" />
-      <span>{gagal ? 'Bukti tidak dapat dibuka' : memuat ? 'Membuka...' : `Lihat bukti (${fileBukti.split('.').pop()?.toUpperCase()})`}</span>
-    </button>
+    <>
+      <button type="button" onClick={buka} disabled={memuat} className={`${className} cursor-pointer hover:underline disabled:opacity-60`} title="Lihat berkas bukti">
+        <Paperclip className="w-3 h-3 shrink-0" />
+        <span>{gagal ? 'Bukti tidak dapat dibuka' : memuat ? 'Membuka...' : `Lihat bukti (${ekstensi.toUpperCase()})`}</span>
+      </button>
+      {terbuka && <Pratinjau judul="Berkas bukti izin" keterangan={fileBukti} url={url} pdf={ekstensi === 'pdf'} namaUnduh={fileBukti} onClose={tutup} />}
+    </>
   )
 }
 

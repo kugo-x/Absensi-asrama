@@ -1,17 +1,19 @@
 import { Fragment, useState, useEffect, type ReactNode } from 'react'
-import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult } from '../types'
+import { createPortal } from 'react-dom'
+import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult, FotoEvent, EventInput } from '../types'
 import AppLayout, { SectionTitle, Badge, ConfirmDialog, StatCard } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
+import { useRealtime, bilaBerubah } from '../realtime'
 import KartuEvent, { UbinBuatEvent } from '../components/KartuEvent'
 import { unduhLaporan, type ExportFormat } from '../ekspor'
-import { BuktiIzin, FotoBadge, FotoWajah, KotakTanggalIzin, RekapTableBerhalaman, SesiToggle, TAMPILAN_STATUS_IZIN, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
+import { BuktiIzin, FotoBadge, KotakTanggalIzin, RekapTableBerhalaman, SesiToggle, UbinStatusRekap, TAMPILAN_STATUS_IZIN, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import { BarisSaringIzin, KosongSaringIzin, useSaringIzin, type StatusSaring } from '../components/SaringIzin'
 import { BilahKomposisi, HistogramSebaran, PetaPanasPola, WARNA_STATUS_GRAFIK, hitungPolaMingguan } from '../components/GrafikKehadiran'
 import { PanelTrenKehadiran } from '../components/TrenKehadiran'
 import { PilihPeriodeLaporan, labelPeriodeLaporan, rentangLaporan, type SaringPeriode } from '../components/SaringLaporan'
 import DateInput from '../components/DateInput'
 import { notifikasiFasil } from '../notifikasiPeran'
-import { KartuGantiPassword, KartuProfil, ProfilHeader, simpanUserLokal } from '../components/ProfilAkun'
+import { KartuGantiPassword, KartuProfil, ProfilHeader } from '../components/ProfilAkun'
 import {
   presensiList as initialPresensi,
   izinList as initialIzin,
@@ -22,14 +24,13 @@ import {
   eventList as initialEvent,
 } from '../data/mockData'
 import {
-  awalDemo, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur,
+  awalDemo, fetchFotoValidasiEvent, validasiFotoEventApi, fetchFotoEvent, fetchFotoWajah, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur,
   fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent, type ApiResult,
-  updateIzinStatusApi, koreksiPresensiApi, updateProfileApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT
+  updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT
 } from '../api'
 import {
   cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, toHM, todayLocal, type DataPresensi,
-  addDays, formatRentangTanggal, teksHariBerulang, hariIso, maxDate, dateRangeDesc, NAMA_HARI,
-} from '../logic'
+  addDays, formatRentangTanggal, teksHariBerulang, hariIso, maxDate, dateRangeDesc, NAMA_HARI, kehadiranHariIni, kehadiranGabungan, HARI_RINGKASAN } from '../logic'
 import {
   LayoutDashboard,
   ClipboardCheck,
@@ -61,6 +62,8 @@ import {
   Eye,
   ShieldCheck,
   Mail,
+  MoonStar,
+  ImageOff,
 } from 'lucide-react'
 import { EventFormModal, EventRekapModal } from '../components/EventModals'
 
@@ -68,6 +71,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard Fasil', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
   { id: 'event', label: 'Event Gedung', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
   { id: 'monitor', label: 'Monitor Presensi', icon: <ClipboardCheck className="w-[18px] h-[18px]" /> },
+  { id: 'malam', label: 'Absen Malam', icon: <MoonStar className="w-[18px] h-[18px]" /> },
   { id: 'izin', label: 'Manajemen Izin', icon: <FileCheck className="w-[18px] h-[18px]" /> },
   { id: 'foto', label: 'Validasi Foto', icon: <Camera className="w-[18px] h-[18px]" /> },
   { id: 'rekap', label: 'Rekap Kehadiran', icon: <BarChart3 className="w-[18px] h-[18px]" /> },
@@ -105,6 +109,8 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     setActiveTab('monitor')
   }
   const [now, setNow] = useState(new Date())
+  // Foto absen event penghuni gedung (validasi terpisah dari presensi harian)
+  const [fotoEvent, setFotoEvent] = useState<FotoEvent[]>([])
   const [aturan, setAturan] = useState<AturanPresensi>(ATURAN_PRESENSI_DEFAULT)
 
   useEffect(() => {
@@ -112,18 +118,22 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     return () => clearInterval(timer)
   }, [])
 
-  // Presensi & izin diperbarui berkala agar pantauan sesi dan antrean validasi foto tetap terkini
-  useEffect(() => {
-    const timer = setInterval(() => {
-      fetchPresensi().then(setPresensi)
-      fetchIzin().then(setIzinData)
-      fetchEvent().then(setEventList)
-    }, 60000)
-    return () => clearInterval(timer)
-  }, [])
+  // Realtime: data diperbarui berkala (tiap beberapa detik) tanpa perlu refresh halaman
+  useRealtime(() => {
+    setNow(new Date())
+    fetchPresensi().then(bilaBerubah(setPresensi))
+    fetchIzin().then(bilaBerubah(setIzinData))
+    fetchEvent().then(bilaBerubah(setEventList))
+    fetchSesi().then(bilaBerubah(setSesiList))
+    fetchLibur().then(bilaBerubah(setLibur))
+    fetchPenghuni().then(bilaBerubah(setPenghuni))
+    fetchGedung().then(bilaBerubah(setGedungList))
+    fetchFotoValidasiEvent().then(bilaBerubah(setFotoEvent))
+  })
 
   useEffect(() => {
     fetchPenghuni().then(setPenghuni)
+    fetchFotoValidasiEvent().then(setFotoEvent)
     fetchGedung().then(setGedungList)
     fetchPresensi().then(setPresensi)
     fetchIzin().then(setIzinData)
@@ -147,7 +157,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const presensiBerfoto = presensi.filter(r => r.statusFoto && r.fotoWajah && nimAnggota.has(r.nim))
   // Rekap 30 hari per penghuni; dipakai peringatan & ringkasan di dashboard
   const rekapPenghuni = anggota.map(p => {
-    const riwayat = riwayatPenghuni(p.nim, periodeRekap(today, p.tanggalMasuk), today, sesiList, data, now, p.namaGedung)
+    const riwayat = riwayatPenghuni(p.nim, periodeRekap(today, p.tanggalMasuk, HARI_RINGKASAN), today, sesiList, data, now, p.namaGedung)
     return { penghuni: p, c: hitungStatus(riwayat.map(r => r.detail.status)), riwayat }
   }).sort((a, b) => b.c['Tidak Hadir'] - a.c['Tidak Hadir'] || a.c.persen - b.c.persen)
   const sering = rekapPenghuni.filter(r => r.c['Tidak Hadir'] >= aturan.batasTidakHadir)
@@ -161,7 +171,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
   const eventBerikutnya = eventList
     .filter(ev => (ev.idGedung == null || ev.idGedung === gedungSaya?.id) && (ev.tanggal > today || (ev.tanggal === today && ev.jamSelesai >= jamSekarang)))
     .sort((a, b) => `${a.tanggal} ${a.jamMulai}`.localeCompare(`${b.tanggal} ${b.jamMulai}`))[0] ?? null
-  const fotoMenunggu = presensiBerfoto.filter(r => r.statusFoto === 'Menunggu').length
+  const fotoMenunggu = presensiBerfoto.filter(r => r.statusFoto === 'Menunggu').length + fotoEvent.filter(f => f.statusFoto === 'Menunggu').length
   const menu = navItems.map(n => n.id === 'foto' && fotoMenunggu > 0 ? { ...n, label: `${n.label} (${fotoMenunggu})` } : n)
 
   const rekapRows = (tanggal: string, sesiNama: string): RekapRow[] => {
@@ -245,7 +255,15 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     return null
   }
 
-  const handleSaveEvent = async (data: Partial<EventAsrama>): Promise<ApiResult> => {
+  const handleValidasiFotoEvent = async (id: number, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => {
+    const result = await validasiFotoEventApi(id, status, catatan)
+    if (!result.ok && !result.offline) return result.message
+    setFotoEvent(prev => prev.map(f => f.id !== id ? f : { ...f, statusFoto: status, catatanValidasi: catatan, namaValidator: user.nama, ...(status === 'Ditolak' ? { status: 'Tidak Hadir' as const } : {}) }))
+    if (result.ok) fetchFotoValidasiEvent().then(setFotoEvent)
+    return null
+  }
+
+  const handleSaveEvent = async (data: EventInput): Promise<ApiResult> => {
     const payload = {
       ...data,
       tipe: 'gedung' as const,
@@ -356,11 +374,19 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
           onLihatFoto={() => setActiveTab('foto')}
         />
       )}
-      {/* Pengaturan jadwal absen malam gedung: diletakkan di bawah karena jarang diubah */}
-      {activeTab === 'dashboard' && (
-        <div className="mt-6">
-          <JadwalMalamFasil gedung={gedungSaya} sesiList={sesiList} onTersimpan={() => fetchSesi().then(setSesiList)} />
-        </div>
+      {/* Halaman khusus jadwal absen malam gedung */}
+      {activeTab === 'malam' && (
+        <JadwalMalamFasil
+          gedung={gedungSaya}
+          sesiList={sesiList}
+          onTersimpan={() => fetchSesi().then(setSesiList)}
+          ringkas={(() => {
+            const rows = rekapRows(today, 'Malam')
+            const n = (st: PresensiStatus) => rows.filter(r => r.detail.status === st).length
+            return rows.length ? { hadir: n('Hadir'), belum: n('Belum'), tidakHadir: n('Tidak Hadir'), izin: n('Izin'), total: rows.length } : null
+          })()}
+          onLihatMonitor={() => bukaMonitor('Malam', '')}
+        />
       )}
       {activeTab === 'event' && (
         <FasilEvent
@@ -383,7 +409,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
         />
       )}
       {activeTab === 'izin' && <FasilIzin izinData={izinGedung} onSelect={setSelectedIzin} />}
-      {activeTab === 'foto' && <FasilValidasiFoto records={presensiBerfoto} onValidasi={handleValidasiFoto} onTerimaMassal={handleTerimaMassal} />}
+      {activeTab === 'foto' && <FasilValidasiFoto records={presensiBerfoto} fotoEvent={fotoEvent} onValidasi={handleValidasiFoto} onValidasiEvent={handleValidasiFotoEvent} onTerimaMassal={handleTerimaMassal} />}
       {activeTab === 'rekap' && <FasilRekap fasil={user} anggota={anggota} sesiList={sesiList} data={data} now={now} batas={aturan.batasTidakHadir} namaGedung={gedungSaya.nama} />}
       {activeTab === 'profil' && (
         <FasilProfil
@@ -574,11 +600,6 @@ function FasilEvent({
 
 type RekapPenghuni = { penghuni: Penghuni; c: ReturnType<typeof hitungStatus> }
 
-function salam(now: Date): string {
-  const jam = now.getHours()
-  return jam < 11 ? 'Selamat pagi' : jam < 15 ? 'Selamat siang' : jam < 18 ? 'Selamat sore' : 'Selamat malam'
-}
-
 // 75 menit → "1 jam 15 menit"
 function formatDurasi(menit: number): string {
   const j = Math.floor(menit / 60)
@@ -624,7 +645,8 @@ function FasilDashboard({
   const sesi = sesiList.some(x => x.nama === pilihan) ? pilihan : defaultSesi
   const rows = rekapRows(today, sesi)
   const s = sesiList.find(x => x.nama === sesi)
-  const c = hitungStatus(rows.map(r => r.detail.status))
+  // Rumus sama dengan dashboard admin: hadir / sesi wajib (libur tidak dihitung)
+  const c = kehadiranHariIni(rows.map(r => r.detail.status))
   const mulaiSesi = s ? new Date(`${today}T${s.jamMulai}`) : null
   const selesaiSesi = s ? new Date(`${today}T${s.jamSelesai}`) : null
   const fase = mulaiSesi && selesaiSesi ? (now < mulaiSesi ? 'belum' : now > selesaiSesi ? 'tutup' : 'buka') : null
@@ -634,13 +656,12 @@ function FasilDashboard({
         : `Sudah ditutup pukul ${s.jamSelesai}`
 
   // Ringkasan gedung 30 hari: dari total sesi wajib, bukan rata-rata persentase per orang
-  const total = rekapPenghuni.reduce((t, r) => ({ hadir: t.hadir + r.c.Hadir, wajib: t.wajib + r.c.wajib }), { hadir: 0, wajib: 0 })
-  const persenGedung = total.wajib > 0 ? Math.round((total.hadir / total.wajib) * 100) : 0
+  const persenGedung = kehadiranGabungan(rekapPenghuni.map(r => r.c)).persen
 
   // Penghuni yang perlu diperhatikan pada sesi terpilih: belum presensi selama sesi buka, tidak hadir setelah tutup
   const perhatian = fase === 'belum' ? [] : rows.filter(r => r.detail.status === (fase === 'tutup' ? 'Tidak Hadir' : 'Belum'))
     .sort((a, b) => a.penghuni.nama.localeCompare(b.penghuni.nama))
-  const persenSesi = rows.length > 0 ? Math.round((c.Hadir / rows.length) * 100) : 0
+  const persenSesi = c.persen
 
   const izinTerdekat = [...pendingIzin].sort((a, b) => a.tanggal.localeCompare(b.tanggal))[0]
   const tindakan = [
@@ -660,7 +681,7 @@ function FasilDashboard({
           <div>
             <p className="text-xs font-semibold text-emerald-200">{formatTanggal(today)}</p>
             <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {salam(now)}, {namaFasil.split(' ')[0]}
+              {namaFasil}
             </h2>
             <p className="text-sm text-emerald-100/90 mt-1 flex items-center gap-1.5">
               <Building2 className="w-4 h-4" />
@@ -675,7 +696,7 @@ function FasilDashboard({
           <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:w-[420px]">
             {[
               { label: 'Penghuni', nilai: jumlahPenghuni, ket: 'wajib absen' },
-              { label: 'Kehadiran', nilai: `${persenGedung}%`, ket: '30 hari terakhir' },
+              { label: 'Kehadiran', nilai: `${persenGedung}%`, ket: `${HARI_RINGKASAN} hari terakhir` },
               { label: 'Sedang izin', nilai: izinHariIni.length, ket: 'hari ini' },
             ].map(x => (
               <div key={x.label} className="rounded-xl bg-white/10 border border-white/15 px-3 py-2.5">
@@ -712,8 +733,12 @@ function FasilDashboard({
           ) : (
             <div className="space-y-5">
               <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-                <span className="text-5xl font-extrabold text-gray-900 leading-none" style={{ fontFamily: 'Plus Jakarta Sans' }}>{persenSesi}%</span>
-                <span className="text-sm text-gray-500 pb-1">hadir · <strong className="text-gray-800">{c.Hadir}</strong> dari {rows.length} penghuni pada sesi {sesi}</span>
+                <span className="text-5xl font-extrabold text-gray-900 leading-none" style={{ fontFamily: 'Plus Jakarta Sans' }}>{c.total > 0 ? `${persenSesi}%` : '–'}</span>
+                <span className="text-sm text-gray-500 pb-1">
+                  {c.total > 0
+                    ? <>hadir · <strong className="text-gray-800">{c.Hadir}</strong> dari {c.total} penghuni wajib absen pada sesi {sesi}</>
+                    : <>tidak ada kewajiban presensi pada sesi {sesi}{c.Libur > 0 ? ' (hari libur)' : ''}</>}
+                </span>
               </div>
 
               <BilahKomposisi
@@ -833,7 +858,12 @@ function FasilDashboard({
             <p className={`${judulKartu} mb-2`} style={{ fontFamily: 'Plus Jakarta Sans' }}>Event Berikutnya</p>
             {eventBerikutnya ? (
               <button type="button" onClick={onLihatEvent} className="w-full text-left rounded-xl border border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 p-3 cursor-pointer transition-colors">
-                <p className="text-sm font-bold text-gray-900 truncate">{eventBerikutnya.judul}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-gray-900 truncate">{eventBerikutnya.judul}</p>
+                  {eventBerikutnya.tanggal === today && toHM(now) >= eventBerikutnya.jamMulai
+                    ? <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">Berlangsung</span>
+                    : <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">Akan datang</span>}
+                </div>
                 <p className="text-[11px] text-gray-600 mt-1 flex items-center gap-1.5">
                   <CalendarDays className="w-3.5 h-3.5 text-emerald-700" />
                   {eventBerikutnya.tanggal === today ? 'Hari ini' : formatTanggal(eventBerikutnya.tanggal, 'tanpaHari')} · {eventBerikutnya.jamMulai}–{eventBerikutnya.jamSelesai}
@@ -879,18 +909,8 @@ function FasilMonitor({ sesiList, rekapRows, today, onKoreksi, awal }: {
   const kata = cari.trim().toLowerCase()
   const dicari = kata ? rows.filter(r => `${r.penghuni.nama} ${r.penghuni.nim} ${r.penghuni.nomorKamar}`.toLowerCase().includes(kata)) : rows
   const filtered = filterStatus ? dicari.filter(r => r.detail.status === filterStatus) : dicari
-  const jumlah = (s: PresensiStatus) => dicari.filter(r => r.detail.status === s).length
 
-  // Ubin status = ringkasan angka sekaligus penyaring (menggantikan kartu angka + chip filter)
-  const ubin: { status: PresensiStatus | ''; label: string; ikon: ReactNode; warna: string; aktifCls: string }[] = [
-    { status: '', label: 'Semua', ikon: <Users className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-800 ring-2 ring-gray-800/10' },
-    { status: 'Hadir', label: 'Hadir', ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700', aktifCls: 'border-emerald-500 ring-2 ring-emerald-500/20' },
-    { status: 'Belum', label: 'Belum absen', ikon: <Clock className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-500 ring-2 ring-gray-500/15' },
-    { status: 'Tidak Hadir', label: 'Tidak hadir', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600', aktifCls: 'border-rose-400 ring-2 ring-rose-400/20' },
-    { status: 'Izin', label: 'Izin', ikon: <FileCheck className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700', aktifCls: 'border-amber-400 ring-2 ring-amber-400/20' },
-    { status: 'Libur', label: 'Libur', ikon: <Palmtree className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-600', aktifCls: 'border-slate-400 ring-2 ring-slate-400/20' },
-  ]
-  const ubinAktif = ubin.find(u => u.status === filterStatus)
+  const LABEL_STATUS: Record<string, string> = { Hadir: 'Hadir', Belum: 'Belum absen', 'Tidak Hadir': 'Tidak hadir', Izin: 'Izin', Libur: 'Libur' }
 
   return (
     <div className="space-y-5">
@@ -922,33 +942,12 @@ function FasilMonitor({ sesiList, rekapRows, today, onKoreksi, awal }: {
         </div>
       </div>
 
-      {/* Ubin status */}
-      <div className="grid grid-cols-3 lg:grid-cols-6 gap-3" role="tablist" aria-label="Saring status presensi">
-        {ubin.map(u => {
-          const aktif = filterStatus === u.status
-          return (
-            <button
-              key={u.status || 'semua'}
-              type="button"
-              role="tab"
-              aria-selected={aktif}
-              onClick={() => setFilterStatus(u.status)}
-              className={`text-left bg-[#fff] rounded-2xl border p-3.5 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-gray-600 truncate">{u.label}</span>
-                <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
-              </div>
-              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{u.status ? jumlah(u.status) : dicari.length}</p>
-            </button>
-          )
-        })}
-      </div>
+      <UbinStatusRekap rows={dicari} value={filterStatus} onChange={setFilterStatus} />
 
       <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
         <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            {filterStatus ? ubinAktif?.label : 'Semua Penghuni'} <span className="text-gray-400 font-semibold">· {filtered.length} penghuni</span>
+            {filterStatus ? LABEL_STATUS[filterStatus] : 'Semua Penghuni'} <span className="text-gray-400 font-semibold">· {filtered.length} penghuni</span>
           </h3>
           <p className="text-xs text-gray-500">Yang perlu perhatian (tidak hadir, belum absen) tampil lebih dulu</p>
         </div>
@@ -1089,22 +1088,112 @@ function FasilIzin({ izinData, onSelect }: { izinData: IzinRecord[]; onSelect: (
   )
 }
 
-// Antrean validasi foto wajah presensi mandiri penghuni gedung
-function FasilValidasiFoto({ records, onValidasi, onTerimaMassal }: {
+// Antrean validasi foto: presensi harian & absen event dipisah lewat tab, ditampilkan sebagai daftar + detail pop-up
+type JenisFoto = 'harian' | 'event'
+interface ItemFoto {
+  kunci: string
+  jenis: JenisFoto
+  id: number
+  nama: string
+  nim: string
+  kamar: string
+  tanggal: string
+  waktu: string
+  konteks: string
+  lat: number | null
+  lng: number | null
+  info: string
+  foto: string
+  statusFoto: StatusFoto
+  catatan: string
+  validator: string | null
+}
+
+const keItemHarian = (r: PresensiRecord): ItemFoto => ({
+  kunci: `h${r.id}`, jenis: 'harian', id: r.id, nama: r.namaPenghuni, nim: r.nim, kamar: r.nomorKamar,
+  tanggal: r.tanggal, waktu: r.waktu, konteks: `Sesi ${r.sesi}`, lat: r.latitude, lng: r.longitude,
+  info: r.akurasiMeter != null ? `±${Math.round(r.akurasiMeter)} m` : '',
+  foto: r.fotoWajah ?? '', statusFoto: r.statusFoto ?? 'Menunggu', catatan: r.catatanValidasi ?? '', validator: r.namaValidator ?? null,
+})
+const keItemEvent = (f: FotoEvent): ItemFoto => ({
+  kunci: `e${f.id}`, jenis: 'event', id: f.id, nama: f.namaPenghuni, nim: f.nim, kamar: f.nomorKamar,
+  tanggal: f.tanggal, waktu: f.waktu, konteks: `Event ${f.judulEvent}`, lat: f.latitude, lng: f.longitude,
+  info: f.jarakMeter != null ? `${Math.round(f.jarakMeter)} m dari titik event` : '',
+  foto: f.foto, statusFoto: f.statusFoto, catatan: f.catatanValidasi ?? '', validator: f.namaValidator,
+})
+
+// Gambar foto (harian lewat fetchFotoWajah, event lewat fetchFotoEvent) dengan token, tanpa membuka tab baru
+function GambarFoto({ item, className }: { item: ItemFoto; className: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [gagal, setGagal] = useState(false)
+  useEffect(() => {
+    let aktif = true
+    let dibuat: string | null = null
+    setSrc(null)
+    setGagal(false)
+    const muat = item.jenis === 'event' ? fetchFotoEvent(item.foto) : fetchFotoWajah(item.foto)
+    muat.then(url => {
+      if (!aktif) {
+        if (url?.startsWith('blob:')) URL.revokeObjectURL(url)
+        return
+      }
+      if (url?.startsWith('blob:')) dibuat = url
+      if (url) setSrc(url)
+      else setGagal(true)
+    })
+    return () => {
+      aktif = false
+      if (dibuat) URL.revokeObjectURL(dibuat)
+    }
+  }, [item.jenis, item.foto])
+  return (
+    <div className={`bg-gray-100 overflow-hidden flex items-center justify-center ${className}`}>
+      {src ? <img src={src} alt={`Foto ${item.nama}`} className="w-full h-full object-cover" />
+        : gagal ? <ImageOff className="w-5 h-5 text-gray-400" />
+        : <span className="w-4 h-4 rounded-full border-2 border-gray-300 border-t-transparent animate-spin" />}
+    </div>
+  )
+}
+
+function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, onTerimaMassal }: {
   records: PresensiRecord[]
+  fotoEvent: FotoEvent[]
   onValidasi: (rec: PresensiRecord, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => Promise<string | null>
+  onValidasiEvent: (id: number, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => Promise<string | null>
   onTerimaMassal: (ids: number[]) => Promise<{ ok: boolean; pesan: string }>
 }) {
+  const [jenis, setJenis] = useState<JenisFoto>('harian')
   const [filter, setFilter] = useState<StatusFoto>('Menunggu')
-  const filtered = records.filter(r => r.statusFoto === filter)
-  const daftarFilter: StatusFoto[] = ['Menunggu', 'Diterima', 'Ditolak']
-  // Pilihan untuk terima sekaligus (hanya foto yang masih Menunggu)
+  const [cari, setCari] = useState('')
+  const [batas, setBatas] = useState(25)
+  const [detail, setDetail] = useState<string | null>(null)
   const [pilih, setPilih] = useState<Set<number>>(new Set())
   const [prosesMassal, setProsesMassal] = useState(false)
   const [pesanMassal, setPesanMassal] = useState<{ ok: boolean; teks: string } | null>(null)
-  const menunggu = records.filter(r => r.statusFoto === 'Menunggu')
-  const terpilih = menunggu.filter(r => pilih.has(r.id)).map(r => r.id)
-  const semuaTerpilih = menunggu.length > 0 && terpilih.length === menunggu.length
+
+  const harian = records.map(keItemHarian)
+  const event = fotoEvent.map(keItemEvent)
+  const semua = jenis === 'harian' ? harian : event
+  const kata = cari.trim().toLowerCase()
+  const dicari = kata ? semua.filter(i => `${i.nama} ${i.nim} ${i.kamar} ${i.konteks}`.toLowerCase().includes(kata)) : semua
+  // Menunggu: yang paling lama di depan; arsip: yang terbaru di depan
+  const filtered = dicari.filter(i => i.statusFoto === filter).sort((a, b) => filter === 'Menunggu'
+    ? `${a.tanggal}${a.waktu}`.localeCompare(`${b.tanggal}${b.waktu}`)
+    : `${b.tanggal}${b.waktu}`.localeCompare(`${a.tanggal}${a.waktu}`))
+  const tampil = filtered.slice(0, batas)
+  const itemDetail = [...harian, ...event].find(i => i.kunci === detail) ?? null
+
+  useEffect(() => {
+    setBatas(25)
+    setPilih(new Set())
+    setPesanMassal(null)
+  }, [jenis, filter, kata])
+
+  // Terima sekaligus hanya untuk presensi harian (endpoint massal khusus harian)
+  const menungguHarian = filtered.filter(i => i.jenis === 'harian' && i.statusFoto === 'Menunggu')
+  const bisaMassal = jenis === 'harian' && filter === 'Menunggu' && menungguHarian.length > 0
+  const terpilih = menungguHarian.filter(i => pilih.has(i.id)).map(i => i.id)
+  const semuaTerpilih = menungguHarian.length > 0 && terpilih.length === menungguHarian.length
   const togglePilih = (id: number) => setPilih(prev => {
     const baru = new Set(prev)
     if (baru.has(id)) baru.delete(id)
@@ -1120,20 +1209,53 @@ function FasilValidasiFoto({ records, onValidasi, onTerimaMassal }: {
     if (hasil.ok) setPilih(new Set())
   }
 
-  // Ubin status = ringkasan angka sekaligus tab penyaring
+  const putuskan = (item: ItemFoto, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => {
+    if (item.jenis === 'event') return onValidasiEvent(item.id, status, catatan)
+    const rec = records.find(r => r.id === item.id)
+    return rec ? onValidasi(rec, status, catatan) : Promise.resolve('Data presensi tidak ditemukan.')
+  }
+
+  const jumlahMenunggu = (l: ItemFoto[]) => l.filter(i => i.statusFoto === 'Menunggu').length
   const ubin: { status: StatusFoto; ket: string; ikon: ReactNode; warna: string; aktifCls: string }[] = [
     { status: 'Menunggu', ket: 'Perlu diperiksa', ikon: <Clock className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700', aktifCls: 'border-amber-400 ring-2 ring-amber-400/20' },
     { status: 'Diterima', ket: 'Wajah sesuai', ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700', aktifCls: 'border-emerald-500 ring-2 ring-emerald-500/20' },
     { status: 'Ditolak', ket: 'Tercatat Tidak Hadir', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600', aktifCls: 'border-rose-400 ring-2 ring-rose-400/20' },
   ]
-  const kosong = filter === 'Menunggu'
-    ? { judul: 'Semua foto sudah divalidasi', ket: 'Foto presensi mandiri penghuni yang baru masuk akan muncul di sini.' }
-    : filter === 'Diterima'
-      ? { judul: 'Belum ada foto yang diterima', ket: 'Foto yang Anda terima tampil di sini sebagai arsip.' }
-      : { judul: 'Belum ada foto yang ditolak', ket: 'Foto yang ditolak membuat presensi tercatat Tidak Hadir.' }
+  const tabJenis: [JenisFoto, string, ItemFoto[]][] = [['harian', 'Presensi Harian', harian], ['event', 'Absen Event', event]]
 
   return (
     <div className="space-y-5">
+      {/* Jenis foto: presensi harian / absen event */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex p-1 rounded-xl bg-gray-100 border border-gray-200" role="tablist" aria-label="Jenis foto">
+          {tabJenis.map(([v, label, l]) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={jenis === v}
+              onClick={() => setJenis(v)}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer inline-flex items-center gap-2 ${jenis === v ? 'bg-[#fff] text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              {v === 'harian' ? <Camera className="w-4 h-4" /> : <CalendarDays className="w-4 h-4" />}
+              {label}
+              {jumlahMenunggu(l) > 0 && <span className="min-w-5 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold tabular-nums">{jumlahMenunggu(l)}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="relative w-full sm:w-72 sm:ml-auto">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="search"
+            value={cari}
+            onChange={e => setCari(e.target.value)}
+            placeholder={jenis === 'event' ? 'Cari nama, NIM, kamar, event...' : 'Cari nama, NIM, kamar, sesi...'}
+            aria-label="Cari foto"
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400"
+          />
+        </div>
+      </div>
+
       {/* Ubin status */}
       <div className="grid grid-cols-3 gap-3" role="tablist" aria-label="Saring status foto">
         {ubin.map(u => {
@@ -1151,7 +1273,7 @@ function FasilValidasiFoto({ records, onValidasi, onTerimaMassal }: {
                 <span className="text-xs font-semibold text-gray-600">{u.status}</span>
                 <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
               </div>
-              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{records.filter(r => r.statusFoto === u.status).length}</p>
+              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{dicari.filter(i => i.statusFoto === u.status).length}</p>
               <p className="text-[11px] text-gray-400 truncate">{u.ket}</p>
             </button>
           )
@@ -1159,27 +1281,25 @@ function FasilValidasiFoto({ records, onValidasi, onTerimaMassal }: {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Foto {filter}</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Pastikan wajah di foto benar penghuni yang bersangkutan. Foto yang ditolak membuat presensi tercatat Tidak Hadir.</p>
-          </div>
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Foto {jenis === 'event' ? 'absen event' : 'presensi harian'} · {filter} <span className="text-gray-400 font-semibold">· {filtered.length}</span>
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">Klik baris untuk melihat foto & memutuskan. Foto yang ditolak membuat {jenis === 'event' ? 'absen event' : 'presensi'} tercatat Tidak Hadir; penghuni bisa absen ulang selama waktunya masih berjalan.</p>
         </div>
 
-        {/* Terima sekaligus */}
-        {filter === 'Menunggu' && menunggu.length > 0 && (
+        {bisaMassal && (
           <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/60 flex flex-wrap items-center gap-3">
             <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none">
               <input
                 type="checkbox"
                 className="w-4 h-4 accent-emerald-700 cursor-pointer"
                 checked={semuaTerpilih}
-                onChange={() => setPilih(semuaTerpilih ? new Set() : new Set(menunggu.map(r => r.id)))}
+                onChange={() => setPilih(semuaTerpilih ? new Set() : new Set(menungguHarian.map(i => i.id)))}
               />
-              Pilih semua ({menunggu.length})
+              Pilih semua ({menungguHarian.length})
             </label>
             <span className="text-xs text-gray-500">{terpilih.length} dipilih</span>
-            <span className="hidden md:inline text-[11px] text-gray-400">· Foto bermasalah ditolak satu per satu karena wajib disertai catatan</span>
             <button
               onClick={terimaTerpilih}
               disabled={terpilih.length === 0 || prosesMassal}
@@ -1192,36 +1312,68 @@ function FasilValidasiFoto({ records, onValidasi, onTerimaMassal }: {
         )}
         {pesanMassal && <p className={`px-5 pt-3 text-xs font-semibold ${pesanMassal.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{pesanMassal.teks}</p>}
 
-        <div className="p-5">
-          {filtered.length === 0 ? (
-            <div className="py-12 flex flex-col items-center text-center">
-              <span className={`w-14 h-14 rounded-2xl flex items-center justify-center ${filter === 'Menunggu' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
-                {filter === 'Menunggu' ? <CheckCircle2 className="w-7 h-7" /> : <Camera className="w-7 h-7" />}
-              </span>
-              <p className="mt-3 text-sm font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>{kosong.judul}</p>
-              <p className="mt-1 text-xs text-gray-500 max-w-sm">{kosong.ket}</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {filtered.map(r => <KartuValidasiFoto key={r.id} rec={r} onValidasi={onValidasi} dipilih={pilih.has(r.id)} onPilih={() => togglePilih(r.id)} />)}
-            </div>
-          )}
-        </div>
+        {filtered.length === 0 ? (
+          <div className="py-14 flex flex-col items-center text-center px-5">
+            <span className={`w-14 h-14 rounded-2xl flex items-center justify-center ${filter === 'Menunggu' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+              {filter === 'Menunggu' ? <CheckCircle2 className="w-7 h-7" /> : <Camera className="w-7 h-7" />}
+            </span>
+            <p className="mt-3 text-sm font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              {kata ? 'Tidak ada foto yang cocok' : filter === 'Menunggu' ? 'Semua foto sudah divalidasi' : `Belum ada foto yang ${filter.toLowerCase()}`}
+            </p>
+            <p className="mt-1 text-xs text-gray-500 max-w-sm">Foto {jenis === 'event' ? 'absen event' : 'presensi mandiri'} penghuni gedung Anda tampil di sini.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {tampil.map(i => (
+              <li key={i.kunci} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/80 transition-colors">
+                {bisaMassal && (
+                  <input type="checkbox" className="w-4 h-4 accent-emerald-700 cursor-pointer shrink-0" checked={pilih.has(i.id)} onChange={() => togglePilih(i.id)} aria-label={`Pilih foto ${i.nama}`} />
+                )}
+                <button type="button" onClick={() => setDetail(i.kunci)} className="flex-1 min-w-0 flex items-center gap-3 text-left cursor-pointer">
+                  <GambarFoto item={i} className="w-11 h-11 rounded-xl shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-gray-900 truncate">{i.nama}</p>
+                    <p className="text-xs text-gray-500 truncate"><span className="mono">{i.nim}</span> · Kamar {i.kamar || '–'}</p>
+                  </div>
+                  <div className="hidden sm:block min-w-0 w-56 text-xs">
+                    <p className="font-semibold text-gray-700 truncate">{i.konteks}</p>
+                    <p className="text-gray-500">{formatTanggal(i.tanggal)} · {i.waktu.slice(0, 5)} WIB</p>
+                  </div>
+                  <FotoBadge status={i.statusFoto} />
+                  <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {filtered.length > tampil.length && (
+          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+            <span>Menampilkan {tampil.length} dari {filtered.length}</span>
+            <button type="button" onClick={() => setBatas(b => b + 25)} className="font-bold text-emerald-700 hover:underline cursor-pointer">Tampilkan lebih banyak</button>
+          </div>
+        )}
       </div>
+
+      {itemDetail && <DetailValidasiFoto key={itemDetail.kunci} item={itemDetail} onClose={() => setDetail(null)} onPutuskan={putuskan} />}
     </div>
   )
 }
 
-function KartuValidasiFoto({ rec, onValidasi, dipilih, onPilih }: {
-  rec: PresensiRecord
-  onValidasi: (rec: PresensiRecord, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => Promise<string | null>
-  dipilih: boolean
-  onPilih: () => void
+function DetailValidasiFoto({ item, onClose, onPutuskan }: {
+  item: ItemFoto
+  onClose: () => void
+  onPutuskan: (item: ItemFoto, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) => Promise<string | null>
 }) {
   const [catatan, setCatatan] = useState('')
   const [error, setError] = useState('')
   const [proses, setProses] = useState(false)
-  const menunggu = rec.statusFoto === 'Menunggu'
+  const menunggu = item.statusFoto === 'Menunggu'
+
+  useEffect(() => {
+    const tutup = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', tutup)
+    return () => window.removeEventListener('keydown', tutup)
+  }, [onClose])
 
   const putuskan = async (status: Exclude<StatusFoto, 'Menunggu'>) => {
     if (status === 'Ditolak' && !catatan.trim()) {
@@ -1229,76 +1381,98 @@ function KartuValidasiFoto({ rec, onValidasi, dipilih, onPilih }: {
       return
     }
     setProses(true)
-    const gagal = await onValidasi(rec, status, catatan.trim())
+    const gagal = await onPutuskan(item, status, catatan.trim())
     setProses(false)
     if (gagal) setError(gagal)
+    else onClose()
   }
 
-  return (
-    <div className={`bg-[#fff] rounded-2xl overflow-hidden border shadow-xs hover:shadow-md transition-shadow flex flex-col ${dipilih ? 'border-emerald-500 ring-2 ring-emerald-500/30' : 'border-gray-200'}`}>
-      <div className="relative">
-        <FotoWajah foto={rec.fotoWajah} alt={`Foto ${rec.namaPenghuni}`} className="w-full aspect-[4/3]" />
-        {menunggu && (
-          <label className="absolute top-2 left-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/90 backdrop-blur text-[11px] font-bold text-gray-700 shadow-xs cursor-pointer select-none">
-            <input type="checkbox" className="w-3.5 h-3.5 accent-emerald-700 cursor-pointer" checked={dipilih} onChange={onPilih} aria-label={`Pilih foto ${rec.namaPenghuni}`} />
-            Pilih
-          </label>
-        )}
-      </div>
-      <div className="p-4 space-y-3 flex-1 flex flex-col">
-        <div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-extrabold text-sm text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{rec.namaPenghuni}</span>
-            {rec.statusFoto && <FotoBadge status={rec.statusFoto} />}
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm motion-safe:[animation:lg-pudar_0.2s_ease-out]"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Detail foto ${item.nama}`}
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="w-full max-w-5xl max-h-[94vh] overflow-y-auto rounded-2xl bg-[#fff] shadow-2xl grid md:grid-cols-[1.5fr_1fr] motion-safe:[animation:lg-muncul_0.3s_cubic-bezier(0.22,1,0.36,1)]">
+        <GambarFoto item={item} className="w-full aspect-[4/3] md:aspect-auto md:min-h-[560px] md:h-full" />
+        <div className="p-6 flex flex-col gap-5">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{item.jenis === 'event' ? 'Absen event' : 'Presensi harian'}</p>
+              <h3 className="text-xl font-extrabold text-gray-900 leading-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>{item.nama}</h3>
+              <p className="text-xs text-gray-500"><span className="mono">{item.nim}</span> · Kamar {item.kamar || '–'}</p>
+            </div>
+            <button type="button" onClick={onClose} className="p-2 -mr-2 -mt-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer" aria-label="Tutup"><X className="w-4 h-4" /></button>
           </div>
-          <p className="mono text-xs text-gray-500">{rec.nim} · Kamar {rec.nomorKamar}</p>
-          <p className="text-xs text-gray-600 mt-1 font-medium">{formatTanggal(rec.tanggal)} · Sesi {rec.sesi} · {rec.waktu} WIB</p>
-          {rec.latitude !== null && rec.longitude !== null && (
-            <a href={`https://www.google.com/maps?q=${rec.latitude},${rec.longitude}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mt-1 text-xs text-slate-700 hover:underline">
-              <MapPin className="w-3 h-3" />
-              <span className="mono">{Number(rec.latitude).toFixed(5)}, {Number(rec.longitude).toFixed(5)}</span>
-              {rec.akurasiMeter != null && <span className="text-gray-500">· ±{Math.round(rec.akurasiMeter)} m</span>}
-            </a>
+
+          <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm">
+            <dt className="text-gray-400 font-semibold">{item.jenis === 'event' ? 'Event' : 'Sesi'}</dt>
+            <dd className="text-gray-800 font-semibold">{item.konteks.replace(/^(Sesi|Event) /, '')}</dd>
+            <dt className="text-gray-400 font-semibold">Waktu</dt>
+            <dd className="text-gray-800">{formatTanggal(item.tanggal)} · {item.waktu.slice(0, 5)} WIB</dd>
+            {item.lat !== null && item.lng !== null && (
+              <>
+                <dt className="text-gray-400 font-semibold">Lokasi</dt>
+                <dd>
+                  <a href={`https://www.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-slate-700 hover:underline">
+                    <MapPin className="w-3 h-3" /><span className="mono">{Number(item.lat).toFixed(5)}, {Number(item.lng).toFixed(5)}</span>
+                  </a>
+                  {item.info && <span className="block text-gray-500">{item.info}</span>}
+                </dd>
+              </>
+            )}
+            <dt className="text-gray-400 font-semibold">Status</dt>
+            <dd><FotoBadge status={item.statusFoto} /></dd>
+            {!menunggu && item.validator && (
+              <>
+                <dt className="text-gray-400 font-semibold">Divalidasi</dt>
+                <dd className="text-gray-800">{item.validator}</dd>
+              </>
+            )}
+            {!menunggu && item.catatan && (
+              <>
+                <dt className="text-gray-400 font-semibold">Catatan</dt>
+                <dd className="text-gray-800">{item.catatan}</dd>
+              </>
+            )}
+          </dl>
+
+          {menunggu ? (
+            <div className="mt-auto space-y-2">
+              <textarea
+                rows={3}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400"
+                placeholder="Catatan (wajib jika menolak), mis. wajah tidak terlihat"
+                value={catatan}
+                onChange={e => { setCatatan(e.target.value); setError('') }}
+              />
+              {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
+              <div className="flex gap-2">
+                <button
+                  disabled={proses}
+                  onClick={() => putuskan('Ditolak')}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <X className="w-3.5 h-3.5" /><span>Tolak</span>
+                </button>
+                <button
+                  disabled={proses}
+                  onClick={() => putuskan('Diterima')}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-xs text-white bg-[#141a17] hover:bg-[#2a332e] flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" /><span>{proses ? 'Menyimpan…' : 'Terima'}</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-auto text-[11px] text-gray-400">Keputusan sudah tersimpan.</p>
           )}
         </div>
-
-        {menunggu ? (
-          <div className="space-y-2 mt-auto">
-            <textarea
-              rows={2}
-              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400"
-              placeholder="Catatan (wajib jika menolak), mis. wajah tidak terlihat"
-              value={catatan}
-              onChange={e => { setCatatan(e.target.value); setError('') }}
-            />
-            {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
-            <div className="flex gap-2">
-              <button
-                disabled={proses}
-                onClick={() => putuskan('Ditolak')}
-                className="flex-1 py-2 rounded-xl font-bold text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
-              >
-                <X className="w-3.5 h-3.5" />
-                <span>Tolak</span>
-              </button>
-              <button
-                disabled={proses}
-                onClick={() => putuskan('Diterima')}
-                className="flex-1 py-2 rounded-xl font-bold text-xs text-white bg-[#141a17] hover:bg-[#2a332e] flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Terima</span>
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="text-xs text-gray-600 p-2.5 rounded-xl bg-gray-50 border border-gray-100 mt-auto">
-            {rec.namaValidator ? `Divalidasi ${rec.namaValidator}` : 'Divalidasi'}{rec.divalidasiPada ? ` · ${rec.divalidasiPada}` : ''}
-            {rec.catatanValidasi && <p className="mt-1 font-medium text-gray-800">Catatan: {rec.catatanValidasi}</p>}
-          </div>
-        )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -1810,22 +1984,6 @@ function FasilProfil({
   onBuka: (tab: string) => void
 }) {
   const [pesanFoto, setPesanFoto] = useState('')
-  const [email, setEmail] = useState(user.email || '')
-  const [noHp, setNoHp] = useState(user.noHp || '')
-  const [simpan, setSimpan] = useState(false)
-  const [pesanKontak, setPesanKontak] = useState<{ ok: boolean; teks: string } | null>(null)
-  const kontakBerubah = email.trim() !== (user.email || '') || noHp.trim() !== (user.noHp || '')
-
-  const simpanKontak = async () => {
-    setPesanKontak(null)
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setPesanKontak({ ok: false, teks: 'Format email tidak valid.' })
-    setSimpan(true)
-    const hasil = await updateProfileApi(user.nim, { nama: user.nama, email: email.trim(), noHp: noHp.trim(), asal: user.asal || '' })
-    setSimpan(false)
-    if (hasil.ok || hasil.offline) simpanUserLokal({ email: email.trim(), noHp: noHp.trim() })
-    setPesanKontak({ ok: hasil.ok || !!hasil.offline, teks: hasil.ok ? 'Kontak berhasil diperbarui.' : hasil.message })
-  }
-
   // Rekam kerja: tindakan yang tercatat atas nama fasil ini
   const izinDiputuskan = izinGedung.filter(i => i.nimApprover === user.nim && i.statusPersetujuan !== 'Pending')
   const disetujui = izinDiputuskan.filter(i => i.statusPersetujuan === 'Disetujui').length
@@ -1937,28 +2095,15 @@ function FasilProfil({
                 <input value={user.nama} disabled className={`${kolom} bg-gray-50 text-gray-500 cursor-not-allowed`} title="Nama hanya dapat diubah oleh admin" />
               </div>
               <div>
-                <label htmlFor="fasil-email" className={label}>Email</label>
-                <input id="fasil-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="nama@email.com" className={kolom} />
+                <label className={label}>Email</label>
+                <input value={user.email || '-'} disabled className={`${kolom} bg-gray-50 text-gray-600 cursor-not-allowed`} />
               </div>
               <div>
-                <label htmlFor="fasil-hp" className={label}>Nomor WhatsApp</label>
-                <input id="fasil-hp" type="tel" inputMode="tel" value={noHp} onChange={e => setNoHp(e.target.value)} placeholder="08xxxxxxxxxx" className={kolom} />
+                <label className={label}>Nomor WhatsApp</label>
+                <input value={user.noHp || '-'} disabled className={`${kolom} bg-gray-50 text-gray-600 cursor-not-allowed`} />
               </div>
             </div>
-            <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-100">
-              {pesanKontak
-                ? <p className={`text-xs font-semibold ${pesanKontak.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{pesanKontak.teks}</p>
-                : <p className="text-[11px] text-gray-400">Nama hanya dapat diubah oleh admin.</p>}
-              <button
-                type="button"
-                onClick={simpanKontak}
-                disabled={!kontakBerubah || simpan}
-                className="py-2.5 px-5 rounded-xl font-bold text-xs text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs cursor-pointer disabled:opacity-40 disabled:cursor-default"
-                style={{ fontFamily: 'Plus Jakarta Sans' }}
-              >
-                {simpan ? 'Menyimpan…' : 'Simpan Kontak'}
-              </button>
-            </div>
+            <p className="mt-auto pt-4 border-t border-gray-100 text-[11px] text-gray-400">Data kontak hanya dapat diubah oleh admin.</p>
           </div>
         </KartuProfil>
 

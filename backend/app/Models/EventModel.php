@@ -24,6 +24,7 @@ class EventModel extends Model
         'latitude',
         'longitude',
         'radius_meter',
+        'foto_sampul',
         'created_by',
     ];
 

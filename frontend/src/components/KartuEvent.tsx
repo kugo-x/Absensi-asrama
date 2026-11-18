@@ -1,7 +1,29 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { CalendarDays, Clock, Edit, MapPin, Trash2, User } from 'lucide-react'
 import type { EventAsrama } from '../types'
 import { formatTanggal } from '../logic'
+import { fetchSampulEvent } from '../api'
+
+/** Blob URL foto sampul event (null selama dimuat / tidak ada / gagal) */
+export function useSampulEvent(nama: string | null | undefined): string | null {
+  const [src, setSrc] = useState<string | null>(nama?.startsWith('data:') ? nama : null)
+  useEffect(() => {
+    let aktif = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    setSrc(nama?.startsWith('data:') ? nama : null)
+    // Server sibuk / jaringan putus: coba lagi beberapa kali agar sampul tidak hilang permanen
+    const muat = (sisa: number) => {
+      fetchSampulEvent(nama).then(u => {
+        if (!aktif) return
+        if (u) setSrc(u)
+        else if (nama && sisa > 0) timer = setTimeout(() => muat(sisa - 1), 3000)
+      })
+    }
+    muat(3)
+    return () => { aktif = false; if (timer) clearTimeout(timer) }
+  }, [nama])
+  return src
+}
 
 export type StatusEvent = 'Akan Datang' | 'Sedang Berlangsung' | 'Selesai'
 
@@ -23,6 +45,7 @@ export default function KartuEvent({ ev, status, onEdit, onHapus, kehadiran, pen
 }) {
   const [, m, d] = ev.tanggal.split('-')
   const selesai = status === 'Selesai'
+  const sampul = useSampulEvent(ev.fotoSampul)
 
   return (
     <div
@@ -32,11 +55,19 @@ export default function KartuEvent({ ev, status, onEdit, onHapus, kehadiran, pen
     >
       {/* Sampul */}
       <div
-        className={`relative h-28 px-4 pt-3.5 ${
-          selesai ? 'bg-gradient-to-br from-[#3b4540] to-[#6b7570]' : 'bg-gradient-to-br from-[#0f3e2d] via-[#17603d] to-[#27a150]'
+        className={`relative h-32 px-4 pt-3.5 ${
+          sampul ? 'bg-gray-800' : selesai ? 'bg-gradient-to-br from-[#3b4540] to-[#6b7570]' : 'bg-gradient-to-br from-[#0f3e2d] via-[#17603d] to-[#27a150]'
         }`}
       >
-        <CalendarDays className="absolute -right-3 -bottom-5 w-28 h-28 text-white/10" aria-hidden />
+        {sampul ? (
+          <>
+            <img src={sampul} alt={`Sampul ${ev.judul}`} className={`absolute inset-0 w-full h-full object-cover ${selesai ? 'grayscale-[60%]' : ''}`} />
+            {/* Lapisan gelap tipis agar badge tetap terbaca di atas foto */}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/10 to-black/25" aria-hidden />
+          </>
+        ) : (
+          <CalendarDays className="absolute -right-3 -bottom-5 w-28 h-28 text-white/10" aria-hidden />
+        )}
         <div className="relative flex items-start justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <span
@@ -45,13 +76,13 @@ export default function KartuEvent({ ev, status, onEdit, onHapus, kehadiran, pen
                   ? 'bg-amber-300 text-amber-950'
                   : status === 'Akan Datang'
                     ? 'bg-[#fff] text-emerald-800'
-                    : 'bg-white/20 text-white'
+                    : sampul ? 'bg-black/50 text-white backdrop-blur-sm' : 'bg-white/20 text-white'
               }`}
             >
               {status === 'Sedang Berlangsung' && <span className="w-1.5 h-1.5 rounded-full bg-amber-900 animate-pulse" />}
               {status}
             </span>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-white/15 text-white border border-white/20">
+            <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold text-white border ${sampul ? 'bg-black/50 border-white/10 backdrop-blur-sm' : 'bg-white/15 border-white/20'}`}>
               {ev.tipe === 'seluruh' ? 'Seluruh asrama' : ev.namaGedung || 'Gedung'}
             </span>
           </div>
@@ -59,13 +90,13 @@ export default function KartuEvent({ ev, status, onEdit, onHapus, kehadiran, pen
             <div className="flex items-center gap-1">
               {onEdit && (
                 <button type="button" onClick={onEdit} title="Edit event" aria-label={`Edit ${ev.judul}`}
-                  className="p-1.5 rounded-lg bg-white/15 text-white hover:bg-white hover:text-emerald-800 cursor-pointer transition-colors">
+                  className={`p-1.5 rounded-lg text-white hover:bg-white hover:text-emerald-800 cursor-pointer transition-colors ${sampul ? 'bg-black/50 backdrop-blur-sm' : 'bg-white/15'}`}>
                   <Edit className="w-3.5 h-3.5" />
                 </button>
               )}
               {onHapus && (
                 <button type="button" onClick={onHapus} title="Hapus event" aria-label={`Hapus ${ev.judul}`}
-                  className="p-1.5 rounded-lg bg-white/15 text-white hover:bg-white hover:text-rose-700 cursor-pointer transition-colors">
+                  className={`p-1.5 rounded-lg text-white hover:bg-white hover:text-rose-700 cursor-pointer transition-colors ${sampul ? 'bg-black/50 backdrop-blur-sm' : 'bg-white/15'}`}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               )}

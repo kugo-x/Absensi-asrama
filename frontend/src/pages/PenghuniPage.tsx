@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { AturanPresensi, CurrentUser, EventAsrama, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, Sesi } from '../types'
+import type { AturanPresensi, CurrentUser, EventAsrama, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, PresensiStatus, Sesi, StatusFoto } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { BuktiIzin, FotoBadge, KotakTanggalIzin, SesiIcon, TAMPILAN_STATUS_IZIN, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
@@ -18,18 +18,19 @@ import {
 import {
   awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, batalIzinApi, adalahBuktiTersimpan, fetchGedung, fetchSesi,
   fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT,
-  fetchEvent, absenEventApi, fotoEventUrl,
+  fetchEvent, absenEventApi, fetchFotoEvent,
 } from '../api'
 import KalenderKehadiran from '../components/KalenderKehadiran'
+import { useRealtime, bilaBerubah } from '../realtime'
 import KartuEvent from '../components/KartuEvent'
 import { KartuGantiPassword, KartuProfil, ProfilHeader } from '../components/ProfilAkun'
 import { EventPresensiModal } from '../components/EventModals'
+import Pratinjau from '../components/Pratinjau'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
-  addDays, cariLibur, formatTanggal, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
-  faseSesi, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi, type StatusDetail,
-  SEMUA_HARI, adaHariDalamRentang, hariIso, dateRangeDesc, formatRentangTanggal, teksHariBerulang, kelompokkanTanggal,
-} from '../logic'
+  cariLibur, formatTanggal, jamPresensi, hitungStatus, keteranganStatus, periodeRekap, riwayatPenghuni,
+  faseSesi, sesiAktif, statusSesi, toHM, todayLocal, type DataPresensi, type RiwayatRow, type StatusDetail,
+  SEMUA_HARI, adaHariDalamRentang, hariIso, dateRangeDesc, formatRentangTanggal, teksHariBerulang, kelompokkanTanggal, HARI_RINGKASAN } from '../logic'
 import {
   LayoutDashboard,
   UserCheck,
@@ -102,15 +103,21 @@ function sisaMenit(jam: string, now: Date): number {
   return Math.ceil(detik / 60)
 }
 
+// Foto ditolak fasil saat sesi masih dibuka -> boleh absen ulang
+function bisaAbsenUlang(d: StatusDetail) {
+  return d.fase === 'dibuka' && d.status === 'Tidak Hadir' && d.presensi?.statusFoto === 'Ditolak' && !d.presensi.otomatis
+}
+
 function bisaPresensi(d: StatusDetail) {
-  return d.status === 'Belum' && d.fase === 'dibuka'
+  return (d.status === 'Belum' && d.fase === 'dibuka') || bisaAbsenUlang(d)
 }
 
 function alasanTidakBisaPresensi(d: StatusDetail, sesi: Sesi): string {
   if (d.status === 'Hadir') return 'Presensi sesi ini sudah tercatat'
   if (d.status === 'Izin') return 'Anda berstatus izin pada sesi ini'
   if (d.status === 'Libur') return 'Hari libur, tidak ada kewajiban presensi'
-  if (d.status === 'Tidak Hadir') return 'Sesi sudah ditutup'
+  if (d.status === 'Tidak Hadir' && d.presensi?.statusFoto === 'Ditolak') return 'Foto ditolak dan sesi sudah ditutup'
+  if (d.status === 'Tidak Hadir') return 'Sesi sudah lewat'
   if (d.fase === 'belum-dibuka') return `Sesi dibuka pukul ${sesi.jamMulai} WIB`
   return ''
 }
@@ -158,15 +165,16 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     return () => clearInterval(timer)
   }, [])
 
-  // Muat ulang berkala agar keputusan izin, validasi foto, dan event baru muncul di notifikasi tanpa refresh
-  useEffect(() => {
-    const timer = setInterval(() => {
-      fetchPresensi().then(setPresensi)
-      fetchIzin().then(data => setIzinData(data.filter(i => i.nim === user.nim)))
-      fetchEvent().then(setEventList)
-    }, 60000)
-    return () => clearInterval(timer)
-  }, [user.nim])
+  // Realtime: keputusan izin, validasi foto, event, jadwal & libur ikut berubah tanpa refresh
+  useRealtime(() => {
+    setNow(new Date())
+    fetchPresensi().then(bilaBerubah(setPresensi))
+    fetchIzin().then(data => bilaBerubah(setIzinData)(data.filter(i => i.nim === user.nim)))
+    fetchEvent().then(bilaBerubah(setEventList))
+    fetchSesi().then(bilaBerubah(setSesiList))
+    fetchLibur().then(bilaBerubah(setLibur))
+    fetchModeUji().then(bilaBerubah(setModeUji))
+  })
 
   useEffect(() => {
     fetchPresensi().then(setPresensi)
@@ -190,11 +198,15 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     const detail = statusSesi(user.nim, today, sesi, data, now)
     // Mode uji: jam sesi diabaikan, sesi yang belum punya catatan dianggap sedang dibuka
     const dibukaUji = modeUji.abaikanJam && !detail.presensi && !detail.izin && !detail.libur
-    return { sesi, detail: dibukaUji ? { ...detail, status: 'Belum' as const, fase: 'dibuka' as const } : detail }
+    // Mode uji: foto ditolak tetap bisa absen ulang walau jam sesi sudah lewat (sama seperti server)
+    const ulangUji = modeUji.abaikanJam && !detail.libur && detail.presensi?.statusFoto === 'Ditolak' && !detail.presensi.otomatis
+    return { sesi, detail: dibukaUji ? { ...detail, status: 'Belum' as const, fase: 'dibuka' as const } : ulangUji ? { ...detail, fase: 'dibuka' as const } : detail }
   })
-  const riwayat = riwayatPenghuni(user.nim, periodeRekap(today, user.tanggalMasuk), today, sesiList, data, now, user.namaGedung)
+  // Periode ringkasan sama dengan dashboard fasil & admin
+  const riwayat = riwayatPenghuni(user.nim, periodeRekap(today, user.tanggalMasuk, HARI_RINGKASAN), today, sesiList, data, now, user.namaGedung)
   // Batas akurasi GPS yang berlaku (0 = tidak diperiksa); ikut dilonggarkan mode uji "abaikan radius"
-  const akurasiMaks = modeUji.abaikanRadius ? 0 : aturan.gpsAkurasiMaks
+  // Parameter akurasi dihapus: presensi hanya mengikat radius gedung
+  const akurasiMaks = 0
   // Pengingat: sesi yang benar-benar sedang dibuka (bukan karena mode uji), belum presensi, dan hampir ditutup
   const sesiHampirTutup = aturan.pengingatMenit > 0
     ? sesiHariIni
@@ -282,7 +294,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       }
       setPresensi(prev => [record, ...prev.filter(p => !(p.nim === user.nim && p.tanggal === today && p.sesi === sesiNama))])
       setFoto(null)
-      setNotice({ type: 'success', text: `Presensi sesi ${sesiNama} berhasil dicatat (jarak ${Math.round(loc.distance)} m dari gedung).` })
+      setNotice({ type: 'success', text: `${bisaAbsenUlang(item.detail) ? 'Absen ulang' : 'Presensi'} sesi ${sesiNama} berhasil dicatat (jarak ${Math.round(loc.distance)} m dari gedung). Foto menunggu validasi fasil.` })
       if (result.ok) fetchPresensi().then(setPresensi)
     } else {
       setNotice({ type: 'error', text: result.message })
@@ -311,6 +323,8 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
               foto: data.foto,
               status: 'Hadir',
               keterangan: null,
+              statusFoto: 'Menunggu',
+              catatanValidasi: null,
             },
           }
         }
@@ -319,7 +333,9 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       if (result.ok) {
         fetchEvent().then(setEventList)
       }
-      return { ok: true, message: result.message || 'Presensi event berhasil dicatat!' }
+      const pesan = result.message || 'Presensi event berhasil dicatat. Foto menunggu validasi fasil.'
+      setNotice({ type: 'success', text: pesan })
+      return { ok: true, message: pesan }
     }
     return { ok: false, message: result.message || 'Gagal mengirim presensi event' }
   }
@@ -400,11 +416,14 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           onBukaAbsen={ev => setPresensiModalEvent(ev)}
           today={today}
           now={now}
+          liburHariIni={cariLibur(today, libur)}
+          notice={notice}
         />
       )}
       {activeTab === 'riwayat' && (
-        <PenghuniRiwayat riwayat={riwayat}>
-          <KalenderKehadiran nim={user.nim} sesiList={sesiList} data={data} now={now} gedung={user.namaGedung} tanggalMasuk={user.tanggalMasuk} />
+        <PenghuniRiwayat riwayat={riwayat} eventSaya={eventMilik(eventList, user, gedung?.id || user.idGedung)}>
+          <KalenderKehadiran nim={user.nim} sesiList={sesiList} data={data} now={now} gedung={user.namaGedung} tanggalMasuk={user.tanggalMasuk}
+            eventSaya={eventMilik(eventList, user, gedung?.id || user.idGedung).filter(ev => ev.presensiSaya).map(ev => ({ tanggal: ev.presensiSaya!.tanggal || ev.tanggal, judul: ev.judul, status: ev.presensiSaya!.status, jam: ev.presensiSaya!.foto ? (ev.presensiSaya!.waktu || '').slice(0, 5) : '' }))} />
         </PenghuniRiwayat>
       )}
       {activeTab === 'izin' && <PenghuniIzin izinData={izinData} setIzinData={setIzinData} user={user} sesiList={sesiAktif(sesiList, user.namaGedung)} today={today} />}
@@ -438,6 +457,83 @@ function NoticeBox({ notice }: { notice: Notice | null }) {
   )
 }
 
+// Event yang berlaku untuk penghuni: event seluruh asrama atau event gedungnya
+function eventMilik(list: EventAsrama[], user: CurrentUser, idGedung?: number | null): EventAsrama[] {
+  return list.filter(ev =>
+    ev.tipe === 'seluruh' ||
+    (!!ev.idGedung && !!idGedung && ev.idGedung === idGedung) ||
+    (!!ev.namaGedung && !!user.namaGedung && ev.namaGedung === user.namaGedung)
+  )
+}
+
+// Absen event dibuka saat berlangsung, bukan hari libur, belum hadir (atau fotonya ditolak -> absen ulang)
+function bisaAbsenEvent(ev: EventAsrama, today: string, now: Date, libur?: HariLibur): boolean {
+  if (getStatusEvent(ev, today, now) !== 'Sedang Berlangsung') return false
+  if (ev.tanggal === today && libur) return false
+  if (ev.statusKehadiran === 'Hadir') return false
+  return ev.statusKehadiran !== 'Tidak Hadir' || ev.presensiSaya?.statusFoto === 'Ditolak'
+}
+
+// Satu baris log presensi: presensi harian per sesi atau absen event
+interface LogPresensi {
+  kunci: string
+  tanggal: string
+  urut: string
+  jenis: 'harian' | 'event'
+  judul: string
+  jadwal: string
+  jam: string
+  status: PresensiStatus
+  statusFoto?: StatusFoto | null
+  catatan?: string | null
+  keterangan: string
+  otomatis?: boolean
+}
+
+function susunLog(riwayat: RiwayatRow[], eventSaya: EventAsrama[]): LogPresensi[] {
+  const harian: LogPresensi[] = riwayat.map(({ tanggal, sesi, detail }) => ({
+    kunci: `h-${tanggal}-${sesi.nama}`,
+    tanggal,
+    urut: sesi.jamMulai,
+    jenis: 'harian',
+    judul: `Sesi ${sesi.nama}`,
+    jadwal: `${sesi.jamMulai}–${sesi.jamSelesai}`,
+    jam: jamPresensi(detail.presensi),
+    status: detail.status,
+    statusFoto: detail.presensi?.statusFoto,
+    catatan: detail.presensi?.catatanValidasi,
+    keterangan: keteranganStatus(detail),
+    otomatis: !!detail.presensi?.otomatis,
+  }))
+  const event: LogPresensi[] = eventSaya
+    .filter(ev => ev.presensiSaya)
+    .map(ev => {
+      const pr = ev.presensiSaya!
+      return {
+        kunci: `e-${ev.id}`,
+        tanggal: pr.tanggal || ev.tanggal,
+        urut: ev.jamMulai,
+        jenis: 'event' as const,
+        judul: ev.judul,
+        jadwal: `${ev.jamMulai}–${ev.jamSelesai} · ${ev.lokasi}`,
+        jam: pr.foto ? (pr.waktu || '').slice(0, 5) : '',
+        status: pr.status,
+        statusFoto: pr.statusFoto,
+        catatan: pr.catatanValidasi,
+        keterangan: pr.keterangan || '',
+      }
+    })
+  return [...harian, ...event].sort((a, b) => b.tanggal.localeCompare(a.tanggal) || b.urut.localeCompare(a.urut))
+}
+
+function IkonLog({ item }: { item: LogPresensi }) {
+  return (
+    <span className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-600">
+      {item.jenis === 'event' ? <CalendarDays className="w-4 h-4" /> : <SesiIcon nama={item.judul.replace(/^Sesi /, '')} className="w-4 h-4" />}
+    </span>
+  )
+}
+
 function PenghuniDashboard({
   user,
   sesiHariIni,
@@ -467,463 +563,228 @@ function PenghuniDashboard({
   onBukaPresensiEvent?: (ev: EventAsrama) => void
   now?: Date
 }) {
+  const jam = now || new Date()
   const rekap = hitungStatus(riwayat.map(r => r.detail.status))
-  // Pemberitahuan keputusan izin dalam 7 hari terakhir
-  const pemberitahuan = izinData.filter(i => i.statusPersetujuan !== 'Pending' && (i.tanggalApproval || '') >= addDays(today, -7))
-  // Foto presensi yang ditolak fasil dalam 7 hari terakhir (presensi menjadi Tidak Hadir)
-  const fotoDitolak = riwayat
-    .map(r => r.detail.presensi)
-    .filter((p): p is NonNullable<typeof p> => !!p && p.statusFoto === 'Ditolak' && (p.divalidasiPada || '') >= addDays(today, -7))
-
-  // Ambil 5 riwayat presensi yang relevan / terbaru
-  const riwayatTerkini = riwayat.filter(r => r.detail.status !== 'Belum').slice(0, 5)
-
-  // Event yang relevan untuk penghuni
-  const userGedungId = gedung?.id || user.idGedung
-  const eventSaya = (eventList || []).filter(ev =>
-    ev.tipe === 'seluruh' ||
-    (ev.idGedung && userGedungId && ev.idGedung === userGedungId) ||
-    (ev.namaGedung && user.namaGedung && ev.namaGedung === user.namaGedung)
-  )
-
-  const eventSedangBerlangsung = eventSaya.find(
-    ev => getStatusEvent(ev, today, now || new Date()) === 'Sedang Berlangsung' && ev.statusKehadiran !== 'Hadir'
-  )
-
+  const eventSaya = eventMilik(eventList || [], user, gedung?.id || user.idGedung)
+  const eventAktif = eventSaya.filter(ev => bisaAbsenEvent(ev, today, jam, liburHariIni))
   const eventTerdekat = eventSaya
-    .filter(ev => getStatusEvent(ev, today, now || new Date()) !== 'Selesai')
+    .filter(ev => getStatusEvent(ev, today, jam) !== 'Selesai')
     .sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.jamMulai.localeCompare(b.jamMulai))
     .slice(0, 3)
+  const logTerkini = susunLog(riwayat.filter(r => r.detail.status !== 'Belum'), eventSaya).slice(0, 6)
+  const izinTerakhir = [...izinData].sort((a, b) => b.id - a.id).slice(0, 3)
+  const inisial = user.nama.split(/\s+/).filter(Boolean).slice(0, 2).map(k => k[0]?.toUpperCase()).join('')
+
+  const ubin = [
+    { label: 'Kehadiran', nilai: `${rekap.persen}%`, ikon: <ShieldCheck className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-700' },
+    { label: 'Hadir', nilai: rekap.Hadir, ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700' },
+    { label: 'Tidak hadir', nilai: rekap['Tidak Hadir'], ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600' },
+    { label: 'Izin', nilai: rekap.Izin, ikon: <FileText className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
+  ]
+  const tombolLink = 'text-xs font-bold text-gray-600 hover:text-gray-900 inline-flex items-center gap-1 cursor-pointer'
 
   return (
-    <div className="space-y-4">
-      {/* Welcome Banner Ringkas */}
-      <div
-        className="rounded-2xl p-5 lg:p-6 text-white relative overflow-hidden shadow-xs"
-        style={{ background: 'linear-gradient(135deg, #0f3e2d 0%, #17603d 55%, #27a150 100%)' }}
-      >
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md text-emerald-200 text-xs font-semibold mb-2 border border-white/10">
-              <Sparkles className="w-3 h-3 text-emerald-300" />
-              <span>Mahasiswa Penghuni Asrama</span>
+    <div className="space-y-5">
+      {/* Identitas + ringkasan 30 hari */}
+      <div className="rounded-2xl bg-gradient-to-br from-[#0f3e2d] via-[#17603d] to-[#27a150] text-white p-5 sm:p-6 shadow-md flex flex-col lg:flex-row lg:items-center gap-5">
+        <div className="flex items-center gap-4 min-w-0 lg:mr-auto">
+          <span className="w-14 h-14 shrink-0 rounded-2xl bg-white/15 border border-white/25 text-white flex items-center justify-center text-lg font-extrabold" style={{ fontFamily: 'Plus Jakarta Sans' }}>{inisial || 'P'}</span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-emerald-200">{formatTanggal(today)} · ringkasan {HARI_RINGKASAN} hari terakhir</p>
+            <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{user.nama}</h2>
+            <p className="text-sm text-emerald-100/90 truncate"><span className="mono">{user.nim}</span> · Kamar {user.nomorKamar || '–'} · {user.namaGedung || 'Belum ada gedung'}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:w-[560px]">
+          {ubin.map(u => (
+            <div key={u.label} className="px-3.5 py-3 rounded-xl bg-white/10 border border-white/15">
+              <p className="text-[11px] font-semibold text-emerald-100/90 truncate">{u.label}</p>
+              <p className="mt-0.5 text-2xl font-extrabold text-white tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{u.nilai}</p>
             </div>
-            <h2 className="text-xl lg:text-2xl font-bold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              Selamat Datang, {user.nama}!
-            </h2>
-            <p className="text-emerald-100/80 text-xs mt-1 flex items-center gap-2">
-              <span className="font-semibold text-white">Kamar {user.nomorKamar || '-'}</span>
-              <span>•</span>
-              <span>{user.namaGedung || '-'}</span>
-            </p>
-          </div>
-
-          {/* 3 Stats di Kanan Banner */}
-          <div className="grid grid-cols-3 gap-2 w-full lg:w-auto">
-            {[
-              { label: 'Kehadiran 30 Hari', value: `${rekap.persen}%` },
-              { label: 'Tidak Hadir', value: `${rekap['Tidak Hadir']} Sesi` },
-              { label: 'Izin', value: `${rekap.Izin} Sesi` },
-            ].map(s => (
-              <div key={s.label} className="px-3.5 py-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 text-center min-w-[90px]">
-                <p className="text-[10px] font-medium text-emerald-200/90">{s.label}</p>
-                <p className="text-base lg:text-lg font-extrabold text-white mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.value}</p>
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Banner Peringatan Event Sedang Berlangsung */}
-      {eventSedangBerlangsung && (
-        <div className="bg-amber-500/10 border border-amber-300 rounded-2xl p-4 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-              <CalendarDays className="w-5 h-5 animate-pulse" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900 font-extrabold text-[10px] uppercase tracking-wider">
-                  Event Sedang Berlangsung
-                </span>
-                <span className="text-xs text-amber-800 font-medium">
-                  {eventSedangBerlangsung.jamMulai} – {eventSedangBerlangsung.jamSelesai} WIB
-                </span>
-              </div>
-              <h4 className="font-bold text-sm text-gray-900 mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                {eventSedangBerlangsung.judul}
-              </h4>
-              <p className="text-xs text-gray-600 flex items-center gap-1 mt-0.5">
-                <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                <span>{eventSedangBerlangsung.lokasi} (Radius: {eventSedangBerlangsung.radiusMeter}m)</span>
-              </p>
-            </div>
+      {/* Perlu perhatian: event yang sedang dibuka */}
+      {eventAktif.map(ev => (
+        <div key={ev.id} className="bg-[#fff] border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 shadow-2xs">
+          <span className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0"><CalendarDays className="w-5 h-5" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700">
+              {ev.presensiSaya?.statusFoto === 'Ditolak' ? 'Foto ditolak · absen ulang' : 'Event sedang berlangsung'}
+            </p>
+            <p className="text-sm font-bold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>{ev.judul}</p>
+            <p className="text-xs text-gray-500 truncate">{ev.jamMulai}–{ev.jamSelesai} WIB · {ev.lokasi}</p>
           </div>
           {onBukaPresensiEvent && (
             <button
               type="button"
-              onClick={() => onBukaPresensiEvent(eventSedangBerlangsung)}
-              className="px-4 py-2 rounded-xl bg-[#141a17] hover:bg-[#2a332e] text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-              style={{ fontFamily: 'Plus Jakarta Sans' }}
+              onClick={() => onBukaPresensiEvent(ev)}
+              className="px-4 py-2.5 rounded-xl bg-[#141a17] hover:bg-[#2a332e] text-white text-xs font-bold shrink-0 inline-flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
             >
-              <UserCheck className="w-3.5 h-3.5" />
-              <span>Presensi Event Sekarang</span>
+              <UserCheck className="w-4 h-4" />
+              <span>Absen Event</span>
             </button>
           )}
         </div>
-      )}
+      ))}
 
-      {/* Pemberitahuan keputusan izin / foto ditolak */}
-      {fotoDitolak.length > 0 && (
-        <div className="bg-white rounded-xl p-3.5 border border-rose-200 shadow-2xs">
-          <div className="flex items-center gap-2 mb-2">
-            <Camera className="w-4 h-4 text-rose-700" />
-            <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Foto Presensi Ditolak</h4>
-          </div>
-          <div className="space-y-1.5">
-            {fotoDitolak.map(p => (
-              <div key={p.id} className="p-2.5 rounded-lg border text-xs bg-rose-50/60 border-rose-100 flex items-center justify-between">
-                <span>{formatTanggal(p.tanggal)} · Sesi {p.sesi} divalidasi tidak sah{p.catatanValidasi ? `: ${p.catatanValidasi}` : ''}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {pemberitahuan.length > 0 && (
-        <div className="bg-white rounded-xl p-3.5 border border-slate-100 shadow-2xs">
-          <div className="flex items-center gap-2 mb-2">
-            <Bell className="w-4 h-4 text-slate-700" />
-            <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pemberitahuan Izin</h4>
-          </div>
-          <div className="space-y-1.5">
-            {pemberitahuan.map(i => (
-              <div key={i.id} className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 ${i.statusPersetujuan === 'Disetujui' ? 'bg-slate-50/60 border-slate-100' : 'bg-rose-50/60 border-rose-100'}`}>
-                <div className="flex items-center gap-2">
-                  <Badge status={i.statusPersetujuan} />
-                  <span className="font-medium text-gray-800">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)} — {i.alasan}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Layout Grid 12 Kolom Memenuhi Layar */}
-      <div className="grid lg:grid-cols-12 gap-4 items-start">
-        {/* Kolom Kiri: Sesi Presensi & Riwayat Terkini */}
-        <div className="lg:col-span-8 space-y-4">
-          {/* Sesi Presensi Hari Ini */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                Status Presensi Hari Ini
-              </h3>
-              {liburHariIni && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800 flex items-center gap-1">
-                  <Palmtree className="w-3 h-3 text-slate-600" />
-                  <span>Libur: {liburHariIni.keterangan}</span>
-                </span>
-              )}
-            </div>
-
-            <div className="grid sm:grid-cols-2 gap-3">
-              {sesiHariIni.map(({ sesi, detail }) => {
-                const boleh = bisaPresensi(detail)
-                return (
-                  <div
-                    key={sesi.id}
-                    className={`bg-white rounded-2xl p-4 border shadow-2xs transition-all flex flex-col justify-between ${
-                      detail.status === 'Hadir' ? 'border-emerald-300 bg-emerald-50/20' : 'border-gray-200'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-2 mb-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center border border-gray-100 text-gray-700">
-                            <SesiIcon nama={sesi.nama} className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-sm text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                              Sesi {sesi.nama}
-                            </h4>
-                            <p className="text-[11px] text-gray-400 mono">{sesi.jamMulai} – {sesi.jamSelesai} WIB</p>
-                          </div>
-                        </div>
-                        <Badge status={detail.status} />
-                      </div>
-
-                      {/* Keterangan Status Presensi */}
-                      {jamPresensi(detail.presensi) && detail.presensi?.statusFoto !== 'Ditolak' ? (
-                        <p className="text-[11px] text-emerald-800 font-medium bg-emerald-50 px-2.5 py-1 rounded-lg">
-                          ✓ Tercatat pukul {jamPresensi(detail.presensi)} WIB
-                        </p>
-                      ) : detail.presensi?.statusFoto === 'Ditolak' ? (
-                        <p className="text-[11px] text-rose-800 font-medium bg-rose-50 px-2.5 py-1 rounded-lg">
-                          ✗ Foto ditolak: {detail.presensi.catatanValidasi || 'Tidak sesuai'}
-                        </p>
-                      ) : detail.status === 'Tidak Hadir' ? (
-                        <p className="text-[11px] text-rose-700 font-medium bg-rose-50/60 px-2.5 py-1 rounded-lg">
-                          Tidak hadir hingga sesi ditutup
-                        </p>
-                      ) : detail.status === 'Izin' ? (
-                        <p className="text-[11px] text-amber-800 font-medium bg-amber-50 px-2.5 py-1 rounded-lg">
-                          Izin disetujui
-                        </p>
-                      ) : null}
-                    </div>
-
-                    {boleh ? (
-                      <button
-                        onClick={() => onBukaPresensi(sesi.nama)}
-                        className="w-full mt-3 py-2 px-3 rounded-lg text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
-                        style={{ fontFamily: 'Plus Jakarta Sans' }}
-                      >
-                        <UserCheck className="w-3.5 h-3.5" />
-                        <span>Presensi Sekarang</span>
-                      </button>
-                    ) : detail.status === 'Belum' ? (
-                      <p className="mt-2 text-[11px] text-gray-400 font-medium text-center">
-                        {alasanTidakBisaPresensi(detail, sesi)}
-                      </p>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-            {notice && <div className="mt-3"><NoticeBox notice={notice} /></div>}
-          </div>
-
-          {/* Geofence Notice Ringkas */}
-          <div className="rounded-xl px-3.5 py-2.5 bg-emerald-50/70 border border-emerald-200/80 flex items-center gap-2 text-xs text-emerald-900">
-            <MapPin className="w-4 h-4 text-emerald-700 shrink-0" />
-            <span className="text-[11px] font-medium leading-tight">
-              <strong>Radius GPS:</strong> Maks. {gedung?.radiusMeter ?? 50}m dari {gedung?.nama || 'Asrama'}. Pastikan akses lokasi browser diizinkan.
-            </span>
-          </div>
-
-          {/* Log Presensi Terbaru */}
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-emerald-700" />
-                <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                  Aktivitas Presensi Terakhir Anda
-                </h4>
-              </div>
-              {onNavigateTab && (
-                <button
-                  onClick={() => onNavigateTab('riwayat')}
-                  className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Lihat Semua Riwayat</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            <div className="divide-y divide-gray-100 text-xs">
-              {riwayatTerkini.length === 0 ? (
-                <div className="py-7 text-center text-gray-400">
-                  <Clock className="w-6 h-6 mx-auto mb-1 text-gray-300" />
-                  <p className="text-xs">Belum ada aktivitas presensi yang tercatat</p>
-                </div>
-              ) : (
-                riwayatTerkini.map(({ tanggal, sesi, detail }) => (
-                  <div key={`${tanggal}-${sesi.nama}`} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <Badge status={detail.status} />
-                      <div>
-                        <p className="font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                          Sesi {sesi.nama}
-                        </p>
-                        <p className="text-[11px] text-gray-400">{formatTanggal(tanggal)}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {jamPresensi(detail.presensi) ? (
-                        <p className="text-xs font-bold text-emerald-900 mono">{jamPresensi(detail.presensi)} WIB</p>
-                      ) : (
-                        <p className="text-[11px] text-gray-400">{keteranganStatus(detail)}</p>
-                      )}
-                      {detail.presensi?.statusFoto && (
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                          detail.presensi.statusFoto === 'Diterima' ? 'text-emerald-700 bg-emerald-50' :
-                          detail.presensi.statusFoto === 'Ditolak' ? 'text-rose-700 bg-rose-50' : 'text-amber-700 bg-amber-50'
-                        }`}>
-                          Foto: {detail.presensi.statusFoto}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Kolom Kanan: Informasi Kamar & Izin Cepat */}
-        <div className="lg:col-span-4 space-y-4">
-          {/* Info Gedung & Kamar Asrama */}
-          <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-              <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                Informasi Hunian Asrama
-              </h4>
-              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                Aktif
+      <div className="grid lg:grid-cols-3 gap-5 items-start">
+        {/* Kolom utama */}
+        <div className="lg:col-span-2 space-y-5 min-w-0">
+          <KartuProfil
+            ikon={<Clock />}
+            judul="Presensi Hari Ini"
+            sub={formatTanggal(today)}
+            className="h-auto!"
+            kanan={liburHariIni ? (
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 inline-flex items-center gap-1">
+                <Palmtree className="w-3 h-3" />Libur: {liburHariIni.keterangan}
               </span>
-            </div>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between py-1 border-b border-gray-50">
-                <span className="text-gray-500">Gedung</span>
-                <span className="font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>{user.namaGedung || '-'}</span>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-gray-50">
-                <span className="text-gray-500">Nomor Kamar</span>
-                <span className="font-bold text-emerald-800 mono">{user.nomorKamar || '-'}</span>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-gray-50">
-                <span className="text-gray-500">Fasilitator Gedung</span>
-                <span className="font-semibold text-gray-800">{gedung?.namaPj || 'Fasilitator Gedung'}</span>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-gray-50">
-                <span className="text-gray-500">Radius Absen GPS</span>
-                <span className="font-semibold text-gray-800">{gedung?.radiusMeter ?? 50} meter</span>
-              </div>
-              <div className="flex items-center justify-between py-1">
-                <span className="text-gray-500">Jam Malam Asrama</span>
-                <span className="font-bold text-gray-700">22:00 WIB</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Event & Kegiatan Terdekat */}
-          <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-              <div className="flex items-center gap-1.5">
-                <CalendarDays className="w-4 h-4 text-emerald-700" />
-                <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                  Event & Kegiatan Asrama
-                </h4>
-              </div>
-              {onNavigateTab && (
-                <button
-                  onClick={() => onNavigateTab('event')}
-                  className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Lihat Semua</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {eventTerdekat.length === 0 ? (
-              <div className="py-4 text-center text-gray-400">
-                <CalendarDays className="w-6 h-6 mx-auto mb-1 text-gray-300" />
-                <p className="text-xs">Tidak ada event mendatang</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {eventTerdekat.map(ev => {
-                  const st = getStatusEvent(ev, today, now || new Date())
-                  return (
-                    <div key={ev.id} className="p-2.5 rounded-xl border border-gray-100 bg-gray-50/70 text-xs flex flex-col gap-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            ev.tipe === 'seluruh'
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                              : 'bg-slate-50 text-slate-800 border border-slate-200'
-                          }`}
-                        >
-                          {ev.tipe === 'seluruh' ? 'Seluruh Asrama' : `Gedung ${ev.namaGedung || ''}`}
-                        </span>
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            st === 'Sedang Berlangsung'
-                              ? 'bg-amber-100 text-amber-900 animate-pulse'
-                              : 'bg-slate-50 text-slate-800'
-                          }`}
-                        >
-                          {st}
-                        </span>
-                      </div>
-                      <p className="font-bold text-gray-800 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                        {ev.judul}
-                      </p>
-                      <div className="flex items-center justify-between text-[11px] text-gray-500">
-                        <span>{formatTanggal(ev.tanggal)} • {ev.jamMulai} WIB</span>
-                        {ev.statusKehadiran === 'Hadir' ? (
-                          <span className="text-emerald-700 font-bold">✓ Hadir</span>
-                        ) : st === 'Sedang Berlangsung' && onBukaPresensiEvent ? (
+            ) : undefined}
+          >
+            <div className="p-5 space-y-3">
+              {sesiHariIni.length === 0 ? (
+                <p className="text-xs text-gray-500">Tidak ada sesi presensi untuk gedung Anda hari ini.</p>
+              ) : (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {sesiHariIni.map(({ sesi, detail }) => {
+                    const boleh = bisaPresensi(detail)
+                    const ditolak = detail.presensi?.statusFoto === 'Ditolak'
+                    const jamMasuk = jamPresensi(detail.presensi)
+                    const ket = ditolak
+                      ? `Foto ditolak${detail.presensi?.catatanValidasi ? `: ${detail.presensi.catatanValidasi}` : ''}`
+                      : jamMasuk ? `Tercatat pukul ${jamMasuk} WIB${detail.presensi?.statusFoto === 'Menunggu' ? ' · foto menunggu validasi' : ''}`
+                      : detail.status === 'Izin' ? 'Izin disetujui'
+                      : detail.status === 'Belum' && !boleh ? alasanTidakBisaPresensi(detail, sesi)
+                      : detail.status === 'Tidak Hadir' ? 'Tidak ada presensi hingga sesi ditutup'
+                      : detail.status === 'Libur' ? 'Tidak ada kewajiban presensi' : 'Sesi sedang dibuka'
+                    return (
+                      <div key={sesi.id} className="rounded-xl border border-gray-200 p-4 flex flex-col gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="w-9 h-9 shrink-0 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-700"><SesiIcon nama={sesi.nama} className="w-4 h-4" /></span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Sesi {sesi.nama}</p>
+                            <p className="text-[11px] text-gray-400 mono">{sesi.jamMulai}–{sesi.jamSelesai} WIB</p>
+                          </div>
+                          <Badge status={detail.status} />
+                        </div>
+                        <p className={`text-[11px] font-medium ${ditolak ? 'text-rose-700' : 'text-gray-500'}`}>{ket}</p>
+                        {boleh && (
                           <button
-                            type="button"
-                            onClick={() => onBukaPresensiEvent(ev)}
-                            className="font-bold text-emerald-800 hover:text-emerald-950 underline cursor-pointer"
+                            onClick={() => onBukaPresensi(sesi.nama)}
+                            className="w-full py-2 rounded-lg text-xs font-bold text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
                           >
-                            Absen
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>{ditolak ? 'Absen Ulang' : 'Presensi Sekarang'}</span>
                           </button>
-                        ) : null}
+                        )}
                       </div>
+                    )
+                  })}
+                </div>
+              )}
+              {notice && <NoticeBox notice={notice} />}
+            </div>
+          </KartuProfil>
+
+          <KartuProfil
+            ikon={<History />}
+            judul="Aktivitas Terakhir"
+            sub="Presensi harian & absen event"
+            className="h-auto!"
+            kanan={onNavigateTab && <button type="button" onClick={() => onNavigateTab('riwayat')} className={tombolLink}>Semua riwayat<ArrowRight className="w-3.5 h-3.5" /></button>}
+          >
+            {logTerkini.length === 0 ? (
+              <p className="px-5 py-8 text-center text-xs text-gray-400">Belum ada aktivitas presensi.</p>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {logTerkini.map(item => (
+                  <li key={item.kunci} className="px-5 py-3 flex items-center gap-3">
+                    <IkonLog item={item} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{item.judul}</p>
+                      <p className="text-[11px] text-gray-500">{formatTanggal(item.tanggal)}{item.jam ? ` · masuk ${item.jam}` : ''}</p>
                     </div>
+                    {item.statusFoto && item.statusFoto !== 'Diterima' && <span className="hidden sm:inline"><FotoBadge status={item.statusFoto} /></span>}
+                    <Badge status={item.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </KartuProfil>
+        </div>
+
+        {/* Kolom samping */}
+        <div className="space-y-5 min-w-0">
+          <KartuProfil
+            ikon={<CalendarDays />}
+            judul="Event Terdekat"
+            className="h-auto!"
+            kanan={onNavigateTab && <button type="button" onClick={() => onNavigateTab('event')} className={tombolLink}>Semua<ArrowRight className="w-3.5 h-3.5" /></button>}
+          >
+            {eventTerdekat.length === 0 ? (
+              <p className="px-5 py-6 text-center text-xs text-gray-400">Tidak ada event mendatang.</p>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {eventTerdekat.map(ev => {
+                  const st = getStatusEvent(ev, today, jam)
+                  return (
+                    <li key={ev.id} className="px-5 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{ev.judul}</p>
+                        {ev.statusKehadiran === 'Hadir'
+                          ? <span className="text-[11px] font-bold text-emerald-700 shrink-0">Hadir</span>
+                          : st === 'Sedang Berlangsung'
+                            ? <span className="text-[11px] font-bold text-amber-700 shrink-0">Berlangsung</span>
+                            : null}
+                      </div>
+                      <p className="text-[11px] text-gray-500 truncate">{ev.tanggal === today ? 'Hari ini' : formatTanggal(ev.tanggal)} · {ev.jamMulai}–{ev.jamSelesai} · {ev.lokasi}</p>
+                    </li>
                   )
                 })}
-              </div>
+              </ul>
             )}
-          </div>
+          </KartuProfil>
 
-          {/* Permohonan Izin Terkini & Quick Action */}
-          <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-              <h4 className="font-bold text-xs text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                Permohonan Izin Terakhir
-              </h4>
-              {onNavigateTab && (
-                <button
-                  onClick={() => onNavigateTab('izin')}
-                  className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Ajukan Baru</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {izinData.length === 0 ? (
-              <div className="py-4 text-center text-gray-400">
-                <FileText className="w-6 h-6 mx-auto mb-1 text-gray-300" />
-                <p className="text-xs">Belum ada pengajuan izin aktif</p>
-              </div>
+          <KartuProfil
+            ikon={<FileText />}
+            judul="Izin Terakhir"
+            className="h-auto!"
+            kanan={onNavigateTab && <button type="button" onClick={() => onNavigateTab('izin')} className={tombolLink}>Ajukan<ArrowRight className="w-3.5 h-3.5" /></button>}
+          >
+            {izinTerakhir.length === 0 ? (
+              <p className="px-5 py-6 text-center text-xs text-gray-400">Belum ada pengajuan izin.</p>
             ) : (
-              <div className="space-y-2">
-                {izinData.slice(0, 3).map(i => (
-                  <div key={i.id} className="p-2.5 rounded-xl border border-gray-100 bg-gray-50/70 text-xs">
-                    <div className="flex items-center justify-between gap-1 mb-1">
-                      <span className="font-bold text-gray-800 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-                        {formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}
-                      </span>
+              <ul className="divide-y divide-gray-100">
+                {izinTerakhir.map(i => (
+                  <li key={i.id} className="px-5 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)}</p>
                       <Badge status={i.statusPersetujuan} />
                     </div>
-                    <p className="text-gray-600 truncate text-[11px]">{i.alasan}</p>
-                  </div>
+                    <p className="text-[11px] text-gray-500 truncate">{i.alasan}</p>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
+          </KartuProfil>
 
-          {/* Aturan Singkat Presensi */}
-          <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-100 text-xs text-emerald-900 space-y-1.5">
-            <div className="font-bold text-emerald-950 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-700" />
-              <span>Panduan Singkat Presensi</span>
-            </div>
-            <ul className="text-[11px] text-emerald-800/90 space-y-1 list-disc list-inside">
-              <li>Presensi mandiri dibuka sesuai jadwal sesi.</li>
-              <li>Pastikan berada dalam radius {gedung?.radiusMeter ?? 50}m.</li>
-              <li>Ambil foto selfie jelas dan langsung dari kamera.</li>
-            </ul>
-          </div>
+          <KartuProfil ikon={<Building />} judul="Hunian" className="h-auto!">
+            <dl className="px-5 py-3 text-xs divide-y divide-gray-50">
+              {[
+                ['Gedung', user.namaGedung || '–'],
+                ['Kamar', user.nomorKamar || '–'],
+                ['Fasilitator', gedung?.namaPj || '–'],
+                ['Radius presensi', gedung ? `${gedung.radiusMeter} m dari gedung` : '–'],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-3 py-2">
+                  <dt className="text-gray-500">{k}</dt>
+                  <dd className="font-semibold text-gray-900 text-right truncate">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </KartuProfil>
         </div>
       </div>
     </div>
@@ -945,8 +806,16 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
   onRefreshLocation: () => void
 }) {
   const sesiDibuka = sesiHariIni.find(s => s.detail.fase === 'dibuka')
-  const [selectedSesi, setSelectedSesi] = useState<string>(sesiAwal || sesiDibuka?.sesi.nama || sesiHariIni[0]?.sesi.nama || '')
+  const [selectedSesi, setSelectedSesi] = useState<string>(sesiAwal || sesiHariIni.find(x => bisaPresensi(x.detail))?.sesi.nama || sesiDibuka?.sesi.nama || sesiHariIni[0]?.sesi.nama || '')
   const selected = sesiHariIni.find(s => s.sesi.nama === selectedSesi)
+  // Sesi terpilih jadi tidak bisa (mis. baru saja absen) -> pindah ke sesi lain yang masih bisa
+  const kunciSesi = sesiHariIni.map(x => `${x.sesi.nama}:${x.detail.status}:${x.detail.fase}`).join('|')
+  useEffect(() => {
+    if (selected && bisaPresensi(selected.detail)) return
+    const lain = sesiHariIni.find(x => bisaPresensi(x.detail))
+    if (lain) setSelectedSesi(lain.sesi.nama)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kunciSesi])
   const koordinatSiap = hasKoordinat(gedung)
   const radius = gedung?.radiusMeter ?? 0
   const inRadius = gps.distance !== undefined && gps.distance <= radius
@@ -965,14 +834,18 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
           ) : (
             <div className="grid sm:grid-cols-2 gap-3">
               {sesiHariIni.map(({ sesi, detail }) => {
-                const isSelected = selectedSesi === sesi.nama
+                const dapat = bisaPresensi(detail)
+                const isSelected = selectedSesi === sesi.nama && dapat
                 return (
                   <button
                     key={sesi.id}
                     type="button"
+                    disabled={!dapat}
+                    aria-disabled={!dapat}
                     onClick={() => setSelectedSesi(sesi.nama)}
-                    className={`flex items-center gap-4 p-4 rounded-xl text-left border transition-all cursor-pointer ${
-                      isSelected ? 'border-emerald-600 bg-emerald-50/60 ring-1 ring-emerald-600' : 'border-gray-200 bg-white hover:border-emerald-300'
+                    className={`flex items-center gap-4 p-4 rounded-xl text-left border transition-all ${
+                      !dapat ? 'border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed'
+                        : isSelected ? 'border-emerald-600 bg-emerald-50/60 ring-1 ring-emerald-600 cursor-pointer' : 'border-gray-200 bg-white hover:border-emerald-300 cursor-pointer'
                     }`}
                   >
                     <div className="w-11 h-11 shrink-0 rounded-xl bg-white flex items-center justify-center border border-gray-200">
@@ -984,6 +857,8 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
                         {detail.fase === 'dibuka' && <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">DIBUKA</span>}
                       </div>
                       <div className="text-xs text-gray-500 font-medium">{sesi.jamMulai} – {sesi.jamSelesai} WIB</div>
+                      {!dapat && <div className="text-[11px] text-gray-400 mt-0.5 truncate">{alasanTidakBisaPresensi(detail, sesi)}</div>}
+                      {bisaAbsenUlang(detail) && <div className="text-[11px] text-rose-700 font-semibold mt-0.5">Foto ditolak · silakan absen ulang</div>}
                     </div>
                     <Badge status={detail.status} />
                   </button>
@@ -1106,6 +981,15 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
       </div>
 
       {/* Baris 3: kirim (selebar halaman) */}
+      {selected && bisaAbsenUlang(selected.detail) && (
+        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs font-medium flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+          <span>
+            Foto presensi sesi {selected.sesi.nama} ditolak fasil{selected.detail.presensi?.catatanValidasi ? `: "${selected.detail.presensi.catatanValidasi}"` : ''}.
+            Anda bisa absen ulang sampai pukul {selected.sesi.jamSelesai} WIB.
+          </span>
+        </div>
+      )}
       {notice && <NoticeBox notice={notice} />}
       <button
         type="button"
@@ -1139,7 +1023,7 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
         ) : (
           <>
             <MapPin className="w-4 h-4" />
-            <span>Kirim Presensi Sekarang (Sesi {selected.sesi.nama})</span>
+            <span>{bisaAbsenUlang(selected.detail) ? 'Kirim Absen Ulang' : 'Kirim Presensi Sekarang'} (Sesi {selected.sesi.nama})</span>
           </>
         )}
       </button>
@@ -1147,11 +1031,16 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
   )
 }
 
-function PenghuniRiwayat({ riwayat, children }: { riwayat: ReturnType<typeof riwayatPenghuni>; children?: React.ReactNode }) {
+const PILIHAN_BARIS_LOG = [10, 25, 50, 100]
+
+function PenghuniRiwayat({ riwayat, eventSaya, children }: { riwayat: ReturnType<typeof riwayatPenghuni>; eventSaya: EventAsrama[]; children?: React.ReactNode }) {
   const c = hitungStatus(riwayat.map(r => r.detail.status))
-  const [semua, setSemua] = useState(false)
-  const BATAS = 10
-  const tampil = semua ? riwayat : riwayat.slice(0, BATAS)
+  const [cari, setCari] = useState('')
+  const [jenis, setJenis] = useState<'' | 'harian' | 'event'>('')
+  const [status, setStatus] = useState<'' | PresensiStatus>('')
+  const [perHalaman, setPerHalaman] = useState(10)
+  const [halaman, setHalaman] = useState(1)
+
   // Lingkaran persentase (SVG)
   const R = 42
   const keliling = 2 * Math.PI * R
@@ -1162,6 +1051,21 @@ function PenghuniRiwayat({ riwayat, children }: { riwayat: ReturnType<typeof riw
     { label: 'Izin', nilai: c.Izin, ikon: <FileText className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
     { label: 'Libur', nilai: c.Libur, ikon: <Palmtree className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-600' },
   ]
+
+  const log = susunLog(riwayat, eventSaya)
+  const kata = cari.trim().toLowerCase()
+  const hasil = log.filter(x =>
+    (!jenis || x.jenis === jenis) &&
+    (!status || x.status === status) &&
+    (!kata || `${x.judul} ${formatTanggal(x.tanggal)} ${x.tanggal} ${x.keterangan} ${x.catatan ?? ''}`.toLowerCase().includes(kata)))
+  useEffect(() => setHalaman(1), [kata, jenis, status, perHalaman])
+  const jumlahHalaman = Math.max(1, Math.ceil(hasil.length / perHalaman))
+  const aktif = Math.min(halaman, jumlahHalaman)
+  const dari = (aktif - 1) * perHalaman
+  const tampil = hasil.slice(dari, dari + perHalaman)
+  const jumlahEvent = log.filter(x => x.jenis === 'event').length
+  const kontrol = 'px-3 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm font-medium text-gray-700 outline-none focus:border-emerald-600 cursor-pointer'
+  const tombolHal = 'px-3 py-1.5 rounded-lg border border-gray-200 bg-[#fff] font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
 
   return (
     <div className="space-y-5 w-full">
@@ -1203,69 +1107,105 @@ function PenghuniRiwayat({ riwayat, children }: { riwayat: ReturnType<typeof riw
 
       {children}
 
-      {/* Log riwayat */}
+      {/* Log riwayat: presensi harian + absen event */}
       <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/90 shadow-2xs">
-        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Log Riwayat Presensi</h3>
-          <p className="text-xs text-gray-500">{riwayat.length} sesi wajib · termasuk yang terlewat</p>
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-col xl:flex-row xl:items-center gap-3">
+          <div className="xl:mr-auto">
+            <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Log Riwayat Presensi</h3>
+            <p className="text-xs text-gray-500">{riwayat.length} sesi harian · {jumlahEvent} absen event</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full sm:w-60">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="search"
+                value={cari}
+                onChange={e => setCari(e.target.value)}
+                placeholder="Cari tanggal, sesi, event..."
+                aria-label="Cari riwayat"
+                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400"
+              />
+            </div>
+            <select value={jenis} onChange={e => setJenis(e.target.value as typeof jenis)} className={kontrol} aria-label="Jenis presensi">
+              <option value="">Semua jenis</option>
+              <option value="harian">Presensi harian</option>
+              <option value="event">Absen event</option>
+            </select>
+            <select value={status} onChange={e => setStatus(e.target.value as typeof status)} className={kontrol} aria-label="Status">
+              <option value="">Semua status</option>
+              <option value="Hadir">Hadir</option>
+              <option value="Tidak Hadir">Tidak hadir</option>
+              <option value="Izin">Izin</option>
+              <option value="Libur">Libur</option>
+              <option value="Belum">Belum absen</option>
+            </select>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50/70 border-b border-gray-100">
-                {['Tanggal & sesi', 'Waktu masuk', 'Lokasi', 'Status', 'Validasi foto', 'Keterangan'].map(h => (
+                {['Tanggal & kegiatan', 'Jenis', 'Waktu masuk', 'Status', 'Validasi foto', 'Keterangan'].map(h => (
                   <th key={h} className="text-left px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {riwayat.length === 0 && (
-                <tr><td colSpan={6} className="px-5 py-10 text-center text-sm text-gray-400">Belum ada riwayat presensi.</td></tr>
+              {tampil.length === 0 && (
+                <tr><td colSpan={6} className="px-5 py-10 text-center text-sm text-gray-400">{log.length === 0 ? 'Belum ada riwayat presensi.' : 'Tidak ada riwayat yang cocok dengan filter.'}</td></tr>
               )}
-              {tampil.map(({ tanggal, sesi, detail }) => {
-                const rec = detail.presensi
-                const otomatis = !!rec?.otomatis
-                return (
-                  <tr key={`${tanggal}-${sesi.nama}`} className="hover:bg-gray-50/80 transition-colors">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-3">
-                        <span className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center"><SesiIcon nama={sesi.nama} className="w-4 h-4" /></span>
-                        <div>
-                          <p className="font-semibold text-gray-900 whitespace-nowrap" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatTanggal(tanggal)}</p>
-                          <p className="text-[11px] text-gray-500">Sesi {sesi.nama} · {sesi.jamMulai}–{sesi.jamSelesai}</p>
-                        </div>
+              {tampil.map(x => (
+                <tr key={x.kunci} className="hover:bg-gray-50/80 transition-colors">
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <IkonLog item={x} />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 whitespace-nowrap" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatTanggal(x.tanggal)}</p>
+                        <p className="text-[11px] text-gray-500 max-w-[260px] truncate">{x.judul} · {x.jadwal}</p>
                       </div>
-                    </td>
-                    <td className="px-5 py-3 mono text-xs font-semibold text-gray-700">{jamPresensi(rec) || <span className="text-gray-300">–</span>}</td>
-                    <td className="px-5 py-3 mono text-[11px] text-gray-500 whitespace-nowrap">
-                      {rec && rec.latitude !== null && rec.longitude !== null ? `${Number(rec.latitude).toFixed(5)}, ${Number(rec.longitude).toFixed(5)}` : <span className="text-gray-300">–</span>}
-                    </td>
-                    <td className="px-5 py-3"><Badge status={detail.status} /></td>
-                    <td className="px-5 py-3 text-xs">
-                      {rec?.statusFoto ? (
-                        <div className="space-y-1">
-                          <FotoBadge status={rec.statusFoto} />
-                          {rec.catatanValidasi && <p className="text-gray-600 max-w-[220px]">Catatan fasil: {rec.catatanValidasi}</p>}
-                        </div>
-                      ) : <span className="text-gray-300">–</span>}
-                    </td>
-                    <td className={`px-5 py-3 text-xs ${otomatis ? 'text-gray-400' : 'text-gray-600'}`}>{keteranganStatus(detail) || <span className="text-gray-300">–</span>}</td>
-                  </tr>
-                )
-              })}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${x.jenis === 'event' ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      {x.jenis === 'event' ? 'Event' : 'Harian'}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 mono text-xs font-semibold text-gray-700">{x.jam || <span className="text-gray-300">–</span>}</td>
+                  <td className="px-5 py-3"><Badge status={x.status} /></td>
+                  <td className="px-5 py-3 text-xs">
+                    {x.statusFoto ? (
+                      <div className="space-y-1">
+                        <FotoBadge status={x.statusFoto} />
+                        {x.catatan && <p className="text-gray-600 max-w-[220px]">Catatan fasil: {x.catatan}</p>}
+                      </div>
+                    ) : <span className="text-gray-300">–</span>}
+                  </td>
+                  <td className={`px-5 py-3 text-xs ${x.otomatis ? 'text-gray-400' : 'text-gray-600'}`}>{x.keterangan || <span className="text-gray-300">–</span>}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-        {riwayat.length > BATAS && (
-          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3 text-xs text-gray-500">
-            <span>Menampilkan {tampil.length} dari {riwayat.length} sesi</span>
-            <button
-              type="button"
-              onClick={() => setSemua(v => !v)}
-              className="px-3.5 py-2 rounded-lg font-bold text-emerald-800 bg-[#fff] border border-emerald-200 hover:bg-emerald-50 cursor-pointer"
-            >
-              {semua ? 'Tampilkan lebih sedikit' : 'Tampilkan semua'}
-            </button>
+        {hasil.length > 0 && (
+          <div className="px-5 py-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <label className="inline-flex items-center gap-2">
+                <span>Tampilkan</span>
+                <select value={perHalaman} onChange={e => setPerHalaman(Number(e.target.value))} aria-label="Jumlah baris per halaman"
+                  className="px-2 py-1.5 rounded-lg border border-gray-200 bg-[#fff] text-xs font-semibold text-gray-800 outline-none focus:border-emerald-600 cursor-pointer">
+                  {PILIHAN_BARIS_LOG.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <span>baris</span>
+              </label>
+              <span>Menampilkan {dari + 1}–{dari + tampil.length} dari {hasil.length}</span>
+            </div>
+            {jumlahHalaman > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button type="button" className={tombolHal} disabled={aktif === 1} onClick={() => setHalaman(aktif - 1)}>‹ Sebelumnya</button>
+                <span className="px-2 font-semibold text-gray-700 tabular-nums">{aktif} / {jumlahHalaman}</span>
+                <button type="button" className={tombolHal} disabled={aktif === jumlahHalaman} onClick={() => setHalaman(aktif + 1)}>Berikutnya ›</button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1419,11 +1359,33 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
 
   return (
     <div className="w-full space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<FileText className="w-5 h-5 text-gray-600" />} label="Total Pengajuan" value={jumlah.Semua} />
-        <StatCard icon={<Clock className="w-5 h-5 text-amber-600" />} label="Menunggu" value={jumlah.Pending} color="#b45309" />
-        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-slate-700" />} label="Disetujui" value={jumlah.Disetujui} color="#334155" />
-        <StatCard icon={<XCircle className="w-5 h-5 text-rose-600" />} label="Ditolak" value={jumlah.Ditolak} color="#e11d48" />
+      {/* Ubin status = ringkasan angka sekaligus penyaring (seperti Manajemen Izin fasil) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="tablist" aria-label="Saring status izin">
+        {([
+          { status: 'Semua', label: 'Semua', ket: 'Seluruh pengajuan', ikon: <FileText className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-600', aktifCls: 'border-gray-800 ring-2 ring-gray-800/10' },
+          { status: 'Pending', label: 'Menunggu', ket: 'Belum diputuskan', ikon: <Clock className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700', aktifCls: 'border-amber-400 ring-2 ring-amber-400/20' },
+          { status: 'Disetujui', label: 'Disetujui', ket: 'Izin diterima', ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700', aktifCls: 'border-emerald-500 ring-2 ring-emerald-500/20' },
+          { status: 'Ditolak', label: 'Ditolak', ket: 'Izin tidak diterima', ikon: <XCircle className="w-4 h-4" />, warna: 'bg-rose-50 text-rose-600', aktifCls: 'border-rose-400 ring-2 ring-rose-400/20' },
+        ] as const).map(u => {
+          const aktif = filter === u.status
+          return (
+            <button
+              key={u.status}
+              type="button"
+              role="tab"
+              aria-selected={aktif}
+              onClick={() => setFilter(u.status)}
+              className={`text-left bg-[#fff] rounded-2xl border p-4 shadow-2xs transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${aktif ? u.aktifCls : 'border-gray-200/90'}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-gray-600">{u.label}</span>
+                <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${u.warna}`}>{u.ikon}</span>
+              </div>
+              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{jumlahTersaring[u.status]}</p>
+              <p className="text-[11px] text-gray-400">{u.ket}{jumlahTersaring[u.status] !== jumlah[u.status] ? ` · dari ${jumlah[u.status]}` : ''}</p>
+            </button>
+          )
+        })}
       </div>
 
       {notice && <NoticeBox notice={notice} />}
@@ -1463,24 +1425,8 @@ function PenghuniIzin({ izinData, setIzinData, user, sesiList, today }: {
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Saring status izin">
-            {(['Semua', 'Pending', 'Disetujui', 'Ditolak'] as const).map(f => {
-              const aktif = filter === f
-              return (
-                <button
-                  key={f}
-                  type="button"
-                  role="tab"
-                  aria-selected={aktif}
-                  onClick={() => setFilter(f)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${aktif ? 'bg-[#141a17] text-white border-[#141a17]' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
-                  style={{ fontFamily: 'Plus Jakarta Sans' }}
-                >
-                  {f === 'Semua' ? 'Semua' : TAMPILAN_STATUS_IZIN[f].label}
-                  <span className={`ml-1.5 ${aktif ? 'text-emerald-100' : 'text-gray-400'}`}>{jumlahTersaring[f]}</span>
-                </button>
-              )
-            })}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-gray-600">{filter === 'Semua' ? 'Semua status' : TAMPILAN_STATUS_IZIN[filter].label}</span>
             {adaSaringan && (
               <span className="ml-auto flex items-center gap-2 text-xs text-gray-500">
                 <span>{daftar.length} dari {izinData.length} izin</span>
@@ -2070,29 +2016,57 @@ function PenghuniProfil({ user, onLogout }: { user: CurrentUser; onLogout: () =>
   )
 }
 
+// Foto bukti absen event (diambil dengan token); klik untuk membuka pop-up
+function FotoBuktiEvent({ foto, judul }: { foto: string; judul: string }) {
+  const [src, setSrc] = useState<string | null>(foto.startsWith('data:') ? foto : null)
+  const [gagal, setGagal] = useState(false)
+  const [buka, setBuka] = useState(false)
+  useEffect(() => {
+    if (foto.startsWith('data:')) { setSrc(foto); return }
+    let aktif = true
+    let dibuat: string | null = null
+    setGagal(false)
+    fetchFotoEvent(foto).then(url => {
+      if (!aktif) { if (url?.startsWith('blob:')) URL.revokeObjectURL(url); return }
+      if (url?.startsWith('blob:')) dibuat = url
+      setSrc(url)
+      setGagal(!url)
+    })
+    return () => { aktif = false; if (dibuat) URL.revokeObjectURL(dibuat) }
+  }, [foto])
+  return (
+    <>
+      <button type="button" onClick={() => setBuka(true)} className="w-9 h-9 shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center cursor-zoom-in" title="Lihat foto bukti" aria-label="Lihat foto bukti">
+        {src ? <img src={src} alt="Foto bukti absen" className="w-full h-full object-cover" /> : <Camera className="w-4 h-4 text-gray-400" />}
+      </button>
+      {buka && <Pratinjau judul="Foto bukti absen event" keterangan={judul} url={src} gagal={gagal} onClose={() => setBuka(false)} />}
+    </>
+  )
+}
+
 function PenghuniEvent({
   eventList,
   user,
   onBukaAbsen,
   today,
   now,
+  liburHariIni,
+  notice,
 }: {
   eventList: EventAsrama[]
   user: CurrentUser
   onBukaAbsen: (ev: EventAsrama) => void
   today: string
   now: Date
+  liburHariIni?: HariLibur
+  notice?: Notice | null
 }) {
   const [filterKategori, setFilterKategori] = useState<'semua' | 'seluruh' | 'gedung'>('semua')
   const [filterStatus, setFilterStatus] = useState<string>('semua')
   const [cari, setCari] = useState('')
 
   // Event yang relevan untuk penghuni: event seluruh asrama atau event gedung tempat tinggalnya
-  const eventSaya = eventList.filter(ev =>
-    ev.tipe === 'seluruh' ||
-    (ev.idGedung && user.idGedung && ev.idGedung === user.idGedung) ||
-    (ev.namaGedung && user.namaGedung && ev.namaGedung === user.namaGedung)
-  )
+  const eventSaya = eventMilik(eventList, user, user.idGedung)
 
   const filtered = eventSaya.filter(ev => {
     const st = getStatusEvent(ev, today, now)
@@ -2118,41 +2092,31 @@ function PenghuniEvent({
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div
-        className="rounded-2xl p-6 text-white relative overflow-hidden shadow-xs"
-        style={{ background: 'linear-gradient(135deg, #0f3e2d 0%, #17603d 55%, #27a150 100%)' }}
-      >
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md text-emerald-200 text-xs font-semibold mb-2 border border-white/10">
-              <CalendarDays className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Kegiatan & Agenda Asrama</span>
-            </div>
-            <h2 className="text-xl lg:text-2xl font-bold tracking-tight" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              Pengumuman & Daftar Event
-            </h2>
-            <p className="text-emerald-100/80 text-xs mt-1 max-w-xl">
-              Ikuti kegiatan asrama dan lakukan presensi kehadiran tepat waktu dengan validasi GPS lokasi dan verifikasi foto wajah.
-            </p>
-          </div>
-
-          {/* 4 Stat Mini Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full lg:w-auto">
-            {[
-              { label: 'Total Event', value: totalEvent },
-              { label: 'Sedang Berlangsung', value: sedangBerlangsung },
-              { label: 'Akan Datang', value: akanDatang },
-              { label: 'Kehadiran Saya', value: `${hadirCount} Event` },
-            ].map(s => (
-              <div key={s.label} className="px-3.5 py-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 text-center min-w-[85px]">
-                <p className="text-[10px] font-medium text-emerald-200/90">{s.label}</p>
-                <p className="text-base lg:text-lg font-extrabold text-white mt-0.5" style={{ fontFamily: 'Plus Jakarta Sans' }}>{s.value}</p>
+      {/* Kepala halaman: judul + ringkasan (hijau hanya dipakai di dashboard) */}
+      <div className="bg-[#fff] rounded-2xl border border-gray-200/90 shadow-2xs p-5 flex flex-col lg:flex-row lg:items-center gap-5">
+        <div className="lg:mr-auto min-w-0">
+          <h2 className="text-lg font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Pengumuman & Daftar Event</h2>
+          <p className="text-xs text-gray-500 mt-0.5 max-w-xl">Ikuti kegiatan asrama dan lakukan presensi tepat waktu dengan lokasi GPS dan foto wajah.</p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:w-[620px]">
+          {[
+            { label: 'Total event', value: totalEvent, ikon: <CalendarDays className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-700' },
+            { label: 'Berlangsung', value: sedangBerlangsung, ikon: <Clock className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
+            { label: 'Akan datang', value: akanDatang, ikon: <CalendarDays className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700' },
+            { label: 'Dihadiri', value: hadirCount, ikon: <CheckCircle2 className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700' },
+          ].map(x => (
+            <div key={x.label} className="p-3.5 rounded-xl bg-gray-50/70 border border-gray-100">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-gray-500 truncate">{x.label}</span>
+                <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center ${x.warna}`}>{x.ikon}</span>
               </div>
-            ))}
-          </div>
+              <p className="mt-1 text-2xl font-extrabold text-gray-900 tabular-nums" style={{ fontFamily: 'Plus Jakarta Sans' }}>{x.value}</p>
+            </div>
+          ))}
         </div>
       </div>
+
+      {notice && <NoticeBox notice={notice} />}
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
@@ -2232,8 +2196,12 @@ function PenghuniEvent({
           {filtered.map(ev => {
             const st = getStatusEvent(ev, today, now)
             const sudahHadir = ev.statusKehadiran === 'Hadir'
+            const fotoDitolak = ev.presensiSaya?.statusFoto === 'Ditolak'
             const tidakHadir = ev.statusKehadiran === 'Tidak Hadir'
-            const bisaAbsen = st === 'Sedang Berlangsung' && !sudahHadir
+            // Hari libur: semua absen (termasuk event) dimatikan
+            const libur = ev.tanggal === today && !!liburHariIni
+            const bisaAbsen = st === 'Sedang Berlangsung' && !libur && (!sudahHadir && (!tidakHadir || fotoDitolak))
+            const statusFoto = ev.presensiSaya?.statusFoto
 
             return (
               <KartuEvent
@@ -2261,27 +2229,25 @@ function PenghuniEvent({
                 {/* Bottom CTA / Status Info */}
                 <div className="pt-2 border-t border-gray-100">
                   {sudahHadir ? (
-                    <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1.5 min-w-0">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="truncate">Kehadiran Anda telah tercatat</span>
-                      </span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {ev.presensiSaya?.waktu && (
-                          <span className="mono text-[11px] font-bold text-emerald-800">
-                            {ev.presensiSaya.waktu} WIB
+                    <div className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 ${statusFoto === 'Menunggu' ? 'bg-amber-50/70 border-amber-200' : 'bg-emerald-50/70 border-emerald-200'}`}>
+                      <span className="flex items-center gap-2 min-w-0">
+                        {statusFoto === 'Menunggu'
+                          ? <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                          : <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                        <span className="min-w-0">
+                          <span className={`block font-semibold truncate ${statusFoto === 'Menunggu' ? 'text-amber-900' : 'text-emerald-900'}`}>
+                            {statusFoto === 'Menunggu' ? 'Tercatat · menunggu validasi foto' : 'Kehadiran tercatat'}
                           </span>
-                        )}
-                        {ev.presensiSaya?.foto && (
-                          <img
-                            src={fotoEventUrl(ev.presensiSaya.foto) || undefined}
-                            alt="Bukti Presensi"
-                            className="w-7 h-7 rounded-lg object-cover border border-emerald-300"
-                          />
-                        )}
-                      </div>
+                          {ev.presensiSaya?.waktu && <span className="block text-[11px] text-gray-500">Absen pukul {ev.presensiSaya.waktu.slice(0, 5)} WIB</span>}
+                        </span>
+                      </span>
+                      {ev.presensiSaya?.foto && <FotoBuktiEvent foto={ev.presensiSaya.foto} judul={ev.judul} />}
                     </div>
                   ) : bisaAbsen ? (
+                    <div className="space-y-2">
+                      {fotoDitolak && (
+                        <p className="text-[11px] text-rose-700 font-semibold">Foto ditolak{ev.presensiSaya?.catatanValidasi ? `: ${ev.presensiSaya.catatanValidasi}` : ''}. Silakan absen ulang.</p>
+                      )}
                     <button
                       type="button"
                       onClick={() => onBukaAbsen(ev)}
@@ -2289,8 +2255,19 @@ function PenghuniEvent({
                       style={{ fontFamily: 'Plus Jakarta Sans' }}
                     >
                       <UserCheck className="w-4 h-4" />
-                      <span>Presensi Event Sekarang (GPS & Selfie)</span>
+                      <span>{fotoDitolak ? 'Absen Ulang Event' : 'Presensi Event Sekarang'}</span>
                     </button>
+                    </div>
+                  ) : libur && st !== 'Selesai' ? (
+                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 text-xs font-medium flex items-center gap-1.5">
+                      <CalendarDays className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span>Hari libur ({liburHariIni?.keterangan}) · absen event dinonaktifkan</span>
+                    </div>
+                  ) : tidakHadir ? (
+                    <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-200 text-rose-900 text-xs font-medium flex items-center gap-1.5">
+                      <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                      <span>{fotoDitolak ? `Foto ditolak${ev.presensiSaya?.catatanValidasi ? `: ${ev.presensiSaya.catatanValidasi}` : ''} · event sudah selesai` : 'Tercatat tidak hadir'}</span>
+                    </div>
                   ) : st === 'Akan Datang' ? (
                     <div className="p-2.5 rounded-xl bg-slate-50/60 border border-slate-100 text-slate-900 text-xs font-medium flex items-center gap-1.5">
                       <Clock className="w-4 h-4 text-slate-600 shrink-0" />

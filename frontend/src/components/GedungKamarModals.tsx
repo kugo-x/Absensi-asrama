@@ -22,7 +22,16 @@ export function GedungFormModal({
   const isEdit = Boolean(gedung)
 
   const [nama, setNama] = useState(gedung?.nama ?? '')
+  const [jenis, setJenis] = useState<'Putra' | 'Putri'>(gedung?.jenis ?? 'Putra')
   const [nimPj, setNimPj] = useState<string | null>(gedung?.nimPj ?? null)
+  // Fasil PJ harus sesuai jenis gedung: putra -> laki-laki, putri -> perempuan
+  const jkGedung = jenis === 'Putri' ? 'P' : 'L'
+  const fasilCocok = fasilList.filter(f => !f.jenisKelamin || f.jenisKelamin === jkGedung)
+  const gantiJenis = (j: 'Putra' | 'Putri') => {
+    setJenis(j)
+    const pj = fasilList.find(f => f.nim === nimPj)
+    if (pj?.jenisKelamin && pj.jenisKelamin !== (j === 'Putri' ? 'P' : 'L')) setNimPj(null)
+  }
   const [latitude, setLatitude] = useState<number | null>(gedung?.latitude ?? -0.914488)
   const [longitude, setLongitude] = useState<number | null>(gedung?.longitude ?? 100.466542)
   const [radiusMeter, setRadiusMeter] = useState(gedung?.radiusMeter ?? 50)
@@ -42,6 +51,7 @@ export function GedungFormModal({
     const res = await onSave({
       id: gedung?.id,
       nama: nama.trim(),
+      jenis,
       nimPj: nimPj || null,
       latitude,
       longitude,
@@ -106,6 +116,26 @@ export function GedungFormModal({
 
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
+              Jenis Asrama <span className="text-rose-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {(['Putra', 'Putri'] as const).map(j => (
+                <button
+                  key={j}
+                  type="button"
+                  onClick={() => gantiJenis(j)}
+                  aria-pressed={jenis === j}
+                  className={`py-2.5 rounded-xl border text-sm font-bold cursor-pointer transition-colors ${jenis === j ? 'bg-[#141a17] border-[#141a17] text-white' : 'bg-[#fff] border-gray-200 text-gray-700 hover:border-emerald-300'}`}
+                >
+                  Asrama {j}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1">Penghuni & fasil yang bisa ditempatkan mengikuti jenis ini ({jenis === 'Putri' ? 'perempuan' : 'laki-laki'}).</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
               Fasilitator Penanggung Jawab (PJ Gedung)
             </label>
             <select
@@ -114,9 +144,9 @@ export function GedungFormModal({
               className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:border-emerald-600 font-medium"
             >
               <option value="">— Belum ditetapkan —</option>
-              {fasilList.map(f => (
+              {fasilCocok.map(f => (
                 <option key={f.nim} value={f.nim}>
-                  {f.nama} ({f.nim})
+                  {f.nama} ({f.nim}){f.jenisKelamin ? '' : ' · gender belum diisi'}
                 </option>
               ))}
             </select>
@@ -171,6 +201,9 @@ export function GedungFormModal({
 export interface KamarFormModalProps {
   kamar?: Kamar | null
   gedungList: Gedung[]
+  // Untuk menampilkan isi kamar & penghuni yang belum dapat kamar (mode edit)
+  penghuni?: Penghuni[]
+  onTempatkan?: (p: Penghuni, nomorKamar: string) => Promise<{ ok: boolean; message: string }>
   defaultGedungId?: number
   onClose: () => void
   onSave: (data: KamarInput, isEdit: boolean) => Promise<{ ok: boolean; message: string }>
@@ -178,6 +211,8 @@ export interface KamarFormModalProps {
 
 export function KamarFormModal({
   kamar,
+  penghuni = [],
+  onTempatkan,
   gedungList,
   defaultGedungId,
   onClose,
@@ -234,7 +269,7 @@ export function KamarFormModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-emerald-100 overflow-hidden animate-in fade-in zoom-in-95">
+      <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col shadow-2xl border border-emerald-100 overflow-hidden animate-in fade-in zoom-in-95">
         {/* Header */}
         <div className="px-6 py-4 modal-header bg-white border-b border-gray-100 text-gray-900 gap-3 flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
@@ -258,7 +293,7 @@ export function KamarFormModal({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
           {errorMsg && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
@@ -331,12 +366,73 @@ export function KamarFormModal({
             </div>
           </div>
 
-          {isEdit && kamar && (
-            <div className="p-3 bg-slate-50/70 border border-slate-100 rounded-xl text-xs text-slate-900 flex justify-between items-center">
-              <span>Penghuni aktif saat ini:</span>
-              <span className="font-extrabold">{kamar.penghuniCount} orang</span>
-            </div>
-          )}
+          {isEdit && kamar && (() => {
+            const gedungKamar = gedungList.find(g => g.id === kamar.idGedung)
+            const jk = gedungKamar?.jenis === 'Putri' ? 'P' : 'L'
+            const isi = penghuni.filter(p => p.statusAktif && p.nomorKamar === kamar.nomorKamar)
+            const tanpaKamar = penghuni.filter(p => !p.nomorKamar && (!p.jenisKelamin || p.jenisKelamin === jk))
+            const sisa = kapasitas - isi.length
+            return (
+              <div className="space-y-3">
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-3.5 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between text-xs">
+                    <span className="font-bold text-gray-800">Penghuni di kamar ini</span>
+                    <span className={`font-bold tabular-nums ${sisa <= 0 ? 'text-rose-600' : 'text-gray-500'}`}>{isi.length}/{kapasitas}</span>
+                  </div>
+                  {isi.length === 0 ? (
+                    <p className="px-3.5 py-3 text-xs text-gray-400">Kamar masih kosong.</p>
+                  ) : (
+                    <ul className="divide-y divide-gray-100">
+                      {isi.map(p => (
+                        <li key={p.nim} className="px-3.5 py-2 flex items-center justify-between gap-2 text-xs">
+                          <span className="min-w-0">
+                            <span className="block font-semibold text-gray-900 truncate">{p.nama}</span>
+                            <span className="block mono text-[11px] text-gray-500">{p.nim}</span>
+                          </span>
+                          <span className="shrink-0 px-2 py-0.5 rounded-md bg-gray-100 text-[11px] font-semibold text-gray-600">{p.role === 'fasil' ? 'Fasil' : 'Penghuni'}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-3.5 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between text-xs">
+                    <span className="font-bold text-gray-800">Belum dapat kamar</span>
+                    <span className="text-gray-500">{jk === 'P' ? 'perempuan' : 'laki-laki'} · {tanpaKamar.length} orang</span>
+                  </div>
+                  {tanpaKamar.length === 0 ? (
+                    <p className="px-3.5 py-3 text-xs text-gray-400">Tidak ada penghuni {jk === 'P' ? 'perempuan' : 'laki-laki'} yang menunggu kamar.</p>
+                  ) : (
+                    <ul className="divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                      {tanpaKamar.map(p => (
+                        <li key={p.nim} className="px-3.5 py-2 flex items-center justify-between gap-2 text-xs">
+                          <span className="min-w-0">
+                            <span className="block font-semibold text-gray-900 truncate">{p.nama}</span>
+                            <span className="block mono text-[11px] text-gray-500">{p.nim}{p.jenisKelamin ? '' : ' · gender belum diisi'}</span>
+                          </span>
+                          {onTempatkan && (
+                            <button
+                              type="button"
+                              disabled={sisa <= 0 || loading}
+                              onClick={async () => {
+                                setErrorMsg('')
+                                const r = await onTempatkan(p, kamar.nomorKamar)
+                                if (!r.ok) setErrorMsg(r.message)
+                              }}
+                              className="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold text-emerald-800 bg-[#fff] border border-emerald-200 hover:bg-emerald-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={sisa <= 0 ? 'Kamar sudah penuh' : `Tempatkan ${p.nama} di kamar ini`}
+                            >
+                              Tempatkan
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Actions */}
           <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-2.5">

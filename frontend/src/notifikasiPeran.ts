@@ -65,6 +65,29 @@ export function notifikasiPenghuni(a: {
   const batas = addDays(a.today, -RENTANG_HARI)
   const out: Notifikasi[] = notifikasiEvent(a.eventList, a.nim, a.today, a.jamSekarang, true)
 
+  // Absen event: tercatat (menunggu validasi), diterima, atau ditolak fasil
+  for (const ev of a.eventList) {
+    // presensiSaya selalu milik penghuni yang login (nim/tanggal bisa kosong pada data lama)
+    const pr = ev.presensiSaya
+    const tgl = pr?.tanggal || ev.tanggal
+    if (!pr || (pr.nim && pr.nim !== a.nim) || tgl < batas || !pr.foto) continue
+    const ket = `${ev.judul}, ${formatTanggal(tgl)}${pr.waktu ? ` pukul ${pr.waktu.slice(0, 5)}` : ''}`
+    if (pr.statusFoto === 'Ditolak') {
+      out.push({
+        id: `event-absen-${pr.id}-Ditolak`,
+        jenis: 'peringatan',
+        judul: 'Foto absen event ditolak',
+        pesan: `${ket} — tercatat Tidak Hadir${pr.catatanValidasi ? `. ${pr.catatanValidasi}` : ''}. Anda bisa absen ulang selama event masih berlangsung.`,
+        waktu: tgl,
+        tab: 'event',
+      })
+    } else if (pr.statusFoto === 'Diterima') {
+      out.push({ id: `event-absen-${pr.id}-Diterima`, jenis: 'sukses', judul: 'Absen event diterima', pesan: ket, waktu: tgl, tab: 'event' })
+    } else {
+      out.push({ id: `event-absen-${pr.id}-Menunggu`, jenis: 'sukses', judul: 'Absen event tercatat', pesan: `${ket} · menunggu validasi foto oleh fasil`, waktu: pr.waktu ? `${tgl} ${pr.waktu}` : tgl, tab: 'event' })
+    }
+  }
+
   for (const { sesi, sisa } of a.sesiHampirTutup) {
     out.push({
       id: `pengingat-${a.today}-${sesi.nama}`,

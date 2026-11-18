@@ -100,6 +100,20 @@ final class SesiGedungTest extends Modul3TestCase
         $this->postApi('sesi', $body, $this->token('ADM', 'admin'))->assertStatus(200);
     }
 
+    public function testSesiYangTidakDikirimDihapus(): void
+    {
+        $this->sesi('Pagi', '05:00:00', '07:00:00');
+        $this->sesi('Siang', '12:00:00', '13:00:00');
+        $pagi = (int) $this->db->table('sesi')->where('Nama', 'Pagi')->get()->getRow()->Id_sesi;
+        $admin = $this->token('ADM', 'admin');
+
+        $this->postApi('sesi', ['sesi' => [['id' => $pagi, 'nama' => 'Pagi', 'jamMulai' => '05:00', 'jamSelesai' => '07:00', 'aktif' => true]]], $admin)->assertStatus(200);
+        $this->assertSame(['Pagi'], array_column($this->db->table('sesi')->select('Nama')->get()->getResultArray(), 'Nama'));
+
+        $this->postApi('sesi', ['sesi' => []], $admin)->assertStatus(200);
+        $this->assertSame(0, $this->db->table('sesi')->countAllResults());
+    }
+
     public function testAdminTidakBolehMembuatSesiMalam(): void
     {
         $r = $this->postApi('sesi', ['sesi' => [['nama' => 'malam', 'jamMulai' => '18:00', 'jamSelesai' => '20:00', 'aktif' => true]]], $this->token('ADM', 'admin'));

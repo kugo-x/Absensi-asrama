@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { bunyiNotifikasi } from '../suaraNotif'
 import { Bell, CheckCircle2, Inbox, AlertTriangle, Info, CheckCheck, X } from 'lucide-react'
 
 /**
@@ -77,6 +78,11 @@ const GAYA: Record<JenisNotifikasi, { ikon: React.ReactNode; warna: string }> = 
 
 const LEBAR = 380
 
+// Yang dianggap penting (berbunyi): permintaan yang perlu ditindak & peringatan; keputusan izin untuk penghuni
+function notifPenting(n: Notifikasi): boolean {
+  return n.jenis === 'permintaan' || n.jenis === 'peringatan' || n.id.startsWith('izin-')
+}
+
 export default function NotifikasiBell({ nim, items, onBuka }: { nim: string; items: Notifikasi[]; onBuka: (tab: string) => void }) {
   const [buka, setBuka] = useState(false)
   const [dibaca, setDibaca] = useState<string[]>(() => baca(kunci(nim, 'dibaca'), []))
@@ -107,6 +113,23 @@ export default function NotifikasiBell({ nim, items, onBuka }: { nim: string; it
     window.addEventListener('sip-aktivitas', tangkap)
     return () => window.removeEventListener('sip-aktivitas', tangkap)
   }, [nim])
+
+  // Bunyi untuk notifikasi PENTING yang baru muncul selagi halaman terbuka.
+  // Notifikasi yang sudah ada saat halaman dimuat (8 detik pertama) tidak berbunyi.
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+  const dikenal = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    const t = setTimeout(() => { dikenal.current = new Set(itemsRef.current.map(i => i.id)) }, 8000)
+    return () => clearTimeout(t)
+  }, [nim])
+  useEffect(() => {
+    const kenal = dikenal.current
+    if (!kenal) return
+    const penting = items.filter(i => !kenal.has(i.id) && notifPenting(i) && !dibaca.includes(i.id))
+    items.forEach(i => kenal.add(i.id))
+    if (penting.length > 0) bunyiNotifikasi()
+  }, [items, dibaca])
 
   // Perbarui label waktu relatif
   useEffect(() => {

@@ -306,6 +306,31 @@ export function hitungStatus(statuses: PresensiStatus[]) {
   return { ...c, wajib, persen: wajib > 0 ? Math.round((c.Hadir / wajib) * 100) : 0 }
 }
 
+/**
+ * Kehadiran HARI INI (dipakai dashboard admin & fasil agar angkanya sama):
+ * hadir dibagi seluruh sesi wajib hari ini. Libur tidak dihitung; yang belum absen ikut dihitung
+ * agar persentase tidak tampak 100% padahal sebagian besar belum presensi.
+ */
+export function kehadiranHariIni(statuses: PresensiStatus[]) {
+  const c = hitungStatus(statuses)
+  const total = statuses.length - c.Libur
+  return { ...c, total, persen: total > 0 ? Math.round((c.Hadir / total) * 100) : 0 }
+}
+
+/**
+ * Kehadiran gabungan banyak penghuni dalam satu periode (mis. 30 hari):
+ * total hadir dibagi total sesi wajib, bukan rata-rata persentase per orang.
+ * Rumus sama dengan hitungStatus, jadi angka gedung di admin = angka di dashboard fasil gedung itu.
+ */
+export function kehadiranGabungan(rekap: { Hadir: number; wajib: number }[]) {
+  const hadir = rekap.reduce((t, r) => t + r.Hadir, 0)
+  const wajib = rekap.reduce((t, r) => t + r.wajib, 0)
+  return { hadir, wajib, persen: wajib > 0 ? Math.round((hadir / wajib) * 100) : 0 }
+}
+
+/** Periode ringkasan kehadiran di semua dashboard */
+export const HARI_RINGKASAN = 30
+
 // ---------- Penghuni & kamar ----------
 
 // Penghuni yang wajib presensi: aktif, berperan penghuni, dan menempati kamar

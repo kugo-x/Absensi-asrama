@@ -219,19 +219,32 @@ final class CheckInTest extends Modul3TestCase
 
     // ---- Fase 5 (C): akurasi GPS
 
-    public function testAkurasiMelebihiBatasDitolak403(): void
+    // Parameter akurasi dihapus admin: presensi hanya mengikat radius gedung
+    public function testAkurasiBesarTetapDiterimaDalamRadius(): void
     {
-        $r = $this->postApi('presensi', $this->bodyCheckIn(['akurasi' => 250]), $this->token('PNG1', 'penghuni'));
-
-        $r->assertStatus(403);
-        $this->assertStringContainsString('melebihi batas 100 m', $this->pesan($r));
+        $this->postApi('presensi', $this->bodyCheckIn(['akurasi' => 250]), $this->token('PNG1', 'penghuni'))->assertStatus(200);
     }
 
-    public function testAkurasiTidakDikirimDitolak400(): void
+    public function testAkurasiTidakDikirimTetapDiterima(): void
     {
         $body = $this->bodyCheckIn();
         unset($body['akurasi']);
-        $this->postApi('presensi', $body, $this->token('PNG1', 'penghuni'))->assertStatus(400);
+        $this->postApi('presensi', $body, $this->token('PNG1', 'penghuni'))->assertStatus(200);
+    }
+
+    public function testAbsenUlangSetelahFotoDitolakSelamaSesiDibuka(): void
+    {
+        $t = $this->token('PNG1', 'penghuni');
+        $this->postApi('presensi', $this->bodyCheckIn(), $t)->assertStatus(200);
+        $id = (int) $this->barisPresensi('PNG1')['Id_presensi'];
+        $this->postApi('presensi/validasi-foto', ['id' => $id, 'status' => 'Ditolak', 'catatan' => 'wajah tidak terlihat'], $this->token('FAS1', 'fasil'))->assertStatus(200);
+        $this->assertSame('Tidak Hadir', $this->barisPresensi('PNG1')['Status']);
+
+        $this->postApi('presensi', $this->bodyCheckIn(), $t)->assertStatus(200);
+        $row = $this->barisPresensi('PNG1');
+        $this->assertSame('Hadir', $row['Status']);
+        $this->assertSame('Menunggu', $row['Status_foto']);
+        $this->assertSame(1, $this->db->table('presensi')->where('NIM', 'PNG1')->countAllResults());
     }
 
     public function testBatasAkurasiNolBerartiTidakDiperiksa(): void

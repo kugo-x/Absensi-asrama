@@ -15,21 +15,29 @@ const HARI_KOLOM = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
 type Ringkas = 'hadir' | 'sebagian' | 'alpa' | 'izin' | 'libur' | 'kosong'
 
 const WARNA: Record<Ringkas, string> = {
-  hadir: 'bg-emerald-600 text-white',
-  sebagian: 'bg-amber-200 text-amber-900',
-  alpa: 'bg-rose-500 text-white',
-  izin: 'bg-amber-400 text-amber-950',
-  libur: 'bg-slate-100 text-slate-800',
-  kosong: 'bg-gray-50 text-gray-400 border border-gray-200',
+  hadir: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+  sebagian: 'bg-amber-50 border-amber-200 text-amber-900',
+  alpa: 'bg-rose-50 border-rose-200 text-rose-900',
+  izin: 'bg-amber-50/60 border-amber-200 text-amber-900',
+  libur: 'bg-slate-50 border-slate-200 text-slate-700',
+  kosong: 'bg-[#fff] border-gray-100 text-gray-500',
 }
 
-const LEGENDA: [Ringkas, string][] = [
-  ['hadir', 'Hadir semua sesi'],
-  ['sebagian', 'Ada yang terlewat'],
-  ['alpa', 'Tidak hadir'],
-  ['izin', 'Izin'],
-  ['libur', 'Libur'],
-  ['kosong', 'Tidak ada sesi / belum'],
+// Titik per sesi di dalam sel
+const TITIK: Record<PresensiStatus, string> = {
+  Hadir: 'bg-emerald-600',
+  'Tidak Hadir': 'bg-rose-500',
+  Izin: 'bg-amber-500',
+  Libur: 'bg-slate-400',
+  Belum: 'bg-gray-300',
+}
+
+const LEGENDA: [string, string][] = [
+  ['bg-emerald-600', 'Hadir'],
+  ['bg-rose-500', 'Tidak hadir'],
+  ['bg-amber-500', 'Izin'],
+  ['bg-slate-400', 'Libur'],
+  ['bg-gray-300', 'Belum absen'],
 ]
 
 const WARNA_STATUS: Record<PresensiStatus, string> = {
@@ -53,7 +61,11 @@ function ringkas(baris: RiwayatRow[]): Ringkas {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, tanggalMasuk }: {
+// Absen event milik penghuni (ditandai pada kalender & detail tanggal)
+export interface EventKalender { tanggal: string; judul: string; status: 'Hadir' | 'Tidak Hadir'; jam: string }
+
+export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, tanggalMasuk, eventSaya = [] }: {
+  eventSaya?: EventKalender[]
   nim: string
   sesiList: Sesi[]
   data: DataPresensi
@@ -90,6 +102,8 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
   const bisaMundur = bulan > batasAwalBulan
   const bisaMaju = bulan < today.slice(0, 7)
   const detail = dipilih ? [...(perTanggal.get(dipilih) ?? [])].reverse() : []
+  const eventTanggal = (t: string) => eventSaya.filter(e => e.tanggal === t)
+  const eventDipilih = dipilih ? eventTanggal(dipilih) : []
 
   return (
     <div className="bg-white rounded-2xl p-5 border border-gray-200/90 shadow-2xs">
@@ -106,7 +120,7 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
         </div>
       </div>
 
-      <div className="grid md:grid-cols-[minmax(0,400px)_minmax(0,1fr)] gap-5">
+      <div className="grid lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)] gap-5">
         <div>
           <div className="grid grid-cols-7 gap-1 sm:gap-1.5 mb-1">
             {HARI_KOLOM.map(h => <div key={h} className="text-center text-[10px] font-bold uppercase tracking-wider text-gray-400">{h}</div>)}
@@ -117,17 +131,26 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
               const rows = perTanggal.get(t) ?? []
               const r = ringkas(rows)
               const nanti = t > today
+              const ev = eventTanggal(t)
+              const hariIni = t === today
               return (
                 <button
                   key={t}
                   onClick={() => setDipilih(t)}
                   data-tgl={t}
-                  title={`${formatTanggal(t)}${rows.length ? ' · ' + rows.map(x => `${x.sesi.nama}: ${x.detail.status}`).join(', ') : ''}`}
-                  className={`aspect-square rounded-lg text-xs font-bold flex flex-col items-center justify-center transition-all cursor-pointer
-                    ${nanti ? 'bg-white text-gray-300 border border-dashed border-gray-200' : WARNA[r]}
-                    ${dipilih === t ? 'ring-2 ring-offset-1 ring-emerald-800' : ''} ${t === today ? 'underline underline-offset-2' : ''}`}
+                  aria-pressed={dipilih === t}
+                  title={`${formatTanggal(t)}${rows.length ? ' · ' + rows.map(x => `${x.sesi.nama}: ${x.detail.status}`).join(', ') : ''}${ev.length ? ' · Event: ' + ev.map(e => e.judul).join(', ') : ''}`}
+                  className={`h-12 sm:h-14 rounded-lg border p-1 flex flex-col items-center justify-between transition-all cursor-pointer hover:border-gray-400
+                    ${nanti ? 'bg-[#fff] text-gray-300 border-dashed border-gray-200' : WARNA[r]}
+                    ${dipilih === t ? 'ring-2 ring-gray-900 ring-offset-1' : ''}`}
                 >
-                  {Number(t.slice(8))}
+                  <span className={`text-xs font-bold leading-none tabular-nums ${hariIni ? 'w-5 h-5 rounded-full bg-[#141a17] text-white flex items-center justify-center' : 'mt-0.5'}`}>{Number(t.slice(8))}</span>
+                  <span className="flex items-center gap-0.5 min-h-1.5">
+                    {rows.filter(x => x.detail.status !== 'Belum' || x.detail.fase !== 'belum-dibuka').map(x => (
+                      <span key={x.sesi.id} className={`w-1.5 h-1.5 rounded-full ${TITIK[x.detail.status]}`} />
+                    ))}
+                    {ev.length > 0 && <span className={`w-1.5 h-1.5 rotate-45 ${ev.some(e => e.status === 'Hadir') ? 'bg-emerald-800' : 'bg-rose-700'}`} />}
+                  </span>
                 </button>
               )
             })}
@@ -141,6 +164,16 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
           ) : (
             <>
               <p className="text-sm font-bold text-gray-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>{formatTanggal(dipilih)}</p>
+              {eventDipilih.length > 0 && (
+                <ul className="space-y-2 mb-3 pb-3 border-b border-gray-100">
+                  {eventDipilih.map(e => (
+                    <li key={e.judul} className="text-xs flex items-center justify-between gap-2">
+                      <span className="font-semibold text-gray-800 truncate">Event · {e.judul}{e.jam && <span className="font-normal text-gray-400"> · masuk {e.jam}</span>}</span>
+                      <span className={`font-bold shrink-0 ${WARNA_STATUS[e.status]}`}>{e.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {detail.length === 0 ? (
                 <p className="text-xs text-gray-400">{dipilih > today ? 'Belum berlangsung.' : dipilih < mulaiHitung ? 'Sebelum Anda terdaftar.' : 'Tidak ada sesi wajib.'}</p>
               ) : (
@@ -181,12 +214,20 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
             ))}
           </div>
           <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap gap-x-4 gap-y-2">
-            {LEGENDA.map(([k, label]) => (
-              <span key={k} className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
-                <span className={`w-3 h-3 rounded ${WARNA[k]}`} />
+            {LEGENDA.map(([warna, label]) => (
+              <span key={label} className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
+                <span className={`w-2.5 h-2.5 rounded-full ${warna}`} />
                 {label}
               </span>
             ))}
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
+              <span className="w-2 h-2 rotate-45 bg-emerald-800" />
+              Absen event
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
+              <span className="w-4 h-4 rounded-full bg-[#141a17]" />
+              Hari ini
+            </span>
           </div>
         </div>
         </div>

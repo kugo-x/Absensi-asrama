@@ -40,6 +40,9 @@ $routes->group('api', static function ($routes) {
         $routes->get('event/rekap/(:num)', 'Api\EventController::rekapEvent/$1');
         $routes->post('event/absen', 'Api\EventController::absenEvent');
         $routes->get('event/foto/(:segment)', 'Api\EventController::fotoEvent/$1');
+        $routes->get('event/sampul/(:segment)', 'Api\EventController::sampulEvent/$1');
+        $routes->get('event/foto-validasi', 'Api\EventController::fotoValidasiEvent');
+        $routes->post('event/validasi-foto', 'Api\EventController::validasiFotoEvent');
     
     // Penghuni
     $routes->get('penghuni', 'Api\DataController::getPenghuni');
@@ -70,6 +73,7 @@ $routes->group('api', static function ($routes) {
     $routes->get('libur', 'Api\PengaturanController::getLibur');
     $routes->post('libur', 'Api\PengaturanController::addLibur');
     $routes->post('libur/delete', 'Api\PengaturanController::deleteLibur');
+    $routes->post('libur/update', 'Api\PengaturanController::updateLibur');
     $routes->get('mode-uji', 'Api\PengaturanController::getModeUji');
     $routes->post('mode-uji', 'Api\PengaturanController::saveModeUji');
     $routes->get('aturan-presensi', 'Api\PengaturanController::getAturanPresensi');

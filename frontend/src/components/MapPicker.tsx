@@ -71,12 +71,20 @@ export default function MapPicker({
       center: [activeLat, activeLng],
       zoom: 17,
       zoomControl: true,
-      attributionControl: false,
+      attributionControl: true,
     })
+    map.attributionControl.setPrefix(false)
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-    }).addTo(map)
+    // Tile Esri (tanpa API key). Server OSM langsung memblokir ("Access blocked") dan CARTO kini wajib API key.
+    // Zoom di atas 19 memperbesar tile level 19 agar tidak muncul kotak kosong.
+    const esri = (layanan: string) => L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${layanan}/MapServer/tile/{z}/{y}/{x}`, {
+      maxZoom: 20,
+      maxNativeZoom: 19,
+      attribution: 'Tiles &copy; Esri',
+    })
+    const jalan = esri('World_Street_Map').addTo(map)
+    const satelit = esri('World_Imagery')
+    L.control.layers({ Peta: jalan, Satelit: satelit }, undefined, { position: 'bottomleft' }).addTo(map)
 
     const marker = L.marker([activeLat, activeLng], {
       icon: createCustomPin('#1c7b31'),

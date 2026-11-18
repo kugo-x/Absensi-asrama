@@ -49,6 +49,8 @@ export interface Penghuni {
   email: string
   noHp: string
   statusAktif: boolean
+  // L = laki-laki, P = perempuan, null = belum diisi
+  jenisKelamin?: 'L' | 'P' | null
   role: 'penghuni' | 'fasil'
   tanggalMasuk: string
   passwordDefault?: boolean
@@ -180,6 +182,7 @@ export interface LogAktivitas {
 
 export interface GedungInput {
   nama: string
+  jenis?: 'Putra' | 'Putri'
   nimPj?: string | null
   latitude?: number | null
   longitude?: number | null
@@ -209,6 +212,8 @@ export interface EventAsrama {
   latitude: number | null
   longitude: number | null
   radiusMeter: number
+  // Nama berkas foto sampul (opsional)
+  fotoSampul?: string | null
   createdBy?: string | null
   namaPembuat?: string | null
   // 'YYYY-MM-DD HH:MM', untuk notifikasi event baru
@@ -216,6 +221,9 @@ export interface EventAsrama {
   statusKehadiran?: 'Hadir' | 'Tidak Hadir' | 'Belum Absen'
   presensiSaya?: PresensiEventRecord | null
 }
+
+// Data simpan event: fotoSampul = data URL gambar baru, hapusSampul = buang sampul lama
+export type EventInput = Partial<EventAsrama> & { hapusSampul?: boolean }
 
 export interface PresensiEventRecord {
   id: number
@@ -232,6 +240,32 @@ export interface PresensiEventRecord {
   foto: string | null
   status: 'Hadir' | 'Tidak Hadir'
   keterangan: string | null
+  // Validasi foto absen event oleh fasil (null = tanpa foto / dibuat sistem)
+  statusFoto?: StatusFoto | null
+  catatanValidasi?: string | null
+}
+
+// Foto absen event untuk halaman Validasi Foto fasil
+export interface FotoEvent {
+  id: number
+  idEvent: number
+  judulEvent: string
+  nim: string
+  namaPenghuni: string
+  nomorKamar: string
+  namaGedung: string
+  tanggal: string
+  waktu: string
+  latitude: number | null
+  longitude: number | null
+  jarakMeter: number | null
+  foto: string
+  status: 'Hadir' | 'Tidak Hadir'
+  statusFoto: StatusFoto
+  catatanValidasi: string
+  divalidasiOleh: string | null
+  namaValidator: string | null
+  divalidasiPada: string
 }
 
 export interface PesertaRekapEvent {

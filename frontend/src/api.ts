@@ -1,4 +1,4 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, RekapEventResult, GedungInput, KamarInput, LogAktivitas } from './types'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, EventInput, RekapEventResult, GedungInput, KamarInput, LogAktivitas, FotoEvent } from './types'
 import {
   DEMO_ACCOUNTS,
   gedungList as initialGedung,
@@ -148,6 +148,12 @@ const JUDUL_AKTIVITAS: Record<string, string> = {
   'sesi-gedung': 'Jadwal absen malam disimpan',
   'libur': 'Hari libur ditambahkan',
   'libur/delete': 'Hari libur dihapus',
+  'libur/update': 'Hari libur diperbarui',
+  'event/absen': 'Absen event berhasil',
+  'event/validasi-foto': 'Validasi foto event disimpan',
+  'event/add': 'Event dibuat',
+  'event/update': 'Event diperbarui',
+  'event/delete': 'Event dihapus',
   'mode-uji': 'Mode uji diperbarui',
   'aturan-presensi': 'Aturan presensi disimpan',
   'auth/change-password': 'Password diubah',
@@ -234,6 +240,8 @@ export const addLiburApi = (data: Omit<HariLibur, 'id'>) => postJson('libur', da
 
 export const deleteLiburApi = (id: number) => postJson('libur/delete', { id })
 
+export const updateLiburApi = (data: HariLibur) => postJson('libur/update', data)
+
 export async function seedDatabaseApi(): Promise<ApiResult> {
   try {
     const res = await fetch(`${API_BASE}/seed`)
@@ -282,7 +290,7 @@ export const addPenghuniApi = (penghuni: Partial<Penghuni>) => postJson('penghun
 export const togglePenghuniStatusApi = (nim: string) => postJson('penghuni/toggle-status', { nim })
 
 // Pindah kamar, ubah peran, atau keluarkan dari asrama (nomorKamar null + nonaktif)
-export type UbahPenghuni = Pick<Penghuni, 'nim' | 'nama' | 'email' | 'noHp' | 'asal' | 'role' | 'statusAktif'> & { nomorKamar: string | null }
+export type UbahPenghuni = Pick<Penghuni, 'nim' | 'nama' | 'email' | 'noHp' | 'asal' | 'role' | 'statusAktif'> & { nomorKamar: string | null; jenisKelamin?: 'L' | 'P' | null }
 
 // `nimLama` menunjuk penghuni yang diubah; `data.nim` adalah NIM barunya (boleh sama)
 export const updatePenghuniApi = (nimLama: string, data: UbahPenghuni) =>
@@ -412,9 +420,29 @@ export const updateIzinStatusApi = (id: number, status: 'Disetujui' | 'Ditolak',
 
 export const fetchEvent = () => getList<EventAsrama>('event', initialEvent)
 
-export const addEventApi = (data: Partial<EventAsrama>) => postJson('event/add', data)
+export const addEventApi = (data: EventInput) => postJson('event/add', data)
 
-export const updateEventApi = (id: number, data: Partial<EventAsrama>) => postJson('event/update', { id, ...data })
+export const updateEventApi = (id: number, data: EventInput) => postJson('event/update', { id, ...data })
+
+// Foto sampul event: diambil dengan token lalu disimpan sebagai blob URL.
+// Disimpan di memori per nama berkas agar daftar event yang sering dirender ulang tidak mengunduh berulang.
+const cacheSampul = new Map<string, Promise<string | null>>()
+export function fetchSampulEvent(nama: string | null | undefined): Promise<string | null> {
+  if (!nama) return Promise.resolve(null)
+  if (nama.startsWith('data:')) return Promise.resolve(nama)
+  let p = cacheSampul.get(nama)
+  if (!p) {
+    p = fetch(`${API_BASE}/event/sampul/${encodeURIComponent(nama)}`, { headers: authHeaders() })
+      .then(async res => (res.ok ? URL.createObjectURL(await res.blob()) : null))
+      .catch(() => null)
+      .then(url => {
+        if (!url) cacheSampul.delete(nama) // gagal: boleh dicoba lagi nanti
+        return url
+      })
+    cacheSampul.set(nama, p)
+  }
+  return p
+}
 
 export const deleteEventApi = (id: number) => postJson('event/delete', { id })
 
@@ -464,6 +492,11 @@ export async function fetchRekapEvent(idEvent: number): Promise<RekapEventResult
 
   return null
 }
+
+// Fasil: foto absen event penghuni gedung binaan & validasinya
+export const fetchFotoValidasiEvent = () => getList<FotoEvent>('event/foto-validasi', [])
+export const validasiFotoEventApi = (id: number, status: Exclude<StatusFoto, 'Menunggu'>, catatan: string) =>
+  postJson('event/validasi-foto', { id, status, catatan })
 
 export const absenEventApi = (data: { idEvent: number; latitude: number; longitude: number; foto: string }) =>
   postJson('event/absen', data)

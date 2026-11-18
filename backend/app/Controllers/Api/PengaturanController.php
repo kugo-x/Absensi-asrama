@@ -132,8 +132,9 @@ class PengaturanController extends BaseController
         $input = $this->request->getJSON(true) ?? $this->request->getPost();
         $list  = $input['sesi'] ?? [];
 
-        if (! is_array($list) || $list === []) {
-            return $this->fail('Daftar sesi wajib diisi.', 400);
+        // Daftar boleh kosong: semua sesi global dihapus (absen malam per gedung tetap ada)
+        if (! is_array($list)) {
+            return $this->fail('Format daftar sesi tidak valid.', 400);
         }
 
         $nama  = [];
@@ -185,6 +186,15 @@ class PengaturanController extends BaseController
         }
 
         $this->db->transStart();
+        // Sesi yang tidak ada lagi di daftar = dihapus admin. Riwayat presensi tetap tersimpan
+        // karena presensi menyimpan nama sesi, bukan id.
+        $idDipertahankan = array_values(array_filter(array_map(static fn ($x) => (int) ($x['id'] ?? 0), $list)));
+        // where selalu ada: CI menolak delete tanpa where (daftar kosong = hapus semua sesi global)
+        $hapus = $this->db->table('sesi')->where('Id_sesi >', 0);
+        if ($idDipertahankan !== []) {
+            $hapus->whereNotIn('Id_sesi', $idDipertahankan);
+        }
+        $hapus->delete();
         foreach ($list as $s) {
             $row = [
                 'Nama'        => trim($s['nama']),
@@ -445,6 +455,40 @@ class PengaturanController extends BaseController
         ]);
 
         return $this->respondCreated(['status' => 'success', 'message' => 'Hari libur berhasil ditambahkan']);
+    }
+
+    // ----------------------------------------------------
+    // POST /api/libur/update  { id, tanggalMulai, tanggalSelesai, keterangan }
+    // ----------------------------------------------------
+    public function updateLibur()
+    {
+        if (strtolower($this->tokenUser()['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya admin yang dapat mengubah hari libur.');
+        }
+        $input      = $this->request->getJSON(true) ?? $this->request->getPost();
+        $id         = (int) ($input['id'] ?? 0);
+        $mulai      = $input['tanggalMulai'] ?? '';
+        $selesai    = ($input['tanggalSelesai'] ?? '') ?: $mulai;
+        $keterangan = trim($input['keterangan'] ?? '');
+
+        if (! $id || ! $this->db->table('hari_libur')->where('Id_libur', $id)->countAllResults()) {
+            return $this->failNotFound('Hari libur tidak ditemukan.');
+        }
+        if (! $mulai || $keterangan === '') {
+            return $this->fail('Tanggal mulai dan keterangan wajib diisi.', 400);
+        }
+        if ($selesai < $mulai) {
+            return $this->fail('Tanggal selesai tidak boleh sebelum tanggal mulai.', 400);
+        }
+
+        $this->db->table('hari_libur')->where('Id_libur', $id)->update([
+            'Tanggal_mulai'   => $mulai,
+            'Tanggal_selesai' => $selesai,
+            'Keterangan'      => $keterangan,
+            'updated_at'      => date('Y-m-d H:i:s'),
+        ]);
+
+        return $this->respond(['status' => 'success', 'message' => 'Hari libur berhasil diperbarui']);
     }
 
     // ----------------------------------------------------
