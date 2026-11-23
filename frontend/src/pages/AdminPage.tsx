@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react'
-import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, PresensiStatus, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput, EventInput, FotoEvent } from '../types'
+import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, PresensiStatus, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput, EventInput, FotoEvent, Pengumuman } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { BuktiIzin, KotakTanggalIzin, RekapTableBerhalaman, SesiToggle, UbinStatusRekap, type FilterStatusRekap, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import { BarisSaringIzin, KosongSaringIzin, useSaringIzin } from '../components/SaringIzin'
@@ -24,8 +24,10 @@ import {
   fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent,
   fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, updateLiburApi, type ApiResult, type UbahPenghuni,
   fetchModeUji, saveModeUjiApi, MODE_UJI_MATI, resetPasswordApi,
-  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT, awalDemo, seedDatabaseApi, fetchFotoValidasiEvent } from '../api'
+  fetchAturanPresensi, saveAturanPresensiApi, ATURAN_PRESENSI_DEFAULT, awalDemo, seedDatabaseApi, fetchFotoValidasiEvent, fetchPengumuman, addPengumumanApi, updatePengumumanApi, deletePengumumanApi } from '../api'
 import MapPicker from '../components/MapPicker'
+import { KelolaPengumuman } from '../components/Pengumuman'
+import RekapSemester from '../components/RekapSemester'
 import { EventFormModal, EventRekapModal } from '../components/EventModals'
 import { GedungFormModal, KamarFormModal } from '../components/GedungKamarModals'
 import { getCurrentPosition } from '../geo'
@@ -83,6 +85,7 @@ import {
   Sparkles,
   Edit,
   ChevronRight,
+  Megaphone,
 } from 'lucide-react'
 
 const navItems = [
@@ -90,6 +93,7 @@ const navItems = [
   { id: 'penghuni', label: 'Data Penghuni', icon: <Users className="w-[18px] h-[18px]" /> },
   { id: 'gedung', label: 'Gedung & Kamar', icon: <Building2 className="w-[18px] h-[18px]" /> },
   { id: 'event', label: 'Event Asrama', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
+  { id: 'pengumuman', label: 'Pengumuman', icon: <Megaphone className="w-[18px] h-[18px]" /> },
   { id: 'presensi', label: 'Presensi & Izin', icon: <ClipboardList className="w-[18px] h-[18px]" /> },
   { id: 'pengaturan', label: 'Sesi & Hari Libur', icon: <Settings className="w-[18px] h-[18px]" /> },
   { id: 'laporan', label: 'Laporan Rekap', icon: <FileBarChart className="w-[18px] h-[18px]" /> },
@@ -188,7 +192,10 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     fetchEvent().then(bilaBerubah(setEventList))
     fetchModeUji().then(bilaBerubah(setModeUji))
     fetchFotoValidasiEvent().then(bilaBerubah(setFotoEvent))
+    fetchPengumuman().then(bilaBerubah(setPengumuman))
   })
+  const [pengumuman, setPengumuman] = useState<Pengumuman[]>([])
+  useEffect(() => { fetchPengumuman().then(setPengumuman) }, [])
   // Foto absen event seluruh gedung (admin hanya melihat jumlahnya; validasi oleh fasil)
   const [fotoEvent, setFotoEvent] = useState<FotoEvent[]>([])
   useEffect(() => { fetchFotoValidasiEvent().then(setFotoEvent) }, [])
@@ -399,6 +406,21 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
     })
   }
 
+  const muatPengumuman = () => fetchPengumuman().then(setPengumuman)
+  const handleHapusPengumuman = (p: Pengumuman) => {
+    setConfirmDialog({
+      open: true,
+      title: 'Hapus Pengumuman',
+      message: `Hapus pengumuman "${p.judul}"? Penghuni tidak akan melihatnya lagi.`,
+      onConfirm: async () => {
+        const res = await deletePengumumanApi(p.id)
+        if (res.ok || res.offline) muatPengumuman()
+        else alert(res.message || 'Gagal menghapus pengumuman.')
+        setConfirmDialog(c => ({ ...c, open: false }))
+      },
+    })
+  }
+
   const handleViewRekap = async (ev: EventAsrama) => {
     const rekap = await fetchRekapEvent(ev.id)
     if (rekap) {
@@ -446,6 +468,17 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
           onHapusKamar={handleDeleteKamar}
           onSeed={handleSeed}
           loadingSeed={loadingSeed}
+        />
+      )}
+      {activeTab === 'pengumuman' && (
+        <KelolaPengumuman
+          daftar={pengumuman}
+          peran="admin"
+          nimSaya={user.nim}
+          gedungList={gedungList}
+          onTambah={async d => { const r = await addPengumumanApi(d); if (r.ok) muatPengumuman(); return r }}
+          onUbah={async (id, d) => { const r = await updatePengumumanApi(id, d); if (r.ok) muatPengumuman(); return r }}
+          onHapus={handleHapusPengumuman}
         />
       )}
       {activeTab === 'event' && (
@@ -547,7 +580,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
 
 function DefaultPasswordNotice({ count, onClose }: { count: number; onClose: () => void }) {
   return (
-    <div className="fixed left-3 right-3 bottom-3 sm:left-auto sm:right-5 sm:bottom-auto sm:top-20 z-40 sm:w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-amber-200 bg-[#fff] p-3 sm:p-4 shadow-xl">
+    <div className="fixed left-3 right-3 bottom-3 sm:left-auto sm:right-5 sm:bottom-5 z-40 sm:w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-amber-200 bg-[#fff] p-3 sm:p-4 shadow-xl">
       <div className="flex items-center sm:items-start gap-3">
         <div className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 font-bold">!</div>
         <div className="min-w-0 flex-1">
@@ -2831,6 +2864,15 @@ function AdminLaporan({ admin, penghuni, gedungList, sesiList, data, now }: {
           </div>
         </>
       )}
+
+      <RekapSemester
+        penghuni={penghuni}
+        sesiList={sesiList}
+        data={data}
+        now={now}
+        gedungList={gedungList}
+        penandatangan={{ jabatan: 'Pengelola Asrama', nama: admin.nama, identitas: /^\d+$/.test(admin.nim) ? `NIP/NIM. ${admin.nim}` : undefined }}
+      />
 
       <div className="bg-white rounded-2xl border border-gray-200 shadow-2xs p-6">
         <SectionTitle subtitle="Setiap berkas memuat kop Universitas Andalas, keterangan filter, ringkasan, tabel bernomor, dan blok tanda tangan">Unduh Laporan Resmi</SectionTitle>

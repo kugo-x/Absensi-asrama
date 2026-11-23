@@ -328,6 +328,44 @@ export function kehadiranGabungan(rekap: { Hadir: number; wajib: number }[]) {
   return { hadir, wajib, persen: wajib > 0 ? Math.round((hadir / wajib) * 100) : 0 }
 }
 
+// ---------- Semester akademik ----------
+// Ganjil: 1 Agustus – 31 Januari; Genap: 1 Februari – 31 Juli
+export interface Semester { kode: string; label: string; mulai: string; selesai: string }
+
+export function semesterDari(tanggal: string): Semester {
+  const y = Number(tanggal.slice(0, 4))
+  const m = Number(tanggal.slice(5, 7))
+  if (m >= 8) return { kode: `${y}-1`, label: `Ganjil ${y}/${y + 1}`, mulai: `${y}-08-01`, selesai: `${y + 1}-01-31` }
+  if (m === 1) return { kode: `${y - 1}-1`, label: `Ganjil ${y - 1}/${y}`, mulai: `${y - 1}-08-01`, selesai: `${y}-01-31` }
+  return { kode: `${y - 1}-2`, label: `Genap ${y - 1}/${y}`, mulai: `${y}-02-01`, selesai: `${y}-07-31` }
+}
+
+/** Semester berjalan lalu beberapa semester sebelumnya (terbaru dulu) */
+export function daftarSemester(today: string, jumlah = 4): Semester[] {
+  const out: Semester[] = []
+  let s = semesterDari(today)
+  for (let i = 0; i < jumlah; i++) {
+    out.push(s)
+    s = semesterDari(addDays(s.mulai, -1))
+  }
+  return out
+}
+
+/** Bulan-bulan ('YYYY-MM') dalam rentang tanggal */
+export function bulanDalamRentang(mulai: string, selesai: string): string[] {
+  const out: string[] = []
+  let y = Number(mulai.slice(0, 4)), m = Number(mulai.slice(5, 7))
+  const akhir = selesai.slice(0, 7)
+  for (;;) {
+    const k = `${y}-${String(m).padStart(2, '0')}`
+    if (k > akhir) break
+    out.push(k)
+    m++
+    if (m > 12) { m = 1; y++ }
+  }
+  return out
+}
+
 /** Periode ringkasan kehadiran di semua dashboard */
 export const HARI_RINGKASAN = 30
 

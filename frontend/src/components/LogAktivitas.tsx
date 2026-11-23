@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { BedDouble, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, ClipboardCheck, Cog, FileText, RefreshCw, Search, Settings, ShieldCheck, UserCog, Users, XCircle } from 'lucide-react'
+import { BedDouble, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, ClipboardCheck, Cog, FileText, Megaphone, RefreshCw, Search, Settings, ShieldCheck, UserCog, Users, XCircle } from 'lucide-react'
 import type { LogAktivitas } from '../types'
 import { fetchLogAktivitas, type HasilLogAktivitas } from '../api'
 import { addDays, formatTanggal, todayLocal } from '../logic'
@@ -19,6 +19,7 @@ const JENIS: { nilai: string; label: string; warna: string }[] = [
   { nilai: 'presensi', label: 'Presensi', warna: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
   { nilai: 'izin', label: 'Izin', warna: 'bg-amber-50 border-amber-200 text-amber-800' },
   { nilai: 'event', label: 'Event', warna: 'bg-slate-50 border-slate-200 text-slate-800' },
+  { nilai: 'pengumuman', label: 'Pengumuman', warna: 'bg-amber-50 border-amber-200 text-amber-800' },
   { nilai: 'pengaturan', label: 'Pengaturan', warna: 'bg-gray-50 border-gray-200 text-gray-700' },
   { nilai: 'sistem', label: 'Sistem', warna: 'bg-slate-100 border-slate-300 text-slate-800' },
 ]
@@ -31,6 +32,7 @@ const IKON_JENIS: Record<string, { ikon: ReactNode; warna: string }> = {
   presensi: { ikon: <ClipboardCheck className="w-4 h-4" />, warna: 'bg-emerald-50 text-emerald-700' },
   izin: { ikon: <FileText className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
   event: { ikon: <CalendarDays className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-700' },
+  pengumuman: { ikon: <Megaphone className="w-4 h-4" />, warna: 'bg-amber-50 text-amber-700' },
   pengaturan: { ikon: <Settings className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-700' },
   sistem: { ikon: <Cog className="w-4 h-4" />, warna: 'bg-gray-100 text-gray-700' },
 }

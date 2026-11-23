@@ -43,6 +43,12 @@ $routes->group('api', static function ($routes) {
         $routes->get('event/sampul/(:segment)', 'Api\EventController::sampulEvent/$1');
         $routes->get('event/foto-validasi', 'Api\EventController::fotoValidasiEvent');
         $routes->post('event/validasi-foto', 'Api\EventController::validasiFotoEvent');
+
+        // Pengumuman ke penghuni (admin & fasil menulis, semua peran membaca)
+        $routes->get('pengumuman', 'Api\PengumumanController::index');
+        $routes->post('pengumuman/add', 'Api\PengumumanController::add');
+        $routes->post('pengumuman/update', 'Api\PengumumanController::update');
+        $routes->post('pengumuman/delete', 'Api\PengumumanController::delete');
     
     // Penghuni
     $routes->get('penghuni', 'Api\DataController::getPenghuni');

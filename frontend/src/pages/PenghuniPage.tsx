@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { AturanPresensi, CurrentUser, EventAsrama, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, PresensiStatus, Sesi, StatusFoto } from '../types'
+import type { AturanPresensi, CurrentUser, EventAsrama, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, PresensiStatus, Sesi, StatusFoto, Pengumuman } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { BuktiIzin, FotoBadge, KotakTanggalIzin, SesiIcon, TAMPILAN_STATUS_IZIN, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
@@ -18,13 +18,13 @@ import {
 import {
   awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, batalIzinApi, adalahBuktiTersimpan, fetchGedung, fetchSesi,
   fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT,
-  fetchEvent, absenEventApi, fetchFotoEvent,
-} from '../api'
+  fetchEvent, absenEventApi, fetchFotoEvent, fetchPengumuman } from '../api'
 import KalenderKehadiran from '../components/KalenderKehadiran'
 import { useRealtime, bilaBerubah } from '../realtime'
 import KartuEvent from '../components/KartuEvent'
 import { KartuGantiPassword, KartuProfil, ProfilHeader } from '../components/ProfilAkun'
 import { EventPresensiModal } from '../components/EventModals'
+import { PengumumanPenghuni } from '../components/Pengumuman'
 import Pratinjau from '../components/Pratinjau'
 import { distanceMeters, getCurrentPosition, type GpsPosition } from '../geo'
 import {
@@ -174,7 +174,11 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     fetchSesi().then(bilaBerubah(setSesiList))
     fetchLibur().then(bilaBerubah(setLibur))
     fetchModeUji().then(bilaBerubah(setModeUji))
+    fetchPengumuman().then(bilaBerubah(setPengumuman))
   })
+  // Pengumuman yang berlaku untuk gedung penghuni (server sudah menyaring yang kedaluwarsa)
+  const [pengumuman, setPengumuman] = useState<Pengumuman[]>([])
+  useEffect(() => { fetchPengumuman().then(setPengumuman) }, [])
 
   useEffect(() => {
     fetchPresensi().then(setPresensi)
@@ -342,7 +346,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
 
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}
-      notifikasi={notifikasiPenghuni({ nim: user.nim, presensi, izin: izinData, sesiHampirTutup, today, eventList, jamSekarang: toHM(now) })}>
+      notifikasi={notifikasiPenghuni({ nim: user.nim, presensi, izin: izinData, sesiHampirTutup, today, eventList, jamSekarang: toHM(now), pengumuman })}>
       {(modeUji.abaikanJam || modeUji.abaikanRadius) && (
         <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -391,6 +395,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           eventList={eventList}
           onBukaPresensiEvent={ev => setPresensiModalEvent(ev)}
           now={now}
+          pengumuman={pengumuman}
         />
       )}
       {activeTab === 'presensi' && (
@@ -548,6 +553,7 @@ function PenghuniDashboard({
   eventList,
   onBukaPresensiEvent,
   now,
+  pengumuman = [],
 }: {
   user: CurrentUser
   sesiHariIni: SesiHariIni[]
@@ -562,6 +568,7 @@ function PenghuniDashboard({
   eventList?: EventAsrama[]
   onBukaPresensiEvent?: (ev: EventAsrama) => void
   now?: Date
+  pengumuman?: Pengumuman[]
 }) {
   const jam = now || new Date()
   const rekap = hitungStatus(riwayat.map(r => r.detail.status))
@@ -604,6 +611,8 @@ function PenghuniDashboard({
           ))}
         </div>
       </div>
+
+      <PengumumanPenghuni daftar={pengumuman} />
 
       {/* Perlu perhatian: event yang sedang dibuka */}
       {eventAktif.map(ev => (

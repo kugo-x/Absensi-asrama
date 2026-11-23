@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult, FotoEvent, EventInput } from '../types'
+import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult, FotoEvent, EventInput, Pengumuman } from '../types'
 import AppLayout, { Badge, ConfirmDialog } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
 import { useRealtime, bilaBerubah } from '../realtime'
@@ -26,8 +26,7 @@ import {
 import {
   awalDemo, fetchFotoValidasiEvent, validasiFotoEventApi, fetchFotoEvent, fetchFotoWajah, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur,
   fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent, type ApiResult,
-  updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT
-} from '../api'
+  updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, fetchPengumuman, addPengumumanApi, updatePengumumanApi, deletePengumumanApi } from '../api'
 import {
   cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, toHM, todayLocal, type DataPresensi,
   addDays, formatRentangTanggal, teksHariBerulang, hariIso, maxDate, dateRangeDesc, NAMA_HARI, kehadiranHariIni, kehadiranGabungan, HARI_RINGKASAN, type RiwayatRow } from '../logic'
@@ -64,12 +63,16 @@ import {
   Mail,
   MoonStar,
   ImageOff,
+  Megaphone,
 } from 'lucide-react'
+import { KelolaPengumuman } from '../components/Pengumuman'
+import RekapSemester from '../components/RekapSemester'
 import { EventFormModal, EventRekapModal } from '../components/EventModals'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard Fasil', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
   { id: 'event', label: 'Event Gedung', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
+  { id: 'pengumuman', label: 'Pengumuman', icon: <Megaphone className="w-[18px] h-[18px]" /> },
   { id: 'monitor', label: 'Monitor Presensi', icon: <ClipboardCheck className="w-[18px] h-[18px]" /> },
   { id: 'malam', label: 'Absen Malam', icon: <MoonStar className="w-[18px] h-[18px]" /> },
   { id: 'izin', label: 'Manajemen Izin', icon: <FileCheck className="w-[18px] h-[18px]" /> },
@@ -129,7 +132,11 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
     fetchPenghuni().then(bilaBerubah(setPenghuni))
     fetchGedung().then(bilaBerubah(setGedungList))
     fetchFotoValidasiEvent().then(bilaBerubah(setFotoEvent))
+    fetchPengumuman().then(bilaBerubah(setPengumuman))
   })
+  const [pengumuman, setPengumuman] = useState<Pengumuman[]>([])
+  useEffect(() => { fetchPengumuman().then(setPengumuman) }, [])
+  const muatPengumuman = () => fetchPengumuman().then(setPengumuman)
 
   useEffect(() => {
     fetchPenghuni().then(setPenghuni)
@@ -330,7 +337,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
 
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={gantiTab}
-      notifikasi={notifikasiFasil({ nim: user.nim, izinGedung, presensiBerfoto, sering, batasTidakHadir: aturan.batasTidakHadir, eventList, today, jamSekarang })}>
+      notifikasi={notifikasiFasil({ nim: user.nim, izinGedung, presensiBerfoto, sering, batasTidakHadir: aturan.batasTidakHadir, eventList, today, jamSekarang, pengumuman })}>
       {/* Dashboard sudah menampilkan gedung & jumlah penghuni di header-nya */}
       {activeTab !== 'dashboard' && activeTab !== 'profil' && (
         <div className="mb-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-emerald-100 text-xs font-semibold text-emerald-900">
@@ -386,6 +393,28 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
             return rows.length ? { hadir: n('Hadir'), belum: n('Belum'), tidakHadir: n('Tidak Hadir'), izin: n('Izin'), total: rows.length } : null
           })()}
           onLihatMonitor={() => bukaMonitor('Malam', '')}
+        />
+      )}
+      {activeTab === 'pengumuman' && (
+        <KelolaPengumuman
+          daftar={pengumuman}
+          peran="fasil"
+          nimSaya={user.nim}
+          gedungList={gedungList}
+          namaGedungSaya={gedungSaya.nama}
+          onTambah={async d => { const r = await addPengumumanApi(d); if (r.ok) muatPengumuman(); return r }}
+          onUbah={async (id, d) => { const r = await updatePengumumanApi(id, d); if (r.ok) muatPengumuman(); return r }}
+          onHapus={p => setConfirmDialog({
+            open: true,
+            title: 'Hapus Pengumuman',
+            message: `Hapus pengumuman "${p.judul}"? Penghuni tidak akan melihatnya lagi.`,
+            onConfirm: async () => {
+              const res = await deletePengumumanApi(p.id)
+              if (res.ok || res.offline) muatPengumuman()
+              else alert(res.message || 'Gagal menghapus pengumuman.')
+              setConfirmDialog(c => ({ ...c, open: false }))
+            },
+          })}
         />
       )}
       {activeTab === 'event' && (
@@ -1833,6 +1862,16 @@ function FasilRekap({ fasil, anggota, sesiList, data, now, batas: BATAS_ALPA, na
           </>
         )}
       </div>
+
+      {/* 5. Rekap semester untuk pihak kampus */}
+      <RekapSemester
+        penghuni={anggota}
+        sesiList={sesiList}
+        data={data}
+        now={now}
+        gedungTetap={namaGedung}
+        penandatangan={{ jabatan: `Fasilitator ${namaGedung}`, nama: fasil.nama, identitas: `NIM. ${fasil.nim}` }}
+      />
     </div>
   )
 }

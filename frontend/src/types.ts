@@ -222,6 +222,26 @@ export interface EventAsrama {
   presensiSaya?: PresensiEventRecord | null
 }
 
+// Pengumuman dari admin (seluruh asrama / gedung) atau fasil (gedung binaannya)
+export interface Pengumuman {
+  id: number
+  judul: string
+  isi: string
+  penting: boolean
+  tipe: 'seluruh' | 'gedung'
+  idGedung: number | null
+  namaGedung: string | null
+  // YYYY-MM-DD; null = tidak kedaluwarsa
+  berlakuSampai: string | null
+  createdBy: string
+  namaPembuat: string | null
+  peranPembuat: 'admin' | 'fasil'
+  dibuatPada: string | null
+  diubahPada: string | null
+}
+
+export type PengumumanInput = Pick<Pengumuman, 'judul' | 'isi' | 'penting' | 'tipe' | 'idGedung' | 'berlakuSampai'>
+
 // Data simpan event: fotoSampul = data URL gambar baru, hapusSampul = buang sampul lama
 export type EventInput = Partial<EventAsrama> & { hapusSampul?: boolean }
 

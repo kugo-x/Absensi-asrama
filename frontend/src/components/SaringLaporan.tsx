@@ -1,4 +1,4 @@
-import { addDays, dateRangeDesc, formatTanggal } from '../logic'
+import { addDays, dateRangeDesc, formatTanggal, semesterDari } from '../logic'
 import DateInput from './DateInput'
 
 /**
@@ -6,7 +6,7 @@ import DateInput from './DateInput'
  * Rentang bebas dibatasi MAKS_HARI_LAPORAN karena rekap dihitung per penghuni per sesi per hari di browser.
  */
 
-export type PeriodeLaporan = 'hari-ini' | '7' | '30' | 'bulan-ini' | 'bulan-lalu' | 'rentang'
+export type PeriodeLaporan = 'hari-ini' | '7' | '30' | 'bulan-ini' | 'bulan-lalu' | 'semester-ini' | 'semester-lalu' | 'rentang'
 
 export const MAKS_HARI_LAPORAN = 92
 
@@ -16,6 +16,8 @@ export const PILIHAN_PERIODE_LAPORAN: [PeriodeLaporan, string][] = [
   ['30', '30 hari terakhir'],
   ['bulan-ini', 'Bulan ini'],
   ['bulan-lalu', 'Bulan lalu'],
+  ['semester-ini', 'Semester ini'],
+  ['semester-lalu', 'Semester lalu'],
   ['rentang', 'Pilih rentang tanggal…'],
 ]
 
@@ -37,6 +39,14 @@ export function rentangLaporan({ periode, dari, sampai }: SaringPeriode, today: 
       const akhir = addDays(awalBulanIni, -1)
       return [`${akhir.slice(0, 7)}-01`, akhir]
     }
+    case 'semester-ini': {
+      const s = semesterDari(today)
+      return [s.mulai, s.selesai < today ? s.selesai : today]
+    }
+    case 'semester-lalu': {
+      const s = semesterDari(addDays(semesterDari(today).mulai, -1))
+      return [s.mulai, s.selesai]
+    }
     case 'rentang':
       if (!dari || !sampai || sampai < dari || dateRangeDesc(dari, sampai).length > MAKS_HARI_LAPORAN) return null
       return [dari, sampai]
@@ -45,8 +55,10 @@ export function rentangLaporan({ periode, dari, sampai }: SaringPeriode, today: 
 
 // Teks periode untuk judul laporan, mis. "Bulan ini (1 Nov 2026 – 17 Nov 2026)"
 export function labelPeriodeLaporan(saring: SaringPeriode, rentang: [string, string]): string {
-  const nama = saring.periode === 'rentang' ? 'Periode' : PILIHAN_PERIODE_LAPORAN.find(([p]) => p === saring.periode)![1]
   const [a, b] = rentang
+  const nama = saring.periode === 'rentang' ? 'Periode'
+    : saring.periode.startsWith('semester') ? `Semester ${semesterDari(a).label}`
+    : PILIHAN_PERIODE_LAPORAN.find(([p]) => p === saring.periode)![1]
   return `${nama} (${a === b ? formatTanggal(a, 'tanpaHari') : `${formatTanggal(a, 'tanpaHari')} – ${formatTanggal(b, 'tanpaHari')}`})`
 }
 

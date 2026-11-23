@@ -1,4 +1,4 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, EventInput, RekapEventResult, GedungInput, KamarInput, LogAktivitas, FotoEvent } from './types'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, EventInput, RekapEventResult, GedungInput, KamarInput, LogAktivitas, FotoEvent, Pengumuman, PengumumanInput } from './types'
 import {
   DEMO_ACCOUNTS,
   gedungList as initialGedung,
@@ -152,6 +152,9 @@ const JUDUL_AKTIVITAS: Record<string, string> = {
   'event/absen': 'Absen event berhasil',
   'event/validasi-foto': 'Validasi foto event disimpan',
   'event/add': 'Event dibuat',
+  'pengumuman/add': 'Pengumuman terkirim',
+  'pengumuman/update': 'Pengumuman diperbarui',
+  'pengumuman/delete': 'Pengumuman dihapus',
   'event/update': 'Event diperbarui',
   'event/delete': 'Event dihapus',
   'mode-uji': 'Mode uji diperbarui',
@@ -419,6 +422,12 @@ export const updateIzinStatusApi = (id: number, status: 'Disetujui' | 'Ditolak',
 // ---------- Event Asrama ----------
 
 export const fetchEvent = () => getList<EventAsrama>('event', initialEvent)
+
+// ---------- Pengumuman ----------
+export const fetchPengumuman = () => getList<Pengumuman>('pengumuman', [])
+export const addPengumumanApi = (data: PengumumanInput) => postJson('pengumuman/add', data)
+export const updatePengumumanApi = (id: number, data: PengumumanInput) => postJson('pengumuman/update', { id, ...data })
+export const deletePengumumanApi = (id: number) => postJson('pengumuman/delete', { id })
 
 export const addEventApi = (data: EventInput) => postJson('event/add', data)
 

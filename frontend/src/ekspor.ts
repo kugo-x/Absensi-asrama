@@ -51,6 +51,7 @@ const WARNA_STATUS: Record<string, readonly [number, number, number]> = {
   'Tidak Hadir': [190, 18, 60], Ditolak: [190, 18, 60], Nonaktif: [107, 114, 128], 'Perlu ditegur': [190, 18, 60],
   Izin: [180, 83, 9], Menunggu: [194, 65, 12], Pending: [194, 65, 12],
   Belum: [107, 114, 128], Libur: [3, 105, 161],
+  Memenuhi: [4, 120, 87], 'Belum memenuhi': [190, 18, 60],
 }
 
 const hex = (rgb: readonly number[]) => rgb.map(n => n.toString(16).padStart(2, '0')).join('').toUpperCase()

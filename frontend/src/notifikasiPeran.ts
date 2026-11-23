@@ -1,4 +1,4 @@
-import type { EventAsrama, Gedung, IzinRecord, ModeUji, PresensiRecord, Sesi } from './types'
+import type { EventAsrama, Gedung, IzinRecord, ModeUji, PresensiRecord, Sesi, Pengumuman } from './types'
 import type { Notifikasi } from './components/Notifikasi'
 import { formatRentangIzin } from './components/PresensiWidgets'
 import { addDays, formatTanggal } from './logic'
@@ -51,6 +51,22 @@ function notifikasiEvent(eventList: EventAsrama[], nimSaya: string, today: strin
   return out
 }
 
+// Pengumuman yang masih berlaku dan bukan buatan sendiri. Yang penting berjenis 'peringatan' (berbunyi).
+// Id memuat waktu ubah agar pengumuman yang diperbarui muncul lagi sebagai belum dibaca.
+function notifikasiPengumuman(daftar: Pengumuman[], nimSaya: string, today: string, tab: string): Notifikasi[] {
+  const batas = addDays(today, -RENTANG_HARI)
+  return daftar
+    .filter(p => p.createdBy !== nimSaya && (!p.berlakuSampai || p.berlakuSampai >= today) && (p.diubahPada || p.dibuatPada || today).slice(0, 10) >= batas)
+    .map(p => ({
+      id: `pengumuman-${p.id}-${p.diubahPada ?? ''}`,
+      jenis: p.penting ? 'peringatan' as const : 'info' as const,
+      judul: `${p.penting ? 'Pengumuman penting' : 'Pengumuman'}: ${p.judul}`,
+      pesan: p.isi.length > 140 ? `${p.isi.slice(0, 140)}…` : p.isi,
+      waktu: p.diubahPada || p.dibuatPada || undefined,
+      tab,
+    }))
+}
+
 // ---------- Penghuni ----------
 
 export function notifikasiPenghuni(a: {
@@ -61,9 +77,10 @@ export function notifikasiPenghuni(a: {
   today: string
   eventList: EventAsrama[]
   jamSekarang: string
+  pengumuman?: Pengumuman[]
 }): Notifikasi[] {
   const batas = addDays(a.today, -RENTANG_HARI)
-  const out: Notifikasi[] = notifikasiEvent(a.eventList, a.nim, a.today, a.jamSekarang, true)
+  const out: Notifikasi[] = [...notifikasiPengumuman(a.pengumuman ?? [], a.nim, a.today, 'dashboard'), ...notifikasiEvent(a.eventList, a.nim, a.today, a.jamSekarang, true)]
 
   // Absen event: tercatat (menunggu validasi), diterima, atau ditolak fasil
   for (const ev of a.eventList) {
@@ -160,9 +177,10 @@ export function notifikasiFasil(a: {
   eventList: EventAsrama[]
   today: string
   jamSekarang: string
+  pengumuman?: Pengumuman[]
 }): Notifikasi[] {
-  // Fasil diberi tahu event yang dibuat pihak lain (mis. admin untuk seluruh asrama), tanpa pengingat absen
-  const out: Notifikasi[] = notifikasiEvent(a.eventList, a.nim, a.today, a.jamSekarang, false)
+  // Fasil diberi tahu event & pengumuman yang dibuat pihak lain (mis. admin), tanpa pengingat absen
+  const out: Notifikasi[] = [...notifikasiPengumuman(a.pengumuman ?? [], a.nim, a.today, 'pengumuman'), ...notifikasiEvent(a.eventList, a.nim, a.today, a.jamSekarang, false)]
 
   for (const i of a.izinGedung) {
     if (i.statusPersetujuan !== 'Pending') continue
