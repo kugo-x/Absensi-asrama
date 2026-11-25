@@ -1027,3 +1027,8 @@ html.dark .warna-tema { color: color-mix(in oklab, var(--warna) 45%, #ffffff) !i
   :where(html.dark) .bg-emerald-600.text-white { background-color: #1c7b31; }
   :where(html.dark) .bg-rose-500.text-white { background-color: oklch(58.6% 0.253 17.585); }
 }
+
+/* Logo SIP: mode gelap memakai versi kedua (ubin putih, atap teal) */
+html.dark .logo-sip-ubin { fill: #ffffff; }
+html.dark .logo-sip-atap { fill: #0e6e63; }
+html.dark .logo-sip-tepi { stroke-opacity: 0; }

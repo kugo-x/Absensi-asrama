@@ -8,16 +8,6 @@ import { formatTanggal, hariIso, hitungStatus, NAMA_HARI } from '../logic'
 
 export const WARNA_STATUS_GRAFIK = { Hadir: '#22993b', Izin: '#d97706', 'Tidak Hadir': '#e11d48' } as const
 
-/** Target tingkat kehadiran yang dipakai sebagai garis/penanda acuan di grafik */
-export const TARGET_KEHADIRAN = 80
-
-// Tingkat keparahan meter: memenuhi target, mendekati, jauh di bawah
-const KEPARAHAN = {
-  baik: { isi: '#22993b', lintasan: 'var(--color-emerald-100)', label: '' },
-  waspada: { isi: '#d97706', lintasan: 'var(--color-amber-100)', label: 'di bawah target' },
-  buruk: { isi: '#e11d48', lintasan: 'var(--color-rose-100)', label: 'perlu perhatian' },
-} as const
-const keparahan = (persen: number) => (persen >= TARGET_KEHADIRAN ? KEPARAHAN.baik : persen >= 60 ? KEPARAHAN.waspada : KEPARAHAN.buruk)
 type KunciGrafik = keyof typeof WARNA_STATUS_GRAFIK
 const URUTAN: KunciGrafik[] = ['Hadir', 'Izin', 'Tidak Hadir']
 
@@ -164,14 +154,13 @@ export function BilahKomposisi({ bagian }: { bagian: { label: string; nilai: num
 
 /**
  * Daftar meter berperingkat (mis. kehadiran per gedung): satu baris per kelompok, bar sejajar,
- * warna isi menunjukkan keparahan terhadap target, penanda tegak = target.
+ * satu warna (hijau = hadir), angka persentase di kanan; rincian lewat tooltip.
  */
 export function DaftarMeter({ data, kosong = 'Belum ada data' }: { data: { label: string; sub?: string; c: Rekap }[]; kosong?: string }) {
   if (data.length === 0) return <p className="text-sm text-gray-400 py-6 text-center">{kosong}</p>
   return (
     <div className="space-y-3.5">
       {data.map(({ label, sub, c }) => {
-        const k = c.wajib > 0 ? keparahan(c.persen) : null
         return (
           <div key={label} className="group relative outline-none" tabIndex={0} aria-label={`${label}: ${c.wajib > 0 ? `${c.persen}% hadir` : 'tidak ada sesi wajib'}`}>
             <div className="flex items-baseline justify-between gap-2 mb-1">
@@ -179,14 +168,11 @@ export function DaftarMeter({ data, kosong = 'Belum ada data' }: { data: { label
                 {label}{sub && <span className="ml-1.5 text-[11px] font-normal text-gray-400">{sub}</span>}
               </span>
               <span className="shrink-0 flex items-baseline gap-1.5">
-                {k?.label && <span className="text-[10px] font-semibold warna-tema" style={{ '--warna': k.isi, color: 'var(--warna)' } as React.CSSProperties}>{k.label}</span>}
                 <span className="text-sm font-bold text-gray-900 tabular-nums">{c.wajib > 0 ? `${c.persen}%` : '–'}</span>
               </span>
             </div>
-            <div className="relative h-2.5 rounded-full" style={{ background: k?.lintasan ?? 'var(--color-gray-100)' }}>
-              {k && <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-500" style={{ width: `${c.persen}%`, background: k.isi }} />}
-              {/* Penanda target */}
-              <div className="absolute -top-1 -bottom-1 w-0.5 rounded bg-gray-700/70" style={{ left: `${TARGET_KEHADIRAN}%` }} />
+            <div className="relative h-2.5 rounded-full" style={{ background: 'var(--color-gray-100)' }}>
+              {c.wajib > 0 && <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-500" style={{ width: `${c.persen}%`, background: WARNA_STATUS_GRAFIK.Hadir }} />}
             </div>
             {c.wajib > 0 && (
               <div className="pointer-events-none absolute right-0 bottom-full mb-1 z-10 hidden group-hover:block group-focus:block w-44 rounded-lg bg-gray-900 text-white text-[11px] p-2.5 shadow-lg">
@@ -196,14 +182,6 @@ export function DaftarMeter({ data, kosong = 'Belum ada data' }: { data: { label
           </div>
         )
       })}
-      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-gray-500 pt-1">
-        <span className="inline-block w-0.5 h-3 rounded bg-gray-700/70" /> Target {TARGET_KEHADIRAN}%
-        <span className="ml-auto flex items-center gap-2">
-          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: KEPARAHAN.baik.isi }} />≥ {TARGET_KEHADIRAN}%</span>
-          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: KEPARAHAN.waspada.isi }} />60–{TARGET_KEHADIRAN - 1}%</span>
-          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: KEPARAHAN.buruk.isi }} />{'< 60%'}</span>
-        </span>
-      </p>
     </div>
   )
 }
@@ -305,28 +283,24 @@ export function HistogramSebaran({ persen }: { persen: number[] }) {
   if (persen.length === 0) return <p className="text-sm text-gray-400 py-6 text-center">Belum ada penghuni dengan sesi wajib pada periode ini.</p>
   const jumlah = RENTANG_SEBARAN.map(r => persen.filter(p => p >= r.min && p <= r.max).length)
   const maks = Math.max(1, ...jumlah)
-  const diBawahTarget = persen.filter(p => p < TARGET_KEHADIRAN).length
   return (
     <div>
-      <p className="text-xs text-gray-600 mb-3">
-        <strong className="text-gray-900">{diBawahTarget}</strong> dari {persen.length} penghuni di bawah target {TARGET_KEHADIRAN}%
-      </p>
+      <p className="text-xs text-gray-600 mb-3">Jumlah penghuni di tiap rentang tingkat kehadiran · <strong className="text-gray-900">{persen.length}</strong> penghuni</p>
       <div className="flex items-end gap-2 h-32 border-b border-gray-200">
         {jumlah.map((n, i) => {
-          const sorot = i === 0 && n > 0
           return (
             <div key={i} className="flex-1 h-full flex flex-col items-center justify-end" title={`${RENTANG_SEBARAN[i].label}: ${n} penghuni`}>
-              <span className={`text-xs font-bold tabular-nums mb-1 ${sorot ? 'text-rose-700' : 'text-gray-800'}`}>{n}</span>
+              <span className="text-xs font-bold tabular-nums mb-1 text-gray-800">{n}</span>
               <div
                 className="w-full max-w-10 rounded-t-[4px] transition-all duration-500"
-                style={{ height: `${(n / maks) * 85}%`, minHeight: n > 0 ? 3 : 0, background: sorot ? WARNA_STATUS_GRAFIK['Tidak Hadir'] : i >= 3 ? '#22993b' : '#86e094' }}
+                style={{ height: `${(n / maks) * 85}%`, minHeight: n > 0 ? 3 : 0, background: WARNA_STATUS_GRAFIK.Hadir }}
               />
             </div>
           )
         })}
       </div>
       <div className="flex gap-2 mt-1.5">
-        {RENTANG_SEBARAN.map((r, i) => <span key={r.label} className={`flex-1 text-center text-[10px] ${i === 0 ? 'font-semibold text-rose-700' : 'text-gray-500'}`}>{r.label}</span>)}
+        {RENTANG_SEBARAN.map((r, i) => <span key={r.label} className="flex-1 text-center text-[10px] text-gray-500">{r.label}</span>)}
       </div>
     </div>
   )

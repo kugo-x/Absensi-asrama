@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Gedung, Penghuni, Sesi } from '../types'
 import { addDays, dateRangeDesc, formatTanggal, hariIso, hitungStatus, statusPerTanggal, todayLocal, type DataPresensi } from '../logic'
-import { GrafikTrenKehadiran, IsiTooltip, TARGET_KEHADIRAN, WARNA_STATUS_GRAFIK } from './GrafikKehadiran'
+import { GrafikTrenKehadiran, IsiTooltip, WARNA_STATUS_GRAFIK } from './GrafikKehadiran'
 
 /**
  * Panel tren kehadiran (admin & fasil): 7 hari (batang harian), 12 minggu, atau 6 bulan (garis % hadir).
@@ -58,12 +58,6 @@ function GrafikGarisPersen({ titik }: { titik: Titik[] }) {
             <span className="absolute -left-9 -translate-y-1/2 w-7 text-right text-[10px] text-gray-400 tabular-nums">{v}%</span>
           </div>
         ))}
-        {/* Garis target */}
-        {/* Warna lewat style: kelas warna garis tepi dapat tertimpa aturan tema kaca (index.css) */}
-        <div className="absolute left-0 right-0 h-0.5 -translate-y-1/2 rounded-full pointer-events-none" style={{ top: `${100 - TARGET_KEHADIRAN}%`, background: '#f59e0b' }}>
-          {/* Label di kiri: titik terbaru (berlabel nilai) selalu di kanan */}
-          <span className="absolute left-1 -top-4 text-[10px] font-semibold text-amber-700">Target {TARGET_KEHADIRAN}%</span>
-        </div>
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible" aria-hidden="true">
           <path d={area} fill={WARNA_STATUS_GRAFIK.Hadir} fillOpacity={0.1} />
           <path d={garis} fill="none" stroke={WARNA_STATUS_GRAFIK.Hadir} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
