@@ -723,9 +723,15 @@ main .grid > * { min-width: 0; }
 
 /* Perangkat sentuh (HP/tablet): tombol & tautan minimal 32px agar mudah disentuh jari.
    Hanya berlaku untuk elemen blok/flex (tautan teks di dalam kalimat tidak terpengaruh). */
+/* Layar sentuh: area ketuk minimal 40px (mendekati anjuran 44px) tanpa mengubah tampilan di desktop */
 @media (pointer: coarse) {
-  main button, main a[href], main [role='button'], header button, aside button { min-height: 32px; }
-  main button.inline-flex, main a.inline-flex { min-width: 32px; }
+  :is(main, header, aside, [role='dialog'], [role='alertdialog'], [role='tablist']) :is(button, [role='button']),
+  main a[href] { min-height: 40px; }
+  :is(main, header, [role='dialog']) :is(button, a[href]).inline-flex,
+  :is(main, header, [role='dialog']) button[aria-label]:is(.flex, .inline-flex),
+  :is(main, header, [role='dialog']) button:has(> svg:only-child) { min-width: 40px; }
+  /* Tautan teks (mis. "Lihat bukti", "Semua riwayat"): tinggi area ketuk ditambah, teks tetap di tengah */
+  main a[href]:not([class*='flex']):not([class*='block']) { display: inline-flex; align-items: center; }
 }
 
 /* =====================================================================

@@ -53,6 +53,7 @@ class LogAktivitas
         'libur/delete'                   => ['pengaturan', 'Menghapus hari libur'],
         'mode-uji'                       => ['pengaturan', 'Mengubah mode uji'],
         'aturan-presensi'                => ['pengaturan', 'Mengubah aturan presensi'],
+        'template-alasan'                => ['pengaturan', 'Mengubah template alasan validasi foto'],
     ];
 
     // Kunci yang tidak boleh ikut tersimpan (rahasia atau berkas besar)

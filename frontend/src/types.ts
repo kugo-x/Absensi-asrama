@@ -292,6 +292,13 @@ export interface FotoEvent {
   divalidasiPada: string
 }
 
+// Template alasan validasi foto (dikelola admin, dipilih fasil)
+export interface TemplateAlasan {
+  id?: number
+  status: 'Diterima' | 'Ditolak'
+  teks: string
+}
+
 // Percobaan absen yang fotonya ditolak lalu diulang (arsip; baris presensi aslinya sudah ditimpa)
 export interface RiwayatDitolak {
   id: number

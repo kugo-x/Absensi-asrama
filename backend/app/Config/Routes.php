@@ -85,6 +85,8 @@ $routes->group('api', static function ($routes) {
     $routes->post('mode-uji', 'Api\PengaturanController::saveModeUji');
     $routes->get('aturan-presensi', 'Api\PengaturanController::getAturanPresensi');
     $routes->post('aturan-presensi', 'Api\PengaturanController::saveAturanPresensi');
+    $routes->get('template-alasan', 'Api\PengaturanController::getTemplateAlasan');
+    $routes->post('template-alasan', 'Api\PengaturanController::saveTemplateAlasan');
 
     // Log aktivitas (admin, hanya baca)
     $routes->get('log', 'Api\LogController::index');

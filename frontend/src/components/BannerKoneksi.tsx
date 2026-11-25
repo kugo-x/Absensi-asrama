@@ -25,7 +25,7 @@ export default function BannerKoneksi() {
           <p className="text-rose-800/80">
             {OFFLINE_DEMO
               ? 'Mode demo aktif: perubahan hanya disimpan sementara di browser ini.'
-              : 'Data yang tampil mungkin kosong atau belum terbaru, dan perubahan tidak dapat disimpan. Periksa backend lalu coba lagi.'}
+              : 'Data yang tampil adalah data terakhir yang berhasil dimuat dan perubahan belum dapat disimpan. Halaman akan diperbarui otomatis saat server kembali terhubung.'}
           </p>
         </div>
         <button

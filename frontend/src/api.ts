@@ -1,4 +1,4 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, EventInput, RekapEventResult, GedungInput, KamarInput, LogAktivitas, FotoEvent, Pengumuman, PengumumanInput, RiwayatDitolak } from './types'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, EventInput, RekapEventResult, GedungInput, KamarInput, LogAktivitas, FotoEvent, Pengumuman, PengumumanInput, RiwayatDitolak, TemplateAlasan } from './types'
 import {
   DEMO_ACCOUNTS,
   gedungList as initialGedung,
@@ -74,7 +74,18 @@ function isJson(res: Response) {
  * - Server tidak bisa dihubungi: lapor ke banner koneksi lalu kembalikan [] —
  *   data contoh hanya bila OFFLINE_DEMO.
  */
+// Data terakhir yang berhasil dimuat per akun + endpoint. Saat server sesaat tidak dapat dihubungi,
+// data ini dikembalikan agar daftar di layar tidak mendadak kosong (cukup banner koneksi yang tampil).
+const dataTerakhir = new Map<string, unknown[]>()
+const kunciCache = (path: string) => `${getAuthToken() ?? ''}|${path}`
+
+/** true bila endpoint ini sudah pernah berhasil dimuat untuk akun yang sedang login. */
+export function sudahDimuat(path: string): boolean {
+  return dataTerakhir.has(kunciCache(path))
+}
+
 async function getList<T>(path: string, contoh: T[]): Promise<T[]> {
+  const kunci = kunciCache(path)
   try {
     const res = await fetch(`${API_BASE}/${path}`, { headers: authHeaders() })
     if (res.status === 401) {
@@ -85,6 +96,7 @@ async function getList<T>(path: string, contoh: T[]): Promise<T[]> {
       const data = await res.json()
       if (Array.isArray(data)) {
         laporKoneksi(true)
+        dataTerakhir.set(kunci, data)
         return data
       }
     }
@@ -94,6 +106,8 @@ async function getList<T>(path: string, contoh: T[]): Promise<T[]> {
   } catch {
     laporKoneksi(false)
   }
+  const lama = dataTerakhir.get(kunci)
+  if (lama) return lama as T[]
   return OFFLINE_DEMO ? contoh : []
 }
 
@@ -279,13 +293,19 @@ export async function seedDatabaseApi(): Promise<ApiResult> {
 
 export const MODE_UJI_MATI: ModeUji = { abaikanJam: false, abaikanRadius: false }
 
+let modeUjiTerakhir: { kunci: string; nilai: ModeUji } | null = null
 export async function fetchModeUji(): Promise<ModeUji> {
+  // Gagal sesaat: pakai nilai terakhir agar banner mode uji tidak hilang-muncul
+  const kunci = getAuthToken() ?? ''
+  const cadangan = modeUjiTerakhir?.kunci === kunci ? modeUjiTerakhir.nilai : MODE_UJI_MATI
   try {
     const res = await fetch(`${API_BASE}/mode-uji`, { headers: authHeaders() })
-    if (!res.ok || !isJson(res)) return MODE_UJI_MATI
-    return await res.json()
+    if (!res.ok || !isJson(res)) return cadangan
+    const nilai: ModeUji = await res.json()
+    modeUjiTerakhir = { kunci, nilai }
+    return nilai
   } catch {
-    return MODE_UJI_MATI
+    return cadangan
   }
 }
 
@@ -445,6 +465,8 @@ export const fetchEvent = () => getList<EventAsrama>('event', initialEvent)
 // ---------- Pengumuman ----------
 export const fetchPengumuman = () => getList<Pengumuman>('pengumuman', [])
 export const fetchRiwayatDitolak = () => getList<RiwayatDitolak>('presensi/riwayat-ditolak', [])
+export const fetchTemplateAlasan = () => getList<TemplateAlasan>('template-alasan', [])
+export const saveTemplateAlasanApi = (daftar: TemplateAlasan[]) => postJson('template-alasan', { daftar: daftar.map(({ status, teks }) => ({ status, teks })) })
 export const addPengumumanApi = (data: PengumumanInput) => postJson('pengumuman/add', data)
 export const updatePengumumanApi = (id: number, data: PengumumanInput) => postJson('pengumuman/update', { id, ...data })
 export const deletePengumumanApi = (id: number) => postJson('pengumuman/delete', { id })

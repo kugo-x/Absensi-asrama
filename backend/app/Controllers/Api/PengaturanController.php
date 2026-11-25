@@ -391,6 +391,78 @@ class PengaturanController extends BaseController
         return $this->respond(['status' => 'success', 'message' => 'Aturan presensi berhasil disimpan']);
     }
 
+    // ----------------------------------------------------
+    // GET /api/template-alasan (admin & fasil)
+    // Template alasan validasi foto yang dapat dipilih fasil
+    // ----------------------------------------------------
+    public function getTemplateAlasan()
+    {
+        if (! in_array(strtolower($this->tokenUser()['role'] ?? ''), ['admin', 'fasil'], true)) {
+            return $this->failForbidden('Hanya admin dan fasil yang dapat melihat template alasan.');
+        }
+        if (! $this->db->tableExists('template_alasan_foto')) {
+            return $this->respond([]);
+        }
+        $rows = $this->db->table('template_alasan_foto')
+            ->select('id, status, teks')
+            ->orderBy('status', 'ASC')->orderBy('urutan', 'ASC')->orderBy('id', 'ASC')
+            ->get()->getResultArray();
+
+        return $this->respond(array_map(static fn ($r) => ['id' => (int) $r['id'], 'status' => $r['status'], 'teks' => $r['teks']], $rows));
+    }
+
+    // ----------------------------------------------------
+    // POST /api/template-alasan (admin)
+    // Mengganti seluruh daftar: { daftar: [{ status: 'Diterima'|'Ditolak', teks }] } — urutan mengikuti larik
+    // ----------------------------------------------------
+    public function saveTemplateAlasan()
+    {
+        if (strtolower($this->tokenUser()['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya admin yang dapat mengubah template alasan.');
+        }
+        $input  = $this->request->getJSON(true) ?? $this->request->getPost();
+        $daftar = $input['daftar'] ?? null;
+        if (! is_array($daftar)) {
+            return $this->fail('Daftar template tidak valid.', 400);
+        }
+
+        $baris  = [];
+        $dilihat = [];
+        $jumlah = ['Diterima' => 0, 'Ditolak' => 0];
+        $now    = date('Y-m-d H:i:s');
+        foreach (array_values($daftar) as $i => $item) {
+            $status = is_array($item) ? ($item['status'] ?? '') : '';
+            $teks   = is_array($item) ? trim(preg_replace('/\s+/', ' ', (string) ($item['teks'] ?? ''))) : '';
+            if (! isset($jumlah[$status])) {
+                return $this->fail('Status template harus Diterima atau Ditolak.', 400);
+            }
+            if (mb_strlen($teks) < 3 || mb_strlen($teks) > 200) {
+                return $this->fail('Teks template harus 3–200 karakter.', 400);
+            }
+            $kunci = $status . '|' . mb_strtolower($teks);
+            if (isset($dilihat[$kunci])) {
+                return $this->fail('Template "' . $teks . '" tercantum lebih dari sekali.', 400);
+            }
+            $dilihat[$kunci] = true;
+            if (++$jumlah[$status] > 20) {
+                return $this->fail('Maksimal 20 template untuk tiap status.', 400);
+            }
+            $baris[] = ['status' => $status, 'teks' => $teks, 'urutan' => $i, 'created_at' => $now, 'updated_at' => $now];
+        }
+
+        $this->db->transStart();
+        $this->db->table('template_alasan_foto')->emptyTable();
+        if ($baris) {
+            $this->db->table('template_alasan_foto')->insertBatch($baris);
+        }
+        $this->db->transComplete();
+        if (! $this->db->transStatus()) {
+            return $this->failServerError('Template alasan gagal disimpan.');
+        }
+
+        return $this->respond(['status' => 'success', 'message' => 'Template alasan berhasil disimpan']);
+    }
+
     // Payload token login (sama dengan DataController::tokenUser); [] jika tidak valid
     private function tokenUser(): array
     {

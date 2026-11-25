@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult, FotoEvent, EventInput, Pengumuman } from '../types'
+import type { AturanPresensi, CurrentUser, Gedung, HariLibur, IzinRecord, Penghuni, PresensiRecord, PresensiStatus, Sesi, StatusFoto, EventAsrama, RekapEventResult, FotoEvent, EventInput, Pengumuman, TemplateAlasan } from '../types'
 import AppLayout, { Badge, ConfirmDialog } from '../components/AppLayout'
 import { JadwalMalamFasil } from '../components/JadwalMalam'
 import { useRealtime, bilaBerubah } from '../realtime'
@@ -26,7 +26,7 @@ import {
 import {
   awalDemo, fetchFotoValidasiEvent, validasiFotoEventApi, fetchFotoEvent, fetchFotoWajah, fetchPresensi, fetchIzin, fetchPenghuni, fetchGedung, fetchSesi, fetchLibur,
   fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent, type ApiResult,
-  updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, fetchPengumuman, addPengumumanApi, updatePengumumanApi, deletePengumumanApi } from '../api'
+  updateIzinStatusApi, koreksiPresensiApi, validasiFotoApi, validasiFotoMassalApi, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT, fetchPengumuman, addPengumumanApi, updatePengumumanApi, deletePengumumanApi, fetchTemplateAlasan, sudahDimuat } from '../api'
 import {
   cariLibur, formatTanggal, hitungStatus, penghuniWajibAbsen, periodeRekap, riwayatPenghuni, sesiAktif, sesiUntuk, statusSesi, toHM, todayLocal, type DataPresensi,
   addDays, formatRentangTanggal, teksHariBerulang, hariIso, maxDate, dateRangeDesc, NAMA_HARI, kehadiranHariIni, kehadiranGabungan, HARI_RINGKASAN, type RiwayatRow } from '../logic'
@@ -1427,29 +1427,19 @@ function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, on
   )
 }
 
-// Template alasan validasi foto: klik untuk mengisi catatan, lalu bisa disunting sebelum dikirim
-const TEMPLATE_ALASAN: { status: Exclude<StatusFoto, 'Menunggu'>; judul: string; daftar: string[] }[] = [
-  {
-    status: 'Diterima',
-    judul: 'Alasan diterima',
-    daftar: [
-      'Wajah terlihat jelas dan sesuai data penghuni.',
-      'Foto sesuai, lokasi dalam radius.',
-      'Wajah sedikit buram, namun masih dapat dikenali.',
-    ],
-  },
-  {
-    status: 'Ditolak',
-    judul: 'Alasan ditolak',
-    daftar: [
-      'Wajah tidak terlihat jelas / buram.',
-      'Wajah tertutup (masker, helm, atau tangan).',
-      'Foto terlalu gelap.',
-      'Wajah tidak sesuai dengan penghuni terdaftar.',
-      'Foto bukan diambil langsung (foto dari layar/kertas).',
-      'Lebih dari satu orang di dalam foto.',
-    ],
-  },
+// Template alasan validasi foto (dikelola admin di menu Sesi & Hari Libur). Klik untuk mengisi catatan,
+// lalu bisa disunting sebelum dikirim. Bawaan dipakai hanya bila daftar dari server belum dapat dimuat.
+type GrupAlasan = { status: Exclude<StatusFoto, 'Menunggu'>; judul: string; daftar: string[] }
+const TEMPLATE_BAWAAN: TemplateAlasan[] = [
+  { status: 'Diterima', teks: 'Wajah terlihat jelas dan sesuai data penghuni.' },
+  { status: 'Diterima', teks: 'Foto sesuai, lokasi dalam radius.' },
+  { status: 'Ditolak', teks: 'Wajah tidak terlihat jelas / buram.' },
+  { status: 'Ditolak', teks: 'Wajah tertutup (masker, helm, atau tangan).' },
+  { status: 'Ditolak', teks: 'Foto terlalu gelap.' },
+]
+const kelompokkanAlasan = (l: TemplateAlasan[]): GrupAlasan[] => [
+  { status: 'Diterima', judul: 'Alasan diterima', daftar: l.filter(t => t.status === 'Diterima').map(t => t.teks) },
+  { status: 'Ditolak', judul: 'Alasan ditolak', daftar: l.filter(t => t.status === 'Ditolak').map(t => t.teks) },
 ]
 
 function DetailValidasiFoto({ item, onClose, onPutuskan }: {
@@ -1461,6 +1451,17 @@ function DetailValidasiFoto({ item, onClose, onPutuskan }: {
   const [error, setError] = useState('')
   const [proses, setProses] = useState(false)
   const menunggu = item.statusFoto === 'Menunggu'
+  // Template terbaru diambil setiap popup dibuka, jadi perubahan admin langsung berlaku
+  // null = sedang dimuat; bawaan hanya bila server gagal & belum pernah termuat
+  const [alasanMuat, setAlasanMuat] = useState<GrupAlasan[] | null>(null)
+  useEffect(() => {
+    let aktif = true
+    fetchTemplateAlasan().then(l => {
+      if (aktif) setAlasanMuat(kelompokkanAlasan(l.length > 0 || sudahDimuat('template-alasan') ? l : TEMPLATE_BAWAAN))
+    })
+    return () => { aktif = false }
+  }, [])
+  const alasan = alasanMuat ?? []
 
   useEffect(() => {
     const tutup = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -1474,7 +1475,7 @@ function DetailValidasiFoto({ item, onClose, onPutuskan }: {
       return
     }
     // Cegah salah klik: template alasan ditolak dikirim dengan tombol Terima (atau sebaliknya)
-    const lawan = TEMPLATE_ALASAN.find(g => g.status !== status)
+    const lawan = alasan.find(g => g.status !== status)
     if (lawan?.daftar.includes(catatan.trim())) {
       setError(`Catatan yang dipilih adalah ${lawan.judul.toLowerCase()}. Ganti catatannya atau tekan tombol ${lawan.status === 'Diterima' ? 'Terima' : 'Tolak'}.`)
       return
@@ -1542,7 +1543,8 @@ function DetailValidasiFoto({ item, onClose, onPutuskan }: {
             <div className="mt-auto space-y-2">
               {/* Template alasan: diterima / ditolak */}
               <div className="space-y-2">
-                {TEMPLATE_ALASAN.map(g => (
+                {!alasanMuat && <p className="text-[11px] text-gray-500">Memuat template alasan…</p>}
+                {alasan.filter(g => g.daftar.length > 0).map(g => (
                   <div key={g.status}>
                     <p className={`text-[11px] font-bold mb-1 ${g.status === 'Diterima' ? 'text-emerald-700' : 'text-rose-700'}`}>{g.judul}</p>
                     <div className="flex flex-wrap gap-1.5">

@@ -254,6 +254,8 @@ export function notifikasiAdmin(a: {
   modeUji: ModeUji
   gedung: Gedung[]
   sesi: Sesi[]
+  // false selama daftar sesi belum pernah berhasil dimuat (mencegah peringatan palsu saat baru login / server putus)
+  sesiDimuat?: boolean
   izin: IzinRecord[]
   presensi: PresensiRecord[]
 }): Notifikasi[] {
@@ -280,7 +282,7 @@ export function notifikasiAdmin(a: {
       tab: 'pengaturan',
     })
   }
-  if (!a.sesi.some(s => s.aktif)) {
+  if (a.sesiDimuat !== false && !a.sesi.some(s => s.aktif)) {
     out.push({ id: 'admin-sesi-kosong', jenis: 'peringatan', judul: 'Belum ada sesi presensi aktif', pesan: 'Atur jadwal sesi agar penghuni dapat melakukan presensi.', labelWaktu: perlu, tetap: true, tab: 'pengaturan' })
   }
   for (const g of a.gedung) {

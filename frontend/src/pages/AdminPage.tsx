@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react'
-import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, PresensiStatus, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput, EventInput, FotoEvent, Pengumuman } from '../types'
+import type { CurrentUser, Penghuni, Gedung, Kamar, PresensiRecord, PresensiStatus, IzinRecord, Sesi, HariLibur, ModeUji, AturanPresensi, EventAsrama, RekapEventResult, GedungInput, KamarInput, EventInput, FotoEvent, Pengumuman, TemplateAlasan } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { BuktiIzin, KotakTanggalIzin, RekapTableBerhalaman, SesiToggle, UbinStatusRekap, type FilterStatusRekap, formatRentangIzin, type RekapRow } from '../components/PresensiWidgets'
 import { BarisSaringIzin, KosongSaringIzin, useSaringIzin } from '../components/SaringIzin'
@@ -19,7 +19,7 @@ import {
   eventList as initialEvent,
 } from '../data/mockData'
 import {
-  fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, fetchDataKamarTerbaru, updateGedungApi, setPjGedungApi,
+  fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, fetchDataKamarTerbaru, sudahDimuat, fetchTemplateAlasan, saveTemplateAlasanApi, updateGedungApi, setPjGedungApi,
   addGedungApi, updateGedungFullApi, deleteGedungApi, addKamarApi, updateKamarApi, deleteKamarApi,
   fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent,
   fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, updateLiburApi, type ApiResult, type UbahPenghuni,
@@ -49,6 +49,8 @@ import {
   Users,
   Building2,
   AlertTriangle,
+  MessageSquareText,
+  ChevronUp,
   Upload,
   ChevronDown,
   ChevronLeft,
@@ -436,7 +438,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
 
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}
-      notifikasi={notifikasiAdmin({ passwordDefault: defaultPasswordCount, modeUji, gedung: gedungList, sesi: sesiList, izin, presensi })}>
+      notifikasi={notifikasiAdmin({ passwordDefault: defaultPasswordCount, modeUji, gedung: gedungList, sesi: sesiList, sesiDimuat: sudahDimuat('sesi'), izin, presensi })}>
       {showDefaultNotice && defaultPasswordCount > 0 && <DefaultPasswordNotice count={defaultPasswordCount} onClose={() => setShowDefaultNotice(false)} />}
       {activeTab === 'dashboard' && (
         <AdminDashboard
@@ -500,6 +502,7 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
         <div className="space-y-5">
           <AdminPengaturan sesiList={sesiList} gedungList={gedungList} libur={libur} onSaveSesi={handleSaveSesi} onAddLibur={handleAddLibur} onUpdateLibur={handleUpdateLibur} onDeleteLibur={handleDeleteLibur} />
           <ModeUjiCard modeUji={modeUji} onSave={handleSaveModeUji} />
+          <TemplateAlasanCard />
         </div>
       )}
       {activeTab === 'log' && <HalamanLogAktivitas />}
@@ -857,9 +860,10 @@ function AdminDashboard({
 
         {/* Perbandingan gedung */}
         <div className={`${kartuCls} p-5 lg:col-span-2`}>
-          <div className="flex items-start justify-between gap-3 mb-1">
-            <p className={judulKartu} style={{ fontFamily: 'Plus Jakarta Sans' }}>Kehadiran per Gedung</p>
-            <div className="flex rounded-lg bg-gray-100 p-0.5 shrink-0" role="radiogroup" aria-label="Rentang perbandingan">
+          {/* HP: pilihan rentang turun ke bawah judul agar judul tetap satu baris */}
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3 mb-1">
+            <p className={`${judulKartu} whitespace-nowrap`} style={{ fontFamily: 'Plus Jakarta Sans' }}>Kehadiran per Gedung</p>
+            <div className="flex self-start rounded-lg bg-gray-100 p-0.5 shrink-0" role="radiogroup" aria-label="Rentang perbandingan">
               {([['hari-ini', 'Hari ini'], ['7-hari', '7 hari'], ['30-hari', '30 hari']] as const).map(([k, label]) => (
                 <button
                   key={k}
@@ -2423,6 +2427,125 @@ function ModeUjiCard({ modeUji, onSave }: { modeUji: ModeUji; onSave: (mode: Mod
 }
 
 // Aturan presensi: batas akurasi GPS, ambang peringatan Tidak Hadir untuk fasil, dan pengingat penghuni
+// Template alasan validasi foto yang dipilih fasil saat menerima / menolak foto presensi & absen event
+function TemplateAlasanCard() {
+  const [daftar, setDaftar] = useState<TemplateAlasan[]>([])
+  const [dimuat, setDimuat] = useState(false)
+  const [baru, setBaru] = useState<Record<TemplateAlasan['status'], string>>({ Diterima: '', Ditolak: '' })
+  const [saving, setSaving] = useState(false)
+  const [berubah, setBerubah] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const muat = () => fetchTemplateAlasan().then(l => { setDaftar(l); setDimuat(sudahDimuat('template-alasan')); setBerubah(false) })
+  useEffect(() => { muat() }, [])
+
+  const ubah = (fn: (l: TemplateAlasan[]) => TemplateAlasan[]) => { setDaftar(fn); setBerubah(true); setMsg(null) }
+  const tambah = (status: TemplateAlasan['status']) => {
+    const teks = baru[status].trim().replace(/\s+/g, ' ')
+    if (teks.length < 3) return setMsg({ type: 'error', text: 'Teks alasan minimal 3 karakter.' })
+    if (daftar.some(t => t.status === status && t.teks.toLowerCase() === teks.toLowerCase())) return setMsg({ type: 'error', text: 'Alasan itu sudah ada.' })
+    ubah(l => [...l, { status, teks }])
+    setBaru(b => ({ ...b, [status]: '' }))
+  }
+  const geser = (idx: number, arah: -1 | 1) => ubah(l => {
+    const status = l[idx].status
+    const posisi = l.map((t, i) => (t.status === status ? i : -1)).filter(i => i >= 0)
+    const tujuan = posisi[posisi.indexOf(idx) + arah]
+    if (tujuan === undefined) return l
+    const salin = [...l]
+    const sementara = salin[idx]
+    salin[idx] = salin[tujuan]
+    salin[tujuan] = sementara
+    return salin
+  })
+  const simpan = async () => {
+    setSaving(true)
+    const hasil = await saveTemplateAlasanApi(daftar.map(t => ({ ...t, teks: t.teks.trim() })))
+    setSaving(false)
+    if (hasil.ok) { setMsg({ type: 'success', text: 'Template alasan disimpan. Langsung berlaku untuk semua fasil.' }); muat() }
+    else setMsg({ type: 'error', text: hasil.message })
+  }
+
+  const kolom: { status: TemplateAlasan['status']; judul: string; warna: string; ikon: ReactNode }[] = [
+    { status: 'Diterima', judul: 'Alasan diterima', warna: 'text-emerald-700', ikon: <CheckCircle2 className="w-4 h-4" /> },
+    { status: 'Ditolak', judul: 'Alasan ditolak', warna: 'text-rose-700', ikon: <XCircle className="w-4 h-4" /> },
+  ]
+
+  return (
+    <KartuProfil ikon={<MessageSquareText />} judul="Template Alasan Validasi Foto" sub="Pilihan cepat untuk fasil saat menerima atau menolak foto presensi & absen event">
+      <div className="p-5 flex-1 flex flex-col gap-4">
+        {!dimuat ? (
+          <p className="text-xs text-gray-500">Memuat template…</p>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-4">
+            {kolom.map(k => {
+              const item = daftar.map((t, i) => ({ t, i })).filter(x => x.t.status === k.status)
+              return (
+                <div key={k.status} className="rounded-xl border border-gray-200 p-3.5 space-y-2.5">
+                  <p className={`flex items-center gap-1.5 text-xs font-bold ${k.warna}`}>{k.ikon}{k.judul} <span className="text-gray-400 font-semibold">· {item.length}</span></p>
+                  {item.length === 0 && <p className="text-[11px] text-gray-500">Belum ada. Fasil tetap bisa menulis catatan sendiri.</p>}
+                  <ul className="space-y-1.5">
+                    {item.map(({ t, i }, urut) => (
+                      <li key={i} className="flex flex-wrap sm:flex-nowrap items-center gap-1">
+                        <input
+                          value={t.teks}
+                          maxLength={200}
+                          aria-label={`${k.judul} ${urut + 1}`}
+                          disabled={saving}
+                          onChange={e => ubah(l => l.map((x, j) => (j === i ? { ...x, teks: e.target.value } : x)))}
+                          className="w-full sm:w-auto sm:flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 bg-[#fff] text-xs text-gray-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15"
+                        />
+                        {/* HP: tombol urut & hapus turun ke bawah isian agar teks alasan terbaca utuh */}
+                        <div className="ml-auto flex items-center gap-1 shrink-0">
+                        <button type="button" onClick={() => geser(i, -1)} disabled={urut === 0 || saving} aria-label="Naikkan" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 cursor-pointer"><ChevronUp className="w-3.5 h-3.5" /></button>
+                        <button type="button" onClick={() => geser(i, 1)} disabled={urut === item.length - 1 || saving} aria-label="Turunkan" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 cursor-pointer"><ChevronDown className="w-3.5 h-3.5" /></button>
+                        <button type="button" onClick={() => ubah(l => l.filter((_, j) => j !== i))} disabled={saving} aria-label={`Hapus alasan ${t.teks}`} className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <input
+                      value={baru[k.status]}
+                      maxLength={200}
+                      placeholder="Tambah alasan baru…"
+                      aria-label={`Tambah ${k.judul.toLowerCase()}`}
+                      disabled={saving}
+                      onChange={e => { setBaru(b => ({ ...b, [k.status]: e.target.value })); setMsg(null) }}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); tambah(k.status) } }}
+                      className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-dashed border-gray-300 bg-[#fff] text-xs text-gray-800 outline-none focus:border-emerald-600 placeholder:text-gray-400"
+                    />
+                    <button type="button" onClick={() => tambah(k.status)} disabled={saving}
+                      className="shrink-0 inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold text-gray-700 bg-[#fff] border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                      <Plus className="w-3.5 h-3.5" /> Tambah
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        <div className="mt-auto pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+          {msg ? (
+            <p className={`text-xs font-semibold ${msg.type === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{msg.text}</p>
+          ) : (
+            <span className="text-xs text-gray-500">{berubah ? 'Ada perubahan yang belum disimpan.' : 'Berlaku untuk semua fasil.'}</span>
+          )}
+          <button
+            onClick={simpan}
+            disabled={saving || !berubah}
+            className="px-4 py-2 rounded-xl font-bold text-xs text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ fontFamily: 'Plus Jakarta Sans' }}
+          >
+            {saving ? 'Menyimpan...' : 'Simpan Template'}
+          </button>
+        </div>
+      </div>
+    </KartuProfil>
+  )
+}
+
 function AturanPresensiCard({ aturan, onSave }: { aturan: AturanPresensi; onSave: (a: AturanPresensi) => Promise<ApiResult> }) {
   const [form, setForm] = useState<AturanPresensi>(aturan)
   const [saving, setSaving] = useState(false)

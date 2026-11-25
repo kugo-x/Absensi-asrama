@@ -17,10 +17,6 @@ const AKUN_DEMO = [
   { nim: '2310933001', password: 'penghuni123', peran: 'Penghuni', ikon: User },
 ]
 
-function salamWaktu() {
-  const jam = new Date().getHours()
-  return jam < 11 ? 'Selamat pagi' : jam < 15 ? 'Selamat siang' : jam < 18 ? 'Selamat sore' : 'Selamat malam'
-}
 
 // Animasi masuk bergiliran (kurva gerak sama dengan aplikasi; mati bila "kurangi gerakan")
 const naik = 'motion-safe:[animation:lg-naik_0.6s_cubic-bezier(0.22,1,0.36,1)_backwards]'
@@ -119,7 +115,7 @@ export default function LoginPage({ onLogin }: Props) {
           className={`w-full max-w-[420px] rounded-3xl bg-[#fff] p-6 sm:p-8 ring-1 ring-black/[0.05] shadow-[0_30px_60px_-30px_rgb(12_42_28/0.35),0_1px_2px_rgb(17_24_39/0.04)] ${naik}`}
           style={jeda(120)}
         >
-          <p className="text-[13px] font-semibold text-emerald-700">{salamWaktu()}</p>
+          <p className="text-[13px] font-semibold text-emerald-700">Selamat datang</p>
           <h2 className="mt-1 mb-6 text-[26px] font-extrabold tracking-tight text-gray-900">Masuk</h2>
 
           <form onSubmit={handleLogin} className="space-y-4">
