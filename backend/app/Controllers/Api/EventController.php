@@ -438,6 +438,26 @@ class EventController extends BaseController
         $waktuSekarang = date('H:i:s');
         $now = date('Y-m-d H:i:s');
 
+        $this->db->transStart();
+        if ($absenUlang) {
+            // Percobaan yang ditolak diarsipkan agar tetap ada di log riwayat presensi penghuni
+            $judulEvent = $this->db->table('event')->select('judul')->where('id', $idEvent)->get()->getRow()->judul ?? null;
+            $this->db->table('riwayat_absen_ditolak')->insert([
+                'jenis'            => 'event',
+                'nim'              => $nim,
+                'tanggal'          => $presensiLama['tanggal'],
+                'id_event'         => $idEvent,
+                'judul_event'      => $judulEvent,
+                'waktu'            => $presensiLama['waktu'],
+                'latitude'         => $presensiLama['latitude'],
+                'longitude'        => $presensiLama['longitude'],
+                'foto'             => $presensiLama['foto'] ?: null,
+                'catatan_validasi' => $presensiLama['Catatan_validasi'] ?? null,
+                'divalidasi_oleh'  => $presensiLama['Divalidasi_oleh'] ?? null,
+                'divalidasi_pada'  => $presensiLama['Divalidasi_pada'] ?? null,
+                'created_at'       => $now,
+            ]);
+        }
         if ($presensiLama) {
             // Update baris lama (misal sebelumnya di-generate 'Tidak Hadir' lalu diuji)
             $this->db->table('presensi_event')->where('id', $presensiLama['id'])->update([
@@ -471,6 +491,10 @@ class EventController extends BaseController
                 'created_at'  => $now,
                 'updated_at'  => $now,
             ]);
+        }
+        $this->db->transComplete();
+        if (! $this->db->transStatus()) {
+            return $this->failServerError('Presensi event gagal disimpan.');
         }
 
         return $this->respond([

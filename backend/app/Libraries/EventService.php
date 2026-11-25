@@ -235,7 +235,8 @@ class EventService
             if ($role === 'penghuni') {
                 $pRecord = $this->db->query("
                     SELECT id, nim, tanggal, status, DATE_FORMAT(waktu, '%H:%i:%s') as waktu, jarak_meter as jarakMeter, foto, keterangan,
-                           Status_foto as statusFoto, Catatan_validasi as catatanValidasi
+                           Status_foto as statusFoto, Catatan_validasi as catatanValidasi,
+                           DATE_FORMAT(Divalidasi_pada, '%Y-%m-%d %H:%i:%s') as divalidasiPada
                     FROM presensi_event
                     WHERE id_event = ? AND nim = ?
                     LIMIT 1
@@ -255,6 +256,7 @@ class EventService
                         'keterangan' => $pRecord['keterangan'],
                         'statusFoto' => $pRecord['statusFoto'],
                         'catatanValidasi' => $pRecord['catatanValidasi'],
+                        'divalidasiPada'  => $pRecord['divalidasiPada'],
                     ];
                 } else {
                     $ev['statusKehadiran'] = 'Belum Absen';
@@ -334,6 +336,20 @@ class EventService
                 WHERE k.Id_Gedung = ? AND LOWER(u.Role) IN ('mahasiswa', 'penghuni') AND u.Status_aktif = 'Aktif'
                 ORDER BY u.Nomor_kamar ASC, u.Nama ASC
             ", [$ev['idGedung']]);
+        } elseif ($role === 'fasil') {
+            // Event seluruh asrama: fasil hanya melihat penghuni gedung yang dibinanya
+            $pesertaQuery = $this->db->query("
+                SELECT 
+                    u.NIM as nim,
+                    u.Nama as nama,
+                    u.Nomor_kamar as nomorKamar,
+                    g.Nama as namaGedung
+                FROM user u
+                JOIN kamar k ON BINARY k.Nomor_kamar = BINARY u.Nomor_kamar
+                JOIN gedung g ON g.Id_Gedung = k.Id_Gedung
+                WHERE g.NIM_Pj = ? AND LOWER(u.Role) IN ('mahasiswa', 'penghuni') AND u.Status_aktif = 'Aktif'
+                ORDER BY g.Nama ASC, u.Nomor_kamar ASC, u.Nama ASC
+            ", [$nim]);
         } else {
             $pesertaQuery = $this->db->query("
                 SELECT 

@@ -152,6 +152,9 @@ export interface IzinRecord {
   hariBerulang?: HariIso[] | null
   catatanApprover?: string
   tanggalApproval?: string
+  // Waktu lengkap 'YYYY-MM-DD HH:MM:SS' (untuk urutan notifikasi)
+  diputuskanPada?: string
+  diajukanPada?: string
   // Pengajuan ulang: id izin lama yang ditolak, beserta catatan penolakannya
   idIzinSebelumnya?: number | null
   catatanSebelumnya?: string
@@ -263,6 +266,7 @@ export interface PresensiEventRecord {
   // Validasi foto absen event oleh fasil (null = tanpa foto / dibuat sistem)
   statusFoto?: StatusFoto | null
   catatanValidasi?: string | null
+  divalidasiPada?: string | null
 }
 
 // Foto absen event untuk halaman Validasi Foto fasil
@@ -286,6 +290,22 @@ export interface FotoEvent {
   divalidasiOleh: string | null
   namaValidator: string | null
   divalidasiPada: string
+}
+
+// Percobaan absen yang fotonya ditolak lalu diulang (arsip; baris presensi aslinya sudah ditimpa)
+export interface RiwayatDitolak {
+  id: number
+  jenis: 'harian' | 'event'
+  nim: string
+  nama: string | null
+  tanggal: string
+  sesi: string | null
+  idEvent: number | null
+  judulEvent: string | null
+  waktu: string | null
+  catatanValidasi: string | null
+  namaValidator: string | null
+  divalidasiPada: string | null
 }
 
 export interface PesertaRekapEvent {

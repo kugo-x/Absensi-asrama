@@ -13,9 +13,9 @@ export const TARGET_KEHADIRAN = 80
 
 // Tingkat keparahan meter: memenuhi target, mendekati, jauh di bawah
 const KEPARAHAN = {
-  baik: { isi: '#22993b', lintasan: '#dcf7df', label: '' },
-  waspada: { isi: '#d97706', lintasan: '#fef3c7', label: 'di bawah target' },
-  buruk: { isi: '#e11d48', lintasan: '#ffe4e6', label: 'perlu perhatian' },
+  baik: { isi: '#22993b', lintasan: 'var(--color-emerald-100)', label: '' },
+  waspada: { isi: '#d97706', lintasan: 'var(--color-amber-100)', label: 'di bawah target' },
+  buruk: { isi: '#e11d48', lintasan: 'var(--color-rose-100)', label: 'perlu perhatian' },
 } as const
 const keparahan = (persen: number) => (persen >= TARGET_KEHADIRAN ? KEPARAHAN.baik : persen >= 60 ? KEPARAHAN.waspada : KEPARAHAN.buruk)
 type KunciGrafik = keyof typeof WARNA_STATUS_GRAFIK
@@ -179,11 +179,11 @@ export function DaftarMeter({ data, kosong = 'Belum ada data' }: { data: { label
                 {label}{sub && <span className="ml-1.5 text-[11px] font-normal text-gray-400">{sub}</span>}
               </span>
               <span className="shrink-0 flex items-baseline gap-1.5">
-                {k?.label && <span className="text-[10px] font-semibold" style={{ color: k.isi }}>{k.label}</span>}
+                {k?.label && <span className="text-[10px] font-semibold warna-tema" style={{ '--warna': k.isi, color: 'var(--warna)' } as React.CSSProperties}>{k.label}</span>}
                 <span className="text-sm font-bold text-gray-900 tabular-nums">{c.wajib > 0 ? `${c.persen}%` : '–'}</span>
               </span>
             </div>
-            <div className="relative h-2.5 rounded-full" style={{ background: k?.lintasan ?? '#f3f4f6' }}>
+            <div className="relative h-2.5 rounded-full" style={{ background: k?.lintasan ?? 'var(--color-gray-100)' }}>
               {k && <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-500" style={{ width: `${c.persen}%`, background: k.isi }} />}
               {/* Penanda target */}
               <div className="absolute -top-1 -bottom-1 w-0.5 rounded bg-gray-700/70" style={{ left: `${TARGET_KEHADIRAN}%` }} />
@@ -214,8 +214,9 @@ const HARI_PENDEK = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
 const NAMA_HARI_LENGKAP = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 // Ramp hijau bertingkat (makin hadir makin gelap); teks putih di 3 tingkat tergelap
 const RAMP_HIJAU = [
-  { batas: 60, warna: '#f0fcf1', teks: '#1a612b' },
-  { batas: 70, warna: '#b9eec0', teks: '#1a612b' },
+  // Dua tingkat teratas memakai variabel tema (nilai sama di mode terang) agar tidak menyilaukan di mode gelap
+  { batas: 60, warna: 'var(--color-emerald-50)', teks: 'var(--color-emerald-800)' },
+  { batas: 70, warna: 'var(--color-emerald-200)', teks: 'var(--color-emerald-800)' },
   { batas: 80, warna: '#4fcc63', teks: '#164f25' },
   { batas: 90, warna: '#22993b', teks: '#ffffff' },
   { batas: 101, warna: '#1a612b', teks: '#ffffff' },
@@ -263,7 +264,7 @@ export function PetaPanasPola({ pola }: { pola: ReturnType<typeof hitungPolaMing
                   tabIndex={0}
                   aria-label={`${b.sesi} hari ${NAMA_HARI_LENGKAP[i]}: ${c.wajib > 0 ? `${c.persen}% hadir` : 'tidak ada sesi'}`}
                   className={`group relative h-11 rounded-lg flex items-center justify-center text-xs font-bold tabular-nums outline-none ${sorot ? 'ring-2 ring-offset-1 ring-rose-500' : ''}`}
-                  style={{ background: w?.warna ?? '#f9fafb', color: w?.teks ?? '#d1d5db' }}
+                  style={{ background: w?.warna ?? 'var(--color-gray-50)', color: w?.teks ?? 'var(--color-gray-400)' }}
                 >
                   {c.wajib > 0 ? `${c.persen}%` : '–'}
                   {c.wajib > 0 && (

@@ -625,20 +625,24 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function addPenghuni()
     {
+        if (strtolower($this->tokenUser()['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya admin yang dapat menambah penghuni.');
+        }
         $input = $this->request->getJSON(true) ?? $this->request->getPost();
         $nim = trim($input['nim'] ?? '');
         $nama = trim($input['nama'] ?? '');
-        $nomorKamar = $input['nomorKamar'] ?? '';
+        // Kamar opsional: penghuni boleh didaftarkan dulu, lalu ditempatkan lewat menu Gedung & Kamar
+        $nomorKamar = trim((string) ($input['nomorKamar'] ?? '')) ?: null;
 
         $jk = self::normalJk($input['jenisKelamin'] ?? '');
 
-        if (!$nim || !$nama || !$nomorKamar) {
-            return $this->fail('NIM, Nama, dan Kamar wajib diisi.', 400);
+        if (!$nim || !$nama) {
+            return $this->fail('NIM dan nama wajib diisi.', 400);
         }
         if ($jk === null) {
             return $this->fail('Jenis kelamin wajib diisi (L atau P).', 400);
         }
-        if ($err = $this->cekGenderGedung($jk, $this->jenisGedungKamar($nomorKamar), $nama, 'kamar ' . $nomorKamar)) {
+        if ($nomorKamar && ($err = $this->cekGenderGedung($jk, $this->jenisGedungKamar($nomorKamar), $nama, 'kamar ' . $nomorKamar))) {
             return $this->fail($err, 400);
         }
 
@@ -646,7 +650,7 @@ class DataController extends BaseController
         if ($exists > 0) {
             return $this->fail('User dengan NIM tersebut sudah terdaftar.', 409);
         }
-        if ($error = $this->kamarTersedia($nomorKamar)) {
+        if ($nomorKamar && ($error = $this->kamarTersedia($nomorKamar))) {
             return $this->fail($error, 400);
         }
 
@@ -674,6 +678,9 @@ class DataController extends BaseController
     // ----------------------------------------------------
     public function togglePenghuniStatus()
     {
+        if (strtolower($this->tokenUser()['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya admin yang dapat mengubah status penghuni.');
+        }
         $input = $this->request->getJSON(true) ?? $this->request->getPost();
         $nim = $input['nim'] ?? '';
 
@@ -693,13 +700,18 @@ class DataController extends BaseController
 
     // ----------------------------------------------------
     // POST /api/penghuni/update
-    // Pindah kamar, ubah peran, keluarkan (nomorKamar null + nonaktif), atau aktifkan kembali
+    // Ubah data, keluarkan dari kamar (nomorKamar null, tetap aktif), tempatkan ke kamar (bila belum berkamar),
+    // keluar asrama (nonaktif), atau aktifkan kembali. Pindah kamar langsung TIDAK diizinkan:
+    // penghuni harus dikeluarkan dari kamar lamanya dulu, baru ditempatkan di kamar baru.
     // ----------------------------------------------------
     public function updatePenghuni()
     {
+        if (strtolower($this->tokenUser()['role'] ?? '') !== 'admin') {
+            return $this->failForbidden('Hanya admin yang dapat mengubah data penghuni.');
+        }
         $input       = $this->request->getJSON(true) ?? $this->request->getPost();
         $nim         = $input['nim'] ?? '';
-        $nomorKamar  = $input['nomorKamar'] ?? null;
+        $nomorKamar  = trim((string) ($input['nomorKamar'] ?? '')) ?: null;
         $role        = ($input['role'] ?? 'penghuni') === 'fasil' ? 'Fasil' : 'Mahasiswa';
         $statusAktif = (bool) ($input['statusAktif'] ?? true);
 
@@ -730,8 +742,10 @@ class DataController extends BaseController
             return $this->fail('Jenis kelamin wajib diisi (L atau P).', 400);
         }
 
-        if ($statusAktif && ! $nomorKamar) {
-            return $this->fail('Penghuni aktif wajib menempati kamar.', 400);
+        // Pindah langsung dari satu kamar ke kamar lain ditolak
+        $kamarLama = ($user['Status_aktif'] === 'Aktif') ? ($user['Nomor_kamar'] ?: null) : null;
+        if ($statusAktif && $kamarLama && $nomorKamar && $nomorKamar !== $kamarLama) {
+            return $this->fail("{$user['Nama']} masih menempati kamar {$kamarLama}. Keluarkan dulu dari kamar tersebut, lalu tempatkan di kamar baru lewat menu Gedung & Kamar.", 409);
         }
         if ($statusAktif && $nomorKamar && ($err = $this->cekGenderGedung($jk, $this->jenisGedungKamar($nomorKamar), $nama, 'kamar ' . $nomorKamar))) {
             return $this->fail($err, 400);
@@ -743,7 +757,7 @@ class DataController extends BaseController
                 return $this->fail($err, 400);
             }
         }
-        if ($statusAktif && ($nomorKamar !== $user['Nomor_kamar'] || $user['Status_aktif'] !== 'Aktif')) {
+        if ($statusAktif && $nomorKamar && ($nomorKamar !== $user['Nomor_kamar'] || $user['Status_aktif'] !== 'Aktif')) {
             if ($error = $this->kamarTersedia($nomorKamar, $nim)) {
                 return $this->fail($error, 400);
             }
@@ -1072,12 +1086,30 @@ class DataController extends BaseController
             'updated_at' => date('Y-m-d H:i:s'),
         ];
         if ($absenUlang) {
-            // Riwayat penolakan dikosongkan: foto baru menunggu validasi lagi
+            // Percobaan yang ditolak diarsipkan (beserta fotonya) agar tetap ada di log riwayat,
+            // lalu baris presensi diisi percobaan baru yang menunggu validasi lagi
+            $this->db->transStart();
+            $this->db->table('riwayat_absen_ditolak')->insert([
+                'jenis'            => 'harian',
+                'nim'              => $nim,
+                'tanggal'          => $existing['Tanggal'],
+                'sesi'             => $existing['Sesi'],
+                'waktu'            => $existing['Waktu'],
+                'latitude'         => $existing['Latitude'],
+                'longitude'        => $existing['Longitude'],
+                'foto'             => $existing['Foto_wajah'] ?: null,
+                'catatan_validasi' => $existing['Catatan_validasi'] ?? null,
+                'divalidasi_oleh'  => $existing['Divalidasi_oleh'] ?? null,
+                'divalidasi_pada'  => $existing['Divalidasi_pada'] ?? null,
+                'created_at'       => date('Y-m-d H:i:s'),
+            ]);
             $this->db->table('presensi')->where('Id_presensi', $existing['Id_presensi'])->update($baris + [
                 'Catatan_validasi' => null, 'Divalidasi_oleh' => null, 'Divalidasi_pada' => null, 'Dikoreksi_oleh' => null,
             ]);
-            if (! empty($existing['Foto_wajah']) && is_file($dir . $existing['Foto_wajah'])) {
-                @unlink($dir . $existing['Foto_wajah']);
+            $this->db->transComplete();
+            if (! $this->db->transStatus()) {
+                @unlink($dir . $namaFoto);
+                return $this->failServerError('Absen ulang gagal disimpan.');
             }
         } else {
             $this->db->table('presensi')->insert($baris + [
@@ -1092,6 +1124,56 @@ class DataController extends BaseController
             'status'  => 'success',
             'message' => sprintf('Presensi berhasil dicatat (jarak %d m dari gedung)', round($jarak)),
         ]);
+    }
+
+    // ----------------------------------------------------
+    // GET /api/presensi/riwayat-ditolak
+    // Percobaan absen (harian & event) yang fotonya ditolak lalu diulang.
+    // Penghuni = miliknya, fasil = penghuni gedung binaannya, admin = semua.
+    // ----------------------------------------------------
+    public function riwayatDitolak()
+    {
+        if (! $this->db->tableExists('riwayat_absen_ditolak')) {
+            return $this->respond([]);
+        }
+        $token = $this->tokenUser();
+        $nim   = $token['nim'] ?? '';
+        $q = $this->db->table('riwayat_absen_ditolak r')
+            ->select('r.id, r.jenis, r.nim, u.Nama as nama, r.tanggal, r.sesi, r.id_event, r.judul_event, r.waktu, r.catatan_validasi, r.divalidasi_oleh, v.Nama as nama_validator, r.divalidasi_pada')
+            ->join('user u', 'BINARY u.NIM = BINARY r.nim', 'left', false)
+            ->join('user v', 'BINARY v.NIM = BINARY r.divalidasi_oleh', 'left', false);
+
+        switch (strtolower($token['role'] ?? '')) {
+            case 'admin':
+                break;
+            case 'fasil':
+                $q->join('kamar k', 'BINARY k.Nomor_kamar = BINARY u.Nomor_kamar', 'inner', false)
+                  ->join('gedung g', 'g.Id_Gedung = k.Id_Gedung')
+                  ->where('g.NIM_Pj', $nim);
+                break;
+            case 'penghuni':
+                $q->where('r.nim', $nim);
+                break;
+            default:
+                return $this->failForbidden('Akses riwayat presensi tidak diizinkan.');
+        }
+
+        $rows = $q->orderBy('r.tanggal', 'DESC')->orderBy('r.waktu', 'DESC')->limit(500)->get()->getResultArray();
+
+        return $this->respond(array_map(static fn ($r) => [
+            'id'              => (int) $r['id'],
+            'jenis'           => $r['jenis'],
+            'nim'             => $r['nim'],
+            'nama'            => $r['nama'],
+            'tanggal'         => $r['tanggal'],
+            'sesi'            => $r['sesi'],
+            'idEvent'         => $r['id_event'] !== null ? (int) $r['id_event'] : null,
+            'judulEvent'      => $r['judul_event'],
+            'waktu'           => $r['waktu'] ? substr($r['waktu'], 0, 5) : null,
+            'catatanValidasi' => $r['catatan_validasi'],
+            'namaValidator'   => $r['nama_validator'],
+            'divalidasiPada'  => $r['divalidasi_pada'],
+        ], $rows));
     }
 
     // ----------------------------------------------------
@@ -1389,7 +1471,9 @@ class DataController extends BaseController
             $sesiCol         = $hasSesi ? "i.Sesi as sesi" : "NULL as sesi";
             $hariBerulangCol = $hasHariBerulang ? "i.Hari_berulang as hariBerulang" : "NULL as hariBerulang";
             $catatanAppCol   = $hasCatatanApp ? "COALESCE(i.Catatan_approver, '') as catatanApprover" : "'' as catatanApprover";
-            $tglAppCol       = $hasTglApp ? "COALESCE(DATE_FORMAT(i.Tanggal_approval, '%Y-%m-%d'), '') as tanggalApproval" : "'' as tanggalApproval";
+            // tanggalApproval tetap tanggal saja (dipakai tampilan lama); jam lengkap untuk urutan notifikasi
+            $tglAppCol       = $hasTglApp ? "COALESCE(DATE_FORMAT(i.Tanggal_approval, '%Y-%m-%d'), '') as tanggalApproval, COALESCE(DATE_FORMAT(i.Tanggal_approval, '%Y-%m-%d %H:%i:%s'), '') as diputuskanPada" : "'' as tanggalApproval, '' as diputuskanPada";
+            $tglAppCol      .= in_array('created_at', $cols, true) ? ", COALESCE(DATE_FORMAT(i.created_at, '%Y-%m-%d %H:%i:%s'), '') as diajukanPada" : ", '' as diajukanPada";
             $buktiCol        = $hasBukti ? "COALESCE(i.File_bukti, '') as fileBukti" : "'' as fileBukti";
             // Pengajuan ulang: izin lama yang ditolak beserta catatan penolakannya
             $sebelumnyaCol   = $hasSebelumnya ? "i.Id_izin_sebelumnya as idIzinSebelumnya, COALESCE(sebelumnya.Catatan_approver, '') as catatanSebelumnya" : "NULL as idIzinSebelumnya, '' as catatanSebelumnya";

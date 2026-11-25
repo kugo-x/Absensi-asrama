@@ -4,7 +4,8 @@ import NotifikasiBell, { type Notifikasi } from './Notifikasi'
 import JamDigital from './JamDigital'
 import BannerKoneksi from './BannerKoneksi'
 import LogoSIP from './LogoSIP'
-import { LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar, ChevronLeft } from 'lucide-react'
+import { LogOut, Menu, X, Shield, UserCheck, GraduationCap, Calendar, ChevronLeft, Moon, Sun } from 'lucide-react'
+import { useTema } from '../tema'
 
 interface NavItem { id: string; label: string; icon: React.ReactNode }
 
@@ -161,7 +162,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
       {/* Sidebar: panel mengambang di desktop, laci geser di mobile.
           Saat diciutkan, ikon TIDAK berpindah posisi: panel hanya menyempit dan teks memudar,
           sehingga animasinya mulus (tanpa lompatan tata letak). */}
-      <div className={`group/sidebar fixed lg:sticky top-0 left-0 z-50 lg:z-40 h-screen shrink-0 lg:p-3 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] lg:translate-x-0 ${
+      <div className={`group/sidebar fixed lg:sticky top-0 left-0 z-50 lg:z-40 h-dvh lg:h-screen shrink-0 lg:p-3 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] lg:translate-x-0 ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         <aside
@@ -189,6 +190,32 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
               className="lg:hidden w-8 h-8 shrink-0 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/8 cursor-pointer"
             >
               <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* HP: kartu pengguna + tombol keluar di atas agar mudah dijangkau */}
+          <div className="lg:hidden mx-3 mb-3 p-2.5 shrink-0 flex items-center gap-2.5 rounded-2xl bg-white/[0.07] border border-white/10">
+            <button
+              type="button"
+              onClick={bisaKeProfil ? () => { onTabChange('profil'); setSidebarOpen(false) } : undefined}
+              disabled={!bisaKeProfil}
+              className="flex-1 min-w-0 flex items-center gap-2.5 text-left enabled:cursor-pointer"
+            >
+              <span className="w-9 h-9 shrink-0 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center overflow-hidden ring-2 ring-white/20">
+                {user.fotoProfil ? <img src={user.fotoProfil} alt="" className="w-full h-full object-cover" /> : inisial(user.nama)}
+              </span>
+              <span className="min-w-0 leading-tight">
+                <span className="block text-sm font-bold text-white truncate">{user.nama}</span>
+                <span className="block text-[11px] text-emerald-100/70 truncate">{ROLE_LABELS[user.role]}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onLogout}
+              aria-label="Keluar akun"
+              className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-bold text-rose-100 bg-rose-500/20 border border-rose-300/25 hover:bg-rose-500/30 active:scale-[0.97] cursor-pointer transition-[background-color,scale]"
+            >
+              <LogOut className="w-4 h-4" /> Keluar
             </button>
           </div>
 
@@ -266,13 +293,13 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
           </nav>
 
           {/* Keluar akun */}
-          <div className="shrink-0 px-3 pb-3 pt-2 space-y-1">
+          <div className="shrink-0 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-1">
             <div className="h-px bg-white/[0.07] mb-2" />
             <button
               onClick={onLogout}
               aria-label="Keluar akun"
               title={ciut ? 'Keluar akun' : undefined}
-              className="group w-full flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] font-medium text-left whitespace-nowrap text-emerald-50/50 hover:text-rose-200 hover:bg-rose-500/15 cursor-pointer transition-[color,background-color,scale] duration-200 active:scale-[0.97]"
+              className="group w-full flex items-center gap-3 h-11 px-3 rounded-xl text-[13.5px] font-medium text-left whitespace-nowrap text-emerald-50/70 hover:text-rose-200 hover:bg-rose-500/15 cursor-pointer transition-[color,background-color,scale] duration-200 active:scale-[0.97]"
             >
               <LogOut className="w-[19px] h-[19px] shrink-0 text-emerald-100/40 group-hover:text-rose-300 group-hover:translate-x-1 transition-[color,translate] duration-300 ease-out" />
               <span className={pudar}>Keluar Akun</span>
@@ -326,6 +353,7 @@ export default function AppLayout({ user, onLogout, navItems, activeTab, onTabCh
 
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             <JamDigital />
+            <TombolTema />
             <NotifikasiBell nim={user.nim} items={notifikasi} onBuka={onTabChange} />
             {/* Kartu pengguna (membuka profil bila peran punya halaman profil) */}
             <button
@@ -381,7 +409,7 @@ export function StatCard({
           <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1" style={{ fontFamily: 'Plus Jakarta Sans' }}>
             {label}
           </p>
-          <p className="text-2xl font-bold tracking-tight text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans', color: color }}>
+          <p className={`text-2xl font-bold tracking-tight text-gray-900 ${color ? 'warna-tema' : ''}`} style={{ fontFamily: 'Plus Jakarta Sans', ...(color ? { '--warna': color, color: 'var(--warna)' } as React.CSSProperties : {}) }}>
             {value}
           </p>
           {sub && (
@@ -475,5 +503,22 @@ export function Badge({ status }: { status: string }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${current.bg}`} style={{ fontFamily: 'Plus Jakarta Sans' }}>
       {label[status] ?? status}
     </span>
+  )
+}
+
+// Pengalih mode terang / gelap
+export function TombolTema({ className = '' }: { className?: string }) {
+  const [tema, toggle] = useTema()
+  const gelap = tema === 'gelap'
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label={gelap ? 'Ganti ke mode terang' : 'Ganti ke mode gelap'}
+      title={gelap ? 'Mode terang' : 'Mode gelap'}
+      className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-gray-600 bg-white/70 border border-white/80 hover:text-gray-900 hover:-translate-y-0.5 transition-all duration-300 cursor-pointer ${className}`}
+    >
+      {gelap ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
+    </button>
   )
 }

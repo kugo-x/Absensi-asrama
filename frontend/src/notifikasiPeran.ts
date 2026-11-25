@@ -1,4 +1,4 @@
-import type { EventAsrama, Gedung, IzinRecord, ModeUji, PresensiRecord, Sesi, Pengumuman } from './types'
+import type { EventAsrama, FotoEvent, Gedung, IzinRecord, ModeUji, PresensiRecord, Sesi, Pengumuman } from './types'
 import type { Notifikasi } from './components/Notifikasi'
 import { formatRentangIzin } from './components/PresensiWidgets'
 import { addDays, formatTanggal } from './logic'
@@ -89,19 +89,22 @@ export function notifikasiPenghuni(a: {
     const tgl = pr?.tanggal || ev.tanggal
     if (!pr || (pr.nim && pr.nim !== a.nim) || tgl < batas || !pr.foto) continue
     const ket = `${ev.judul}, ${formatTanggal(tgl)}${pr.waktu ? ` pukul ${pr.waktu.slice(0, 5)}` : ''}`
+    // Waktu lengkap agar urutan notifikasi tepat: saat divalidasi, atau saat absen
+    const saatAbsen = pr.waktu ? `${tgl} ${pr.waktu}` : tgl
+    const saatValidasi = pr.divalidasiPada || saatAbsen
     if (pr.statusFoto === 'Ditolak') {
       out.push({
         id: `event-absen-${pr.id}-Ditolak`,
         jenis: 'peringatan',
         judul: 'Foto absen event ditolak',
         pesan: `${ket} — tercatat Tidak Hadir${pr.catatanValidasi ? `. ${pr.catatanValidasi}` : ''}. Anda bisa absen ulang selama event masih berlangsung.`,
-        waktu: tgl,
+        waktu: saatValidasi,
         tab: 'event',
       })
     } else if (pr.statusFoto === 'Diterima') {
-      out.push({ id: `event-absen-${pr.id}-Diterima`, jenis: 'sukses', judul: 'Absen event diterima', pesan: ket, waktu: tgl, tab: 'event' })
+      out.push({ id: `event-absen-${pr.id}-Diterima`, jenis: 'sukses', judul: 'Absen event diterima', pesan: ket, waktu: saatValidasi, tab: 'event' })
     } else {
-      out.push({ id: `event-absen-${pr.id}-Menunggu`, jenis: 'sukses', judul: 'Absen event tercatat', pesan: `${ket} · menunggu validasi foto oleh fasil`, waktu: pr.waktu ? `${tgl} ${pr.waktu}` : tgl, tab: 'event' })
+      out.push({ id: `event-absen-${pr.id}-Menunggu`, jenis: 'sukses', judul: 'Absen event tercatat', pesan: `${ket} · menunggu validasi foto oleh fasil`, waktu: saatAbsen, tab: 'event' })
     }
   }
 
@@ -124,7 +127,7 @@ export function notifikasiPenghuni(a: {
       jenis: setuju ? 'sukses' : 'peringatan',
       judul: setuju ? 'Izin Anda disetujui' : 'Izin Anda ditolak',
       pesan: `${formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)} — ${i.alasan}${i.catatanApprover ? `. Catatan: ${i.catatanApprover}` : ''}`,
-      waktu: i.tanggalApproval,
+      waktu: i.diputuskanPada || i.tanggalApproval,
       tab: 'izin',
     })
   }
@@ -158,7 +161,7 @@ export function notifikasiPenghuni(a: {
         jenis: 'info',
         judul: `Presensi dikoreksi menjadi ${p.status}`,
         pesan: `${sesi}${p.keterangan ? ` — ${p.keterangan}` : ''}`,
-        waktu: p.tanggal,
+        waktu: p.divalidasiPada || `${p.tanggal} ${p.waktu || ''}`.trim(),
         tab: 'riwayat',
       })
     }
@@ -178,6 +181,7 @@ export function notifikasiFasil(a: {
   today: string
   jamSekarang: string
   pengumuman?: Pengumuman[]
+  fotoEvent?: FotoEvent[]
 }): Notifikasi[] {
   // Fasil diberi tahu event & pengumuman yang dibuat pihak lain (mis. admin), tanpa pengingat absen
   const out: Notifikasi[] = [...notifikasiPengumuman(a.pengumuman ?? [], a.nim, a.today, 'pengumuman'), ...notifikasiEvent(a.eventList, a.nim, a.today, a.jamSekarang, false)]
@@ -191,6 +195,7 @@ export function notifikasiFasil(a: {
       judul: ulang ? `Pengajuan ulang izin dari ${i.namaPenghuni}` : `Permohonan izin dari ${i.namaPenghuni}`,
       pesan: `${formatRentangIzin(i.tanggal, i.tanggalSelesai, i.sesi, i.hariBerulang)} — ${i.alasan}`,
       labelWaktu: 'Menunggu',
+      waktu: i.diajukanPada || undefined,
       tab: 'izin',
     })
   }
@@ -211,6 +216,22 @@ export function notifikasiFasil(a: {
     })
   }
 
+  // Absen event yang masuk & menunggu validasi foto
+  const eventMenunggu = (a.fotoEvent ?? [])
+    .filter(f => f.statusFoto === 'Menunggu')
+    .sort((x, y) => `${y.tanggal} ${y.waktu}`.localeCompare(`${x.tanggal} ${x.waktu}`))
+    .slice(0, 20)
+  for (const f of eventMenunggu) {
+    out.push({
+      id: `foto-event-masuk-${f.id}`,
+      jenis: 'permintaan',
+      judul: `Absen event ${f.namaPenghuni} perlu divalidasi`,
+      pesan: `${f.judulEvent}, ${formatTanggal(f.tanggal)}${f.waktu ? ` pukul ${f.waktu.slice(0, 5)}` : ''}`,
+      waktu: `${f.tanggal} ${f.waktu}`,
+      tab: 'foto',
+    })
+  }
+
   for (const r of a.sering) {
     const n = r.c['Tidak Hadir']
     out.push({
@@ -220,6 +241,7 @@ export function notifikasiFasil(a: {
       pesan: `${n}× Tidak Hadir dalam 30 hari terakhir (ambang ${a.batasTidakHadir}).`,
       labelWaktu: '30 hari',
       tab: 'rekap',
+      tetap: true,
     })
   }
   return out
@@ -244,7 +266,7 @@ export function notifikasiAdmin(a: {
       jenis: 'peringatan',
       judul: `${a.passwordDefault} akun masih memakai password default`,
       pesan: 'Minta penghuni segera mengganti password melalui menu Profil.',
-      labelWaktu: perlu,
+      labelWaktu: perlu, tetap: true,
       tab: 'penghuni',
     })
   }
@@ -254,29 +276,29 @@ export function notifikasiAdmin(a: {
       jenis: 'peringatan',
       judul: 'Mode uji absensi masih aktif',
       pesan: [a.modeUji.abaikanJam && 'Jam sesi diabaikan', a.modeUji.abaikanRadius && 'radius GPS diabaikan'].filter(Boolean).join(', ') + '. Matikan setelah selesai mencoba.',
-      labelWaktu: perlu,
+      labelWaktu: perlu, tetap: true,
       tab: 'pengaturan',
     })
   }
   if (!a.sesi.some(s => s.aktif)) {
-    out.push({ id: 'admin-sesi-kosong', jenis: 'peringatan', judul: 'Belum ada sesi presensi aktif', pesan: 'Atur jadwal sesi agar penghuni dapat melakukan presensi.', labelWaktu: perlu, tab: 'pengaturan' })
+    out.push({ id: 'admin-sesi-kosong', jenis: 'peringatan', judul: 'Belum ada sesi presensi aktif', pesan: 'Atur jadwal sesi agar penghuni dapat melakukan presensi.', labelWaktu: perlu, tetap: true, tab: 'pengaturan' })
   }
   for (const g of a.gedung) {
     if (g.latitude === null || g.longitude === null) {
-      out.push({ id: `admin-gps-${g.id}`, jenis: 'peringatan', judul: `Koordinat ${g.nama} belum diatur`, pesan: 'Penghuni gedung ini belum dapat presensi mandiri.', labelWaktu: perlu, tab: 'gedung' })
+      out.push({ id: `admin-gps-${g.id}`, jenis: 'peringatan', judul: `Koordinat ${g.nama} belum diatur`, pesan: 'Penghuni gedung ini belum dapat presensi mandiri.', labelWaktu: perlu, tetap: true, tab: 'gedung' })
     }
     if (!g.nimPj) {
-      out.push({ id: `admin-pj-${g.id}`, jenis: 'peringatan', judul: `${g.nama} belum punya fasilitator`, pesan: 'Tetapkan PJ gedung agar izin & foto presensi dapat divalidasi.', labelWaktu: perlu, tab: 'gedung' })
+      out.push({ id: `admin-pj-${g.id}`, jenis: 'peringatan', judul: `${g.nama} belum punya fasilitator`, pesan: 'Tetapkan PJ gedung agar izin & foto presensi dapat divalidasi.', labelWaktu: perlu, tetap: true, tab: 'gedung' })
     }
   }
 
   const izinPending = a.izin.filter(i => i.statusPersetujuan === 'Pending').length
   if (izinPending > 0) {
-    out.push({ id: `admin-izin-${izinPending}`, jenis: 'info', judul: `${izinPending} permohonan izin menunggu fasilitator`, labelWaktu: 'Menunggu', tab: 'presensi' })
+    out.push({ id: `admin-izin-${izinPending}`, jenis: 'info', judul: `${izinPending} permohonan izin menunggu fasilitator`, labelWaktu: 'Menunggu', tab: 'presensi', tetap: true })
   }
   const fotoPending = a.presensi.filter(p => p.statusFoto === 'Menunggu').length
   if (fotoPending > 0) {
-    out.push({ id: `admin-foto-${fotoPending}`, jenis: 'info', judul: `${fotoPending} foto presensi belum divalidasi`, pesan: 'Validasi dilakukan oleh fasilitator gedung masing-masing.', labelWaktu: 'Menunggu', tab: 'presensi' })
+    out.push({ id: `admin-foto-${fotoPending}`, jenis: 'info', judul: `${fotoPending} foto presensi belum divalidasi`, pesan: 'Validasi dilakukan oleh fasilitator gedung masing-masing.', labelWaktu: 'Menunggu', tab: 'presensi', tetap: true })
   }
   return out
 }

@@ -102,6 +102,13 @@ final class EventDanGenderTest extends Modul3TestCase
         $this->assertSame('Hadir', $row['status']);
         $this->assertSame('Menunggu', $row['Status_foto']);
         $this->assertSame(1, $this->db->table('presensi_event')->where('id_event', $id)->where('nim', 'PNG1')->countAllResults());
+        $arsip = $this->db->table('riwayat_absen_ditolak')->where('nim', 'PNG1')->get()->getResultArray();
+        $this->assertCount(1, $arsip);
+        $this->assertSame('event', $arsip[0]['jenis']);
+        $this->assertSame('Event Uji', $arsip[0]['judul_event']);
+        $this->assertSame('buram', $arsip[0]['catatan_validasi']);
+        $j = $this->json($this->getApi('presensi/riwayat-ditolak', $this->token('PNG1', 'penghuni')));
+        $this->assertSame($id, $j[0]['idEvent']);
 
         // Setelah diterima, absen lagi ditolak
         $this->postApi('event/validasi-foto', ['id' => (int) $row['id'], 'status' => 'Diterima', 'catatan' => ''], $this->token('FAS1', 'fasil'))->assertStatus(200);
@@ -131,6 +138,32 @@ final class EventDanGenderTest extends Modul3TestCase
         $this->assertSame('Hadir', $peserta['PNG1']['status']);
         $this->assertSame('Menunggu', $peserta['PNG1']['statusFoto']);
         $this->assertSame(1, $rekap['statistik']['hadir']);
+    }
+
+    public function testRekapEventSeluruhAsramaUntukFasilHanyaGedungnya(): void
+    {
+        $id = $this->eventHariIni();
+        $this->absen($id, 'PNG3')->assertStatus(200);
+
+        $nimDari = function (string $nim, string $peran) use ($id): array {
+            $j = $this->json($this->getApi('event/rekap/' . $id, $this->token($nim, $peran)));
+            $rekap = $j['data'] ?? $j;
+            return [array_column($rekap['peserta'], 'nim'), $rekap['statistik']];
+        };
+
+        [$fas1, $stat1] = $nimDari('FAS1', 'fasil');
+        $this->assertEqualsCanonicalizing(['PNG1', 'PNG2'], $fas1);
+        $this->assertSame(2, $stat1['totalPeserta']);
+        $this->assertSame(0, $stat1['hadir']);
+
+        [$fas2, $stat2] = $nimDari('FAS2', 'fasil');
+        $this->assertSame(['PNG3'], $fas2);
+        $this->assertSame(1, $stat2['hadir']);
+
+        [$admin] = $nimDari('ADM', 'admin');
+        foreach (['PNG1', 'PNG2', 'PNG3'] as $n) {
+            $this->assertContains($n, $admin);
+        }
     }
 
     // ------------------------------------------------------------ foto sampul event

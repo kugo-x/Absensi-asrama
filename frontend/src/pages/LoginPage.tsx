@@ -4,6 +4,7 @@ import { apiLogin } from '../api'
 import { User, Lock, Eye, EyeOff, ArrowRight, AlertCircle, ArrowBigUp, Info, ShieldCheck, UserCheck } from 'lucide-react'
 import logoUnand from '../assets/logo-unand.png'
 import LogoSIP from '../components/LogoSIP'
+import { TombolTema } from '../components/AppLayout'
 
 interface Props {
   onLogin: (user: CurrentUser) => void
@@ -78,6 +79,7 @@ export default function LoginPage({ onLogin }: Props) {
 
   return (
     <div className="liquid min-h-screen flex flex-col lg:grid lg:grid-cols-[1.05fr_1fr] bg-[#f4f7f5] text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+      <TombolTema className="fixed top-3 right-3 z-30 shadow-sm" />
       {/* ===== Panel kiri (layar lebar) / pita atas (HP) ===== */}
       <section className="relative overflow-hidden bg-gradient-to-b from-[#0b3a25] via-[#0a2e1e] to-[#071f15] text-white">
         <div aria-hidden className="pointer-events-none absolute -top-40 -left-32 w-[460px] h-[460px] rounded-full bg-emerald-400/15 blur-3xl" />

@@ -56,7 +56,9 @@ const pad = (n: number) => String(n).padStart(2, '0')
 // Absen event milik penghuni (ditandai pada kalender & detail tanggal)
 export interface EventKalender { tanggal: string; judul: string; status: 'Hadir' | 'Tidak Hadir'; jam: string }
 
-export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, tanggalMasuk, eventSaya = [] }: {
+export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, tanggalMasuk, eventSaya = [], hanyaTercatat = false }: {
+  // true = penghuni tanpa kamar: tampilkan hanya catatan presensi yang ada
+  hanyaTercatat?: boolean
   eventSaya?: EventKalender[]
   nim: string
   sesiList: Sesi[]
@@ -77,7 +79,8 @@ export default function KalenderKehadiran({ nim, sesiList, data, now, gedung, ta
   const mulaiHitung = tanggalMasuk && tanggalMasuk > awal ? tanggalMasuk : awal
   const sampaiHitung = akhir < today ? akhir : today
 
-  const baris = mulaiHitung <= sampaiHitung ? riwayatPenghuni(nim, mulaiHitung, sampaiHitung, sesiList, data, now, gedung) : []
+  const baris = (mulaiHitung <= sampaiHitung ? riwayatPenghuni(nim, mulaiHitung, sampaiHitung, sesiList, data, now, gedung) : [])
+    .filter(r => !hanyaTercatat || !!r.detail.presensi)
   const perTanggal = new Map<string, RiwayatRow[]>()
   for (const r of baris) perTanggal.set(r.tanggal, [...(perTanggal.get(r.tanggal) ?? []), r])
   const c = hitungStatus(baris.map(r => r.detail.status))

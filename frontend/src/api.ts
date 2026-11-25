@@ -1,4 +1,4 @@
-import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, EventInput, RekapEventResult, GedungInput, KamarInput, LogAktivitas, FotoEvent, Pengumuman, PengumumanInput } from './types'
+import type { CurrentUser, Gedung, Kamar, Penghuni, PresensiRecord, IzinRecord, Sesi, HariLibur, PresensiStatus, ModeUji, StatusFoto, AturanPresensi, JadwalHari, HariIso, EventAsrama, EventInput, RekapEventResult, GedungInput, KamarInput, LogAktivitas, FotoEvent, Pengumuman, PengumumanInput, RiwayatDitolak } from './types'
 import {
   DEMO_ACCOUNTS,
   gedungList as initialGedung,
@@ -212,6 +212,25 @@ export const fetchGedung = () => getList<Gedung>('gedung', initialGedung)
 export const fetchKamar = () => getList<Kamar>('kamar', initialKamar)
 export const fetchPenghuni = () => getList<Penghuni>('penghuni', initialPenghuni)
 export const fetchSesi = () => getList<Sesi>('sesi', initialSesi)
+
+// GET daftar tanpa cadangan: null bila server gagal (bukan [] / data contoh), untuk data yang harus akurat
+async function getListPasti<T>(path: string): Promise<T[] | null> {
+  try {
+    const res = await fetch(`${API_BASE}/${path}`, { headers: authHeaders(), cache: 'no-store' })
+    if (res.status === 401) { tokenKedaluwarsa(); return null }
+    if (res.ok && isJson(res)) {
+      const data = await res.json()
+      if (Array.isArray(data)) return data as T[]
+    }
+  } catch { /* server tidak dapat dihubungi */ }
+  return null
+}
+
+/** Gedung, kamar & penghuni terbaru langsung dari server (dipakai template & pemeriksaan impor). */
+export async function fetchDataKamarTerbaru(): Promise<{ gedung: Gedung[]; kamar: Kamar[]; penghuni: Penghuni[] } | null> {
+  const [gedung, kamar, penghuni] = await Promise.all([getListPasti<Gedung>('gedung'), getListPasti<Kamar>('kamar'), getListPasti<Penghuni>('penghuni')])
+  return gedung && kamar && penghuni ? { gedung, kamar, penghuni } : null
+}
 export const fetchLibur = () => getList<HariLibur>('libur', initialLibur)
 
 export const addGedungApi = (data: GedungInput) => postJson('gedung/add', data)
@@ -425,6 +444,7 @@ export const fetchEvent = () => getList<EventAsrama>('event', initialEvent)
 
 // ---------- Pengumuman ----------
 export const fetchPengumuman = () => getList<Pengumuman>('pengumuman', [])
+export const fetchRiwayatDitolak = () => getList<RiwayatDitolak>('presensi/riwayat-ditolak', [])
 export const addPengumumanApi = (data: PengumumanInput) => postJson('pengumuman/add', data)
 export const updatePengumumanApi = (id: number, data: PengumumanInput) => postJson('pengumuman/update', { id, ...data })
 export const deletePengumumanApi = (id: number) => postJson('pengumuman/delete', { id })

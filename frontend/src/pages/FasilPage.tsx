@@ -40,6 +40,8 @@ import {
   CalendarDays,
   Paperclip,
   User,
+  IdCard,
+  Phone,
   Users,
   Check,
   Download,
@@ -337,7 +339,7 @@ export default function FasilPage({ user, onLogout }: { user: CurrentUser; onLog
 
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={menu} activeTab={activeTab} onTabChange={gantiTab}
-      notifikasi={notifikasiFasil({ nim: user.nim, izinGedung, presensiBerfoto, sering, batasTidakHadir: aturan.batasTidakHadir, eventList, today, jamSekarang, pengumuman })}>
+      notifikasi={notifikasiFasil({ nim: user.nim, izinGedung, presensiBerfoto, sering, batasTidakHadir: aturan.batasTidakHadir, eventList, today, jamSekarang, pengumuman, fotoEvent })}>
       {/* Dashboard sudah menampilkan gedung & jumlah penghuni di header-nya */}
       {activeTab !== 'dashboard' && activeTab !== 'profil' && (
         <div className="mb-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-emerald-100 text-xs font-semibold text-emerald-900">
@@ -775,7 +777,7 @@ function FasilDashboard({
                   { label: 'Hadir', nilai: c.Hadir, warna: WARNA_STATUS_GRAFIK.Hadir },
                   { label: 'Izin & libur', nilai: c.Izin + c.Libur, warna: WARNA_STATUS_GRAFIK.Izin },
                   { label: 'Tidak hadir', nilai: c['Tidak Hadir'], warna: WARNA_STATUS_GRAFIK['Tidak Hadir'] },
-                  { label: 'Belum presensi', nilai: c.Belum, warna: '#d1d5db', teksGelap: true },
+                  { label: 'Belum presensi', nilai: c.Belum, warna: 'var(--color-gray-300)', teksGelap: true },
                 ]}
               />
 
@@ -1127,6 +1129,8 @@ interface ItemFoto {
   tanggal: string
   waktu: string
   konteks: string
+  // Kunci saringan: nama sesi (harian) atau judul event (event)
+  sesi: string
   lat: number | null
   lng: number | null
   info: string
@@ -1138,13 +1142,13 @@ interface ItemFoto {
 
 const keItemHarian = (r: PresensiRecord): ItemFoto => ({
   kunci: `h${r.id}`, jenis: 'harian', id: r.id, nama: r.namaPenghuni, nim: r.nim, kamar: r.nomorKamar,
-  tanggal: r.tanggal, waktu: r.waktu, konteks: `Sesi ${r.sesi}`, lat: r.latitude, lng: r.longitude,
+  tanggal: r.tanggal, waktu: r.waktu, konteks: `Sesi ${r.sesi}`, sesi: r.sesi, lat: r.latitude, lng: r.longitude,
   info: r.akurasiMeter != null ? `±${Math.round(r.akurasiMeter)} m` : '',
   foto: r.fotoWajah ?? '', statusFoto: r.statusFoto ?? 'Menunggu', catatan: r.catatanValidasi ?? '', validator: r.namaValidator ?? null,
 })
 const keItemEvent = (f: FotoEvent): ItemFoto => ({
   kunci: `e${f.id}`, jenis: 'event', id: f.id, nama: f.namaPenghuni, nim: f.nim, kamar: f.nomorKamar,
-  tanggal: f.tanggal, waktu: f.waktu, konteks: `Event ${f.judulEvent}`, lat: f.latitude, lng: f.longitude,
+  tanggal: f.tanggal, waktu: f.waktu, konteks: `Event ${f.judulEvent}`, sesi: f.judulEvent, lat: f.latitude, lng: f.longitude,
   info: f.jarakMeter != null ? `${Math.round(f.jarakMeter)} m dari titik event` : '',
   foto: f.foto, statusFoto: f.statusFoto, catatan: f.catatanValidasi ?? '', validator: f.namaValidator,
 })
@@ -1192,6 +1196,8 @@ function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, on
   const [jenis, setJenis] = useState<JenisFoto>('harian')
   const [filter, setFilter] = useState<StatusFoto>('Menunggu')
   const [cari, setCari] = useState('')
+  const [tglSaring, setTglSaring] = useState('')
+  const [sesiSaring, setSesiSaring] = useState('')
   const [batas, setBatas] = useState(25)
   const [detail, setDetail] = useState<string | null>(null)
   const [pilih, setPilih] = useState<Set<number>>(new Set())
@@ -1202,7 +1208,13 @@ function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, on
   const event = fotoEvent.map(keItemEvent)
   const semua = jenis === 'harian' ? harian : event
   const kata = cari.trim().toLowerCase()
-  const dicari = kata ? semua.filter(i => `${i.nama} ${i.nim} ${i.kamar} ${i.konteks}`.toLowerCase().includes(kata)) : semua
+  // Pilihan sesi/event diambil dari data yang ada (urut abjad), disaring tanggal bila dipilih
+  const opsiSesi = [...new Set(semua.filter(i => !tglSaring || i.tanggal === tglSaring).map(i => i.sesi).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  const adaSaring = !!(tglSaring || sesiSaring)
+  const dicari = semua.filter(i =>
+    (!kata || `${i.nama} ${i.nim} ${i.kamar} ${i.konteks}`.toLowerCase().includes(kata)) &&
+    (!tglSaring || i.tanggal === tglSaring) &&
+    (!sesiSaring || i.sesi === sesiSaring))
   // Menunggu: yang paling lama di depan; arsip: yang terbaru di depan
   const filtered = dicari.filter(i => i.statusFoto === filter).sort((a, b) => filter === 'Menunggu'
     ? `${a.tanggal}${a.waktu}`.localeCompare(`${b.tanggal}${b.waktu}`)
@@ -1214,7 +1226,10 @@ function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, on
     setBatas(25)
     setPilih(new Set())
     setPesanMassal(null)
-  }, [jenis, filter, kata])
+  }, [jenis, filter, kata, tglSaring, sesiSaring])
+
+  // Ganti jenis: pilihan sesi/event berbeda, jadi saringan sesi dikosongkan
+  useEffect(() => { setSesiSaring('') }, [jenis])
 
   // Terima sekaligus hanya untuk presensi harian (endpoint massal khusus harian)
   const menungguHarian = filtered.filter(i => i.jenis === 'harian' && i.statusFoto === 'Menunggu')
@@ -1283,6 +1298,32 @@ function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, on
         </div>
       </div>
 
+      {/* Saring tanggal & sesi / event */}
+      <div className="flex flex-wrap items-center gap-2">
+        <DateInput
+          clearable
+          placeholder="Semua tanggal"
+          className="w-full sm:w-48 px-3.5 py-2.5 rounded-xl border border-gray-200 hover:border-gray-300 bg-[#fff] text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all font-medium text-gray-700"
+          value={tglSaring}
+          onChange={e => setTglSaring(e.target.value)}
+        />
+        <select
+          value={sesiSaring}
+          onChange={e => setSesiSaring(e.target.value)}
+          aria-label={jenis === 'event' ? 'Saring event' : 'Saring sesi'}
+          className="w-full sm:w-56 px-3.5 py-2.5 rounded-xl border border-gray-200 hover:border-gray-300 bg-[#fff] text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all font-medium text-gray-700 cursor-pointer"
+        >
+          <option value="">{jenis === 'event' ? 'Semua event' : 'Semua sesi'}</option>
+          {[...new Set([...opsiSesi, ...(sesiSaring ? [sesiSaring] : [])])].map(o => <option key={o} value={o}>{jenis === 'event' ? o : `Sesi ${o}`}</option>)}
+        </select>
+        {adaSaring && (
+          <button type="button" onClick={() => { setTglSaring(''); setSesiSaring('') }}
+            className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:text-gray-900 hover:bg-gray-100 cursor-pointer">
+            <X className="w-3.5 h-3.5" /> Hapus saringan
+          </button>
+        )}
+      </div>
+
       {/* Ubin status */}
       <div className="grid grid-cols-3 gap-3" role="tablist" aria-label="Saring status foto">
         {ubin.map(u => {
@@ -1345,7 +1386,7 @@ function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, on
               {filter === 'Menunggu' ? <CheckCircle2 className="w-7 h-7" /> : <Camera className="w-7 h-7" />}
             </span>
             <p className="mt-3 text-sm font-bold text-gray-800" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-              {kata ? 'Tidak ada foto yang cocok' : filter === 'Menunggu' ? 'Semua foto sudah divalidasi' : `Belum ada foto yang ${filter.toLowerCase()}`}
+              {kata || adaSaring ? 'Tidak ada foto yang cocok' : filter === 'Menunggu' ? 'Semua foto sudah divalidasi' : `Belum ada foto yang ${filter.toLowerCase()}`}
             </p>
             <p className="mt-1 text-xs text-gray-500 max-w-sm">Foto {jenis === 'event' ? 'absen event' : 'presensi mandiri'} penghuni gedung Anda tampil di sini.</p>
           </div>
@@ -1386,6 +1427,31 @@ function FasilValidasiFoto({ records, fotoEvent, onValidasi, onValidasiEvent, on
   )
 }
 
+// Template alasan validasi foto: klik untuk mengisi catatan, lalu bisa disunting sebelum dikirim
+const TEMPLATE_ALASAN: { status: Exclude<StatusFoto, 'Menunggu'>; judul: string; daftar: string[] }[] = [
+  {
+    status: 'Diterima',
+    judul: 'Alasan diterima',
+    daftar: [
+      'Wajah terlihat jelas dan sesuai data penghuni.',
+      'Foto sesuai, lokasi dalam radius.',
+      'Wajah sedikit buram, namun masih dapat dikenali.',
+    ],
+  },
+  {
+    status: 'Ditolak',
+    judul: 'Alasan ditolak',
+    daftar: [
+      'Wajah tidak terlihat jelas / buram.',
+      'Wajah tertutup (masker, helm, atau tangan).',
+      'Foto terlalu gelap.',
+      'Wajah tidak sesuai dengan penghuni terdaftar.',
+      'Foto bukan diambil langsung (foto dari layar/kertas).',
+      'Lebih dari satu orang di dalam foto.',
+    ],
+  },
+]
+
 function DetailValidasiFoto({ item, onClose, onPutuskan }: {
   item: ItemFoto
   onClose: () => void
@@ -1405,6 +1471,12 @@ function DetailValidasiFoto({ item, onClose, onPutuskan }: {
   const putuskan = async (status: Exclude<StatusFoto, 'Menunggu'>) => {
     if (status === 'Ditolak' && !catatan.trim()) {
       setError('Catatan wajib diisi saat menolak foto agar penghuni mengetahui alasannya.')
+      return
+    }
+    // Cegah salah klik: template alasan ditolak dikirim dengan tombol Terima (atau sebaliknya)
+    const lawan = TEMPLATE_ALASAN.find(g => g.status !== status)
+    if (lawan?.daftar.includes(catatan.trim())) {
+      setError(`Catatan yang dipilih adalah ${lawan.judul.toLowerCase()}. Ganti catatannya atau tekan tombol ${lawan.status === 'Diterima' ? 'Terima' : 'Tolak'}.`)
       return
     }
     setProses(true)
@@ -1468,10 +1540,36 @@ function DetailValidasiFoto({ item, onClose, onPutuskan }: {
 
           {menunggu ? (
             <div className="mt-auto space-y-2">
+              {/* Template alasan: diterima / ditolak */}
+              <div className="space-y-2">
+                {TEMPLATE_ALASAN.map(g => (
+                  <div key={g.status}>
+                    <p className={`text-[11px] font-bold mb-1 ${g.status === 'Diterima' ? 'text-emerald-700' : 'text-rose-700'}`}>{g.judul}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {g.daftar.map(t => {
+                        const dipilih = catatan === t
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            aria-pressed={dipilih}
+                            onClick={() => { setCatatan(dipilih ? '' : t); setError('') }}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer text-left ${dipilih
+                              ? (g.status === 'Diterima' ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-rose-50 border-rose-400 text-rose-800')
+                              : 'bg-[#fff] border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-900'}`}
+                          >
+                            {t}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
               <textarea
                 rows={3}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400"
-                placeholder="Catatan (wajib jika menolak), mis. wajah tidak terlihat"
+                placeholder="Pilih template di atas atau tulis catatan sendiri (wajib jika menolak)"
                 value={catatan}
                 onChange={e => { setCatatan(e.target.value); setError('') }}
               />
@@ -2161,8 +2259,6 @@ function FasilProfil({
   const kamarTerisi = new Set(aktif.map(p => p.nomorKamar).filter(Boolean)).size
   const adaLokasi = gedung?.latitude != null && gedung?.longitude != null
 
-  const kolom = 'w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15 transition-colors placeholder:text-gray-400'
-  const label = 'block text-xs font-semibold text-gray-700 mb-1.5'
 
   return (
     <div className="space-y-5 w-full">
@@ -2253,23 +2349,23 @@ function FasilProfil({
 
       {/* Baris 3: kontak | keamanan (tinggi sama) */}
       <div className="grid lg:grid-cols-2 gap-5 items-stretch">
-        <KartuProfil ikon={<Mail />} judul="Kontak" sub="Dipakai penghuni dan admin untuk menghubungi Anda">
-          <div className="p-5 flex-1 flex flex-col gap-4">
-            <div className="grid gap-3">
-              <div>
-                <label className={label}>Nama Lengkap</label>
-                <input value={user.nama} disabled className={`${kolom} bg-gray-50 text-gray-500 cursor-not-allowed`} title="Nama hanya dapat diubah oleh admin" />
+        {/* Kontak: hanya tampil (diubah oleh admin), gaya sama dengan "Informasi Data Pribadi" penghuni */}
+        <KartuProfil ikon={<Mail />} judul="Kontak" sub="Dipakai penghuni dan admin untuk menghubungi Anda" kanan={<Badge status="Aktif" />}>
+          <div className="flex-1 flex flex-col divide-y divide-gray-100">
+            {[
+              { label: 'Nama Lengkap', value: user.nama, icon: <User className="w-4 h-4" /> },
+              { label: 'NIM / NIP', value: user.nim, icon: <IdCard className="w-4 h-4" /> },
+              { label: 'Alamat Email', value: user.email || '-', icon: <Mail className="w-4 h-4" /> },
+              { label: 'Nomor WhatsApp / HP', value: user.noHp || '-', icon: <Phone className="w-4 h-4" /> },
+              { label: 'Gedung Binaan', value: gedung?.nama || '-', icon: <Building2 className="w-4 h-4" /> },
+            ].map(row => (
+              <div key={row.label} className="flex-1 flex items-center gap-3 px-5 py-3 text-xs">
+                <span className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 border border-gray-100 text-emerald-700 flex items-center justify-center">{row.icon}</span>
+                <span className="w-40 shrink-0 text-gray-500 font-medium">{row.label}</span>
+                <span className="flex-1 min-w-0 text-right font-semibold text-gray-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }} title={row.value}>{row.value}</span>
               </div>
-              <div>
-                <label className={label}>Email</label>
-                <input value={user.email || '-'} disabled className={`${kolom} bg-gray-50 text-gray-600 cursor-not-allowed`} />
-              </div>
-              <div>
-                <label className={label}>Nomor WhatsApp</label>
-                <input value={user.noHp || '-'} disabled className={`${kolom} bg-gray-50 text-gray-600 cursor-not-allowed`} />
-              </div>
-            </div>
-            <p className="mt-auto pt-4 border-t border-gray-100 text-[11px] text-gray-400">Data kontak hanya dapat diubah oleh admin.</p>
+            ))}
+            <p className="px-5 py-3 text-[11px] text-gray-400">Data kontak hanya dapat diubah oleh admin.</p>
           </div>
         </KartuProfil>
 

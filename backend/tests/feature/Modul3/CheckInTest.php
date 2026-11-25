@@ -245,6 +245,29 @@ final class CheckInTest extends Modul3TestCase
         $this->assertSame('Hadir', $row['Status']);
         $this->assertSame('Menunggu', $row['Status_foto']);
         $this->assertSame(1, $this->db->table('presensi')->where('NIM', 'PNG1')->countAllResults());
+
+        // Percobaan yang ditolak tidak hilang: diarsipkan & tampil di riwayat penghuni
+        $arsip = $this->db->table('riwayat_absen_ditolak')->where('nim', 'PNG1')->get()->getResultArray();
+        $this->assertCount(1, $arsip);
+        $this->assertSame('harian', $arsip[0]['jenis']);
+        $this->assertSame('wajah tidak terlihat', $arsip[0]['catatan_validasi']);
+        $this->assertSame('FAS1', $arsip[0]['divalidasi_oleh']);
+        $this->assertNotSame($row['Foto_wajah'], $arsip[0]['foto']);
+        $this->assertFileExists(WRITEPATH . 'uploads/wajah/' . $arsip[0]['foto'], 'Foto percobaan yang ditolak tetap disimpan');
+
+        $j = $this->json($this->getApi('presensi/riwayat-ditolak', $t));
+        $this->assertCount(1, $j);
+        $this->assertSame('wajah tidak terlihat', $j[0]['catatanValidasi']);
+        $this->assertSame('Fasil Satu', $j[0]['namaValidator']);
+        // Lingkup: penghuni lain & fasil gedung lain tidak melihatnya; fasil gedungnya & admin melihat
+        $this->assertCount(0, $this->json($this->getApi('presensi/riwayat-ditolak', $this->token('PNG3', 'penghuni'))));
+        $this->assertCount(0, $this->json($this->getApi('presensi/riwayat-ditolak', $this->token('FAS2', 'fasil'))));
+        $this->assertCount(1, $this->json($this->getApi('presensi/riwayat-ditolak', $this->token('FAS1', 'fasil'))));
+        $this->assertCount(1, $this->json($this->getApi('presensi/riwayat-ditolak', $this->token('ADM', 'admin'))));
+
+        foreach ([$row['Foto_wajah'], $arsip[0]['foto']] as $f) {
+            @unlink(WRITEPATH . 'uploads/wajah/' . $f);
+        }
     }
 
     public function testBatasAkurasiNolBerartiTidakDiperiksa(): void

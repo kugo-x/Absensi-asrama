@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import type { AturanPresensi, CurrentUser, EventAsrama, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, PresensiStatus, Sesi, StatusFoto, Pengumuman } from '../types'
+import HasilAbsen, { type HasilAbsenData } from '../components/HasilAbsen'
+import type { AturanPresensi, CurrentUser, EventAsrama, Gedung, HariIso, HariLibur, IzinRecord, ModeUji, PresensiRecord, PresensiStatus, Sesi, StatusFoto, Pengumuman, RiwayatDitolak } from '../types'
 import AppLayout, { StatCard, SectionTitle, Badge, ConfirmDialog } from '../components/AppLayout'
 import { BuktiIzin, FotoBadge, KotakTanggalIzin, SesiIcon, TAMPILAN_STATUS_IZIN, formatRentangIzin } from '../components/PresensiWidgets'
 import KameraWajah from '../components/KameraWajah'
@@ -18,7 +19,7 @@ import {
 import {
   awalDemo, fetchPresensi, checkInApi, fetchIzin, submitIzinApi, batalIzinApi, adalahBuktiTersimpan, fetchGedung, fetchSesi,
   fetchLibur, fetchModeUji, MODE_UJI_MATI, fetchAturanPresensi, ATURAN_PRESENSI_DEFAULT,
-  fetchEvent, absenEventApi, fetchFotoEvent, fetchPengumuman } from '../api'
+  fetchEvent, absenEventApi, fetchFotoEvent, fetchPengumuman, fetchRiwayatDitolak } from '../api'
 import KalenderKehadiran from '../components/KalenderKehadiran'
 import { useRealtime, bilaBerubah } from '../realtime'
 import KartuEvent from '../components/KartuEvent'
@@ -152,6 +153,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
   const [presensiModalEvent, setPresensiModalEvent] = useState<EventAsrama | null>(null)
   const [gps, setGps] = useState<GpsState>({ status: 'idle' })
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [hasilAbsen, setHasilAbsen] = useState<HasilAbsenData | null>(null)
   const [checkingIn, setCheckingIn] = useState(false)
   const [foto, setFoto] = useState<string | null>(null)
   const [sesiAwal, setSesiAwal] = useState('')
@@ -175,10 +177,14 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     fetchLibur().then(bilaBerubah(setLibur))
     fetchModeUji().then(bilaBerubah(setModeUji))
     fetchPengumuman().then(bilaBerubah(setPengumuman))
+    fetchRiwayatDitolak().then(bilaBerubah(setDitolak))
   })
   // Pengumuman yang berlaku untuk gedung penghuni (server sudah menyaring yang kedaluwarsa)
   const [pengumuman, setPengumuman] = useState<Pengumuman[]>([])
   useEffect(() => { fetchPengumuman().then(setPengumuman) }, [])
+  // Percobaan absen yang ditolak lalu diulang: tetap tampil di log riwayat sebagai baris tersendiri
+  const [ditolak, setDitolak] = useState<RiwayatDitolak[]>([])
+  useEffect(() => { fetchRiwayatDitolak().then(setDitolak) }, [])
 
   useEffect(() => {
     fetchPresensi().then(setPresensi)
@@ -198,7 +204,9 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
 
   const today = todayLocal()
   const data: DataPresensi = { presensi, izin: izinData, libur }
-  const sesiHariIni: SesiHariIni[] = sesiAktif(sesiList, user.namaGedung, today).map(sesi => {
+  // Tanpa kamar = belum wajib presensi (server juga tidak membuat alpa & menolak presensinya)
+  const berkamar = !!user.nomorKamar
+  const sesiHariIni: SesiHariIni[] = (berkamar ? sesiAktif(sesiList, user.namaGedung, today) : []).map(sesi => {
     const detail = statusSesi(user.nim, today, sesi, data, now)
     // Mode uji: jam sesi diabaikan, sesi yang belum punya catatan dianggap sedang dibuka
     const dibukaUji = modeUji.abaikanJam && !detail.presensi && !detail.izin && !detail.libur
@@ -208,6 +216,8 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
   })
   // Periode ringkasan sama dengan dashboard fasil & admin
   const riwayat = riwayatPenghuni(user.nim, periodeRekap(today, user.tanggalMasuk, HARI_RINGKASAN), today, sesiList, data, now, user.namaGedung)
+    // Tanpa kamar: hanya catatan yang benar-benar ada (mis. dari saat masih berkamar), tanpa "tidak hadir" buatan
+    .filter(r => berkamar || !!r.detail.presensi)
   // Batas akurasi GPS yang berlaku (0 = tidak diperiksa); ikut dilonggarkan mode uji "abaikan radius"
   // Parameter akurasi dihapus: presensi hanya mengikat radius gedung
   const akurasiMaks = 0
@@ -241,40 +251,42 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
     const item = sesiHariIni.find(s => s.sesi.nama === sesiNama)
     if (!item || checkingIn) return
     setNotice(null)
+    const gagal = (text: string) => {
+      setNotice({ type: 'error', text })
+      setHasilAbsen({ jenis: 'gagal', judul: 'Presensi gagal dikirim', pesan: text })
+    }
 
     if (!bisaPresensi(item.detail)) {
-      setNotice({ type: 'error', text: alasanTidakBisaPresensi(item.detail, item.sesi) })
+      gagal(alasanTidakBisaPresensi(item.detail, item.sesi))
       return
     }
     if (!hasKoordinat(gedung)) {
-      setNotice({ type: 'error', text: 'Koordinat gedung asrama Anda belum diatur oleh admin. Presensi belum dapat dilakukan.' })
+      gagal('Koordinat gedung asrama Anda belum diatur oleh admin. Presensi belum dapat dilakukan.')
       return
     }
     if (!foto) {
-      setNotice({ type: 'error', text: 'Ambil foto wajah terlebih dahulu sebelum mengirim presensi.' })
+      gagal('Ambil foto wajah terlebih dahulu sebelum mengirim presensi.')
       return
     }
 
     setCheckingIn(true)
     const loc = await readLocation(gedung)
     if (loc.status !== 'ok' || !loc.position || loc.distance === undefined) {
-      setNotice({ type: 'error', text: loc.error || 'Lokasi tidak dapat dibaca.' })
+      gagal(loc.error || 'Lokasi tidak dapat dibaca.')
       setCheckingIn(false)
       return
     }
     if (akurasiMaks > 0 && loc.position.accuracy > akurasiMaks) {
-      setNotice({
-        type: 'error',
-        text: `Akurasi GPS Anda ±${Math.round(loc.position.accuracy)} m, melebihi batas ${akurasiMaks} m. Aktifkan GPS/mode akurasi tinggi, pindah ke area terbuka, lalu coba lagi.`,
-      })
+      gagal(
+        `Akurasi GPS Anda ±${Math.round(loc.position.accuracy)} m, melebihi batas ${akurasiMaks} m. Aktifkan GPS/mode akurasi tinggi, pindah ke area terbuka, lalu coba lagi.`,
+      )
       setCheckingIn(false)
       return
     }
     if (loc.distance > gedung.radiusMeter && !modeUji.abaikanRadius) {
-      setNotice({
-        type: 'error',
-        text: `Anda berada ${Math.round(loc.distance)} m dari ${gedung.nama}. Presensi hanya dapat dilakukan dalam radius ${gedung.radiusMeter} m.`,
-      })
+      gagal(
+        `Anda berada ${Math.round(loc.distance)} m dari ${gedung.nama}. Presensi hanya dapat dilakukan dalam radius ${gedung.radiusMeter} m.`,
+      )
       setCheckingIn(false)
       return
     }
@@ -298,10 +310,14 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
       }
       setPresensi(prev => [record, ...prev.filter(p => !(p.nim === user.nim && p.tanggal === today && p.sesi === sesiNama))])
       setFoto(null)
-      setNotice({ type: 'success', text: `${bisaAbsenUlang(item.detail) ? 'Absen ulang' : 'Presensi'} sesi ${sesiNama} berhasil dicatat (jarak ${Math.round(loc.distance)} m dari gedung). Foto menunggu validasi fasil.` })
+      const ulang = bisaAbsenUlang(item.detail)
+      setNotice({ type: 'success', text: `${ulang ? 'Absen ulang' : 'Presensi'} sesi ${sesiNama} berhasil dicatat (jarak ${Math.round(loc.distance)} m dari gedung). Foto menunggu validasi fasil.` })
+      setHasilAbsen(result.ok
+        ? { jenis: 'sukses', judul: `${ulang ? 'Absen ulang' : 'Presensi'} berhasil terkirim`, pesan: `Sesi ${sesiNama} tercatat pukul ${record.waktu} WIB, ${Math.round(loc.distance)} m dari gedung. Foto Anda menunggu validasi fasil.` }
+        : { jenis: 'offline', judul: 'Presensi disimpan sementara', pesan: `Server belum dapat dihubungi. Presensi sesi ${sesiNama} disimpan di perangkat ini.` })
       if (result.ok) fetchPresensi().then(setPresensi)
     } else {
-      setNotice({ type: 'error', text: result.message })
+      gagal(result.message)
     }
     setCheckingIn(false)
   }
@@ -338,15 +354,31 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
         fetchEvent().then(setEventList)
       }
       const pesan = result.message || 'Presensi event berhasil dicatat. Foto menunggu validasi fasil.'
+      const judulEv = eventList.find(ev => ev.id === data.idEvent)?.judul ?? 'event'
       setNotice({ type: 'success', text: pesan })
+      setHasilAbsen(result.ok
+        ? { jenis: 'sukses', judul: 'Absen event berhasil terkirim', pesan: `Kehadiran Anda di ${judulEv} tercatat pukul ${jam} WIB. Foto Anda menunggu validasi fasil.` }
+        : { jenis: 'offline', judul: 'Absen event disimpan sementara', pesan: 'Server belum dapat dihubungi. Absen disimpan di perangkat ini.' })
       return { ok: true, message: pesan }
     }
-    return { ok: false, message: result.message || 'Gagal mengirim presensi event' }
+    const pesanGagal = result.message || 'Gagal mengirim presensi event'
+    setHasilAbsen({ jenis: 'gagal', judul: 'Absen event gagal dikirim', pesan: pesanGagal })
+    return { ok: false, message: pesanGagal }
   }
 
   return (
     <AppLayout user={user} onLogout={onLogout} navItems={navItems} activeTab={activeTab} onTabChange={setActiveTab}
       notifikasi={notifikasiPenghuni({ nim: user.nim, presensi, izin: izinData, sesiHampirTutup, today, eventList, jamSekarang: toHM(now), pengumuman })}>
+      {/* Belum ditempatkan di kamar: belum ada kewajiban presensi */}
+      {!user.nomorKamar && (
+        <div className="mb-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 text-xs font-medium flex items-start gap-2.5">
+          <Building className="w-4 h-4 text-slate-500 shrink-0 mt-px" />
+          <span>
+            <strong className="font-bold">Anda belum ditempatkan di kamar.</strong> Kewajiban presensi dimulai setelah admin menempatkan Anda di kamar.
+            Jika sudah ditempatkan, keluar lalu masuk kembali agar data kamar diperbarui.
+          </span>
+        </div>
+      )}
       {(modeUji.abaikanJam || modeUji.abaikanRadius) && (
         <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -380,6 +412,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           user={user}
           sesiHariIni={sesiHariIni}
           riwayat={riwayat}
+          ditolak={ditolak}
           izinData={izinData}
           liburHariIni={cariLibur(today, libur)}
           onBukaPresensi={sesiNama => {
@@ -426,8 +459,8 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
         />
       )}
       {activeTab === 'riwayat' && (
-        <PenghuniRiwayat riwayat={riwayat} eventSaya={eventMilik(eventList, user, gedung?.id || user.idGedung)}>
-          <KalenderKehadiran nim={user.nim} sesiList={sesiList} data={data} now={now} gedung={user.namaGedung} tanggalMasuk={user.tanggalMasuk}
+        <PenghuniRiwayat riwayat={riwayat} ditolak={ditolak} eventSaya={eventMilik(eventList, user, gedung?.id || user.idGedung)}>
+          <KalenderKehadiran nim={user.nim} sesiList={sesiList} data={data} now={now} gedung={user.namaGedung} tanggalMasuk={user.tanggalMasuk} hanyaTercatat={!berkamar}
             eventSaya={eventMilik(eventList, user, gedung?.id || user.idGedung).filter(ev => ev.presensiSaya).map(ev => ({ tanggal: ev.presensiSaya!.tanggal || ev.tanggal, judul: ev.judul, status: ev.presensiSaya!.status, jam: ev.presensiSaya!.foto ? (ev.presensiSaya!.waktu || '').slice(0, 5) : '' }))} />
         </PenghuniRiwayat>
       )}
@@ -445,6 +478,7 @@ export default function PenghuniPage({ user, onLogout }: { user: CurrentUser; on
           onAbsen={handleAbsenEvent}
         />
       )}
+      {hasilAbsen && <HasilAbsen data={hasilAbsen} onClose={() => setHasilAbsen(null)} />}
     </AppLayout>
   )
 }
@@ -493,13 +527,15 @@ interface LogPresensi {
   catatan?: string | null
   keterangan: string
   otomatis?: boolean
+  // Percobaan lama yang fotonya ditolak lalu diganti absen ulang
+  arsip?: boolean
 }
 
-function susunLog(riwayat: RiwayatRow[], eventSaya: EventAsrama[]): LogPresensi[] {
+function susunLog(riwayat: RiwayatRow[], eventSaya: EventAsrama[], ditolak: RiwayatDitolak[] = []): LogPresensi[] {
   const harian: LogPresensi[] = riwayat.map(({ tanggal, sesi, detail }) => ({
     kunci: `h-${tanggal}-${sesi.nama}`,
     tanggal,
-    urut: sesi.jamMulai,
+    urut: `${sesi.jamMulai}|${jamPresensi(detail.presensi)}`,
     jenis: 'harian',
     judul: `Sesi ${sesi.nama}`,
     jadwal: `${sesi.jamMulai}–${sesi.jamSelesai}`,
@@ -517,7 +553,7 @@ function susunLog(riwayat: RiwayatRow[], eventSaya: EventAsrama[]): LogPresensi[
       return {
         kunci: `e-${ev.id}`,
         tanggal: pr.tanggal || ev.tanggal,
-        urut: ev.jamMulai,
+        urut: `${ev.jamMulai}|${(pr.waktu || '').slice(0, 5)}`,
         jenis: 'event' as const,
         judul: ev.judul,
         jadwal: `${ev.jamMulai}–${ev.jamSelesai} · ${ev.lokasi}`,
@@ -528,7 +564,26 @@ function susunLog(riwayat: RiwayatRow[], eventSaya: EventAsrama[]): LogPresensi[
         keterangan: pr.keterangan || '',
       }
     })
-  return [...harian, ...event].sort((a, b) => b.tanggal.localeCompare(a.tanggal) || b.urut.localeCompare(a.urut))
+  // Arsip percobaan yang ditolak: diletakkan tepat di bawah percobaan penggantinya (urut jam masuk)
+  const arsip: LogPresensi[] = ditolak.map(d => {
+    const jam = (d.waktu || '').slice(0, 5)
+    const catatan = `Foto ditolak${d.namaValidator ? ` oleh ${d.namaValidator}` : ''}, lalu absen ulang`
+    if (d.jenis === 'event') {
+      const ev = eventSaya.find(e => e.id === d.idEvent)
+      return {
+        kunci: `x-${d.id}`, tanggal: d.tanggal, urut: `${ev?.jamMulai ?? jam}|${jam}`, jenis: 'event', arsip: true,
+        judul: d.judulEvent || ev?.judul || 'Event', jadwal: ev ? `${ev.jamMulai}–${ev.jamSelesai} · ${ev.lokasi}` : 'Event',
+        jam, status: 'Tidak Hadir', statusFoto: 'Ditolak', catatan: d.catatanValidasi, keterangan: catatan,
+      }
+    }
+    const sesi = riwayat.find(r => r.tanggal === d.tanggal && r.sesi.nama === d.sesi)?.sesi
+    return {
+      kunci: `x-${d.id}`, tanggal: d.tanggal, urut: `${sesi?.jamMulai ?? jam}|${jam}`, jenis: 'harian', arsip: true,
+      judul: `Sesi ${d.sesi ?? '–'}`, jadwal: sesi ? `${sesi.jamMulai}–${sesi.jamSelesai}` : 'Presensi harian',
+      jam, status: 'Tidak Hadir', statusFoto: 'Ditolak', catatan: d.catatanValidasi, keterangan: catatan,
+    }
+  })
+  return [...harian, ...event, ...arsip].sort((a, b) => b.tanggal.localeCompare(a.tanggal) || b.urut.localeCompare(a.urut))
 }
 
 function IkonLog({ item }: { item: LogPresensi }) {
@@ -554,10 +609,12 @@ function PenghuniDashboard({
   onBukaPresensiEvent,
   now,
   pengumuman = [],
+  ditolak = [],
 }: {
   user: CurrentUser
   sesiHariIni: SesiHariIni[]
   riwayat: ReturnType<typeof riwayatPenghuni>
+  ditolak?: RiwayatDitolak[]
   izinData: IzinRecord[]
   liburHariIni?: HariLibur
   onBukaPresensi: (sesi: string) => void
@@ -578,7 +635,7 @@ function PenghuniDashboard({
     .filter(ev => getStatusEvent(ev, today, jam) !== 'Selesai')
     .sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.jamMulai.localeCompare(b.jamMulai))
     .slice(0, 3)
-  const logTerkini = susunLog(riwayat.filter(r => r.detail.status !== 'Belum'), eventSaya).slice(0, 6)
+  const logTerkini = susunLog(riwayat.filter(r => r.detail.status !== 'Belum'), eventSaya, ditolak).slice(0, 6)
   const izinTerakhir = [...izinData].sort((a, b) => b.id - a.id).slice(0, 3)
   const inisial = user.nama.split(/\s+/).filter(Boolean).slice(0, 2).map(k => k[0]?.toUpperCase()).join('')
 
@@ -945,7 +1002,7 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
                 </div>
               </div>
 
-              {!koordinatSiap && <p className="text-xs text-rose-700 font-medium">Koordinat gedung belum diatur admin, presensi belum dapat dilakukan.</p>}
+              {!koordinatSiap && <p className="text-xs text-rose-700 font-medium">{gedung ? 'Koordinat gedung belum diatur admin, presensi belum dapat dilakukan.' : 'Anda belum ditempatkan di kamar, presensi belum dapat dilakukan.'}</p>}
               {gps.status === 'error' && <p className="text-xs text-rose-700 font-medium">{gps.error}</p>}
               {gps.status === 'ok' && gps.position && akurasiMaks > 0 && gps.position.accuracy > akurasiMaks && (
                 <p className="text-xs text-rose-700 font-semibold">
@@ -1008,7 +1065,7 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
         style={{ fontFamily: 'Plus Jakarta Sans' }}
       >
         {!selected ? (
-          <span>Belum ada sesi aktif yang diatur</span>
+          <span>{gedung ? 'Belum ada sesi aktif yang diatur' : 'Belum ditempatkan di kamar'}</span>
         ) : !bisa ? (
           <>
             <AlertCircle className="w-4 h-4" />
@@ -1042,7 +1099,7 @@ function PenghuniPresensi({ sesiHariIni, sesiAwal, abaikanRadius, akurasiMaks, f
 
 const PILIHAN_BARIS_LOG = [10, 25, 50, 100]
 
-function PenghuniRiwayat({ riwayat, eventSaya, children }: { riwayat: ReturnType<typeof riwayatPenghuni>; eventSaya: EventAsrama[]; children?: React.ReactNode }) {
+function PenghuniRiwayat({ riwayat, ditolak = [], eventSaya, children }: { riwayat: ReturnType<typeof riwayatPenghuni>; ditolak?: RiwayatDitolak[]; eventSaya: EventAsrama[]; children?: React.ReactNode }) {
   const c = hitungStatus(riwayat.map(r => r.detail.status))
   const [cari, setCari] = useState('')
   const [jenis, setJenis] = useState<'' | 'harian' | 'event'>('')
@@ -1061,7 +1118,7 @@ function PenghuniRiwayat({ riwayat, eventSaya, children }: { riwayat: ReturnType
     { label: 'Libur', nilai: c.Libur, ikon: <Palmtree className="w-4 h-4" />, warna: 'bg-slate-100 text-slate-600' },
   ]
 
-  const log = susunLog(riwayat, eventSaya)
+  const log = susunLog(riwayat, eventSaya, ditolak)
   const kata = cari.trim().toLowerCase()
   const hasil = log.filter(x =>
     (!jenis || x.jenis === jenis) &&
@@ -1072,7 +1129,7 @@ function PenghuniRiwayat({ riwayat, eventSaya, children }: { riwayat: ReturnType
   const aktif = Math.min(halaman, jumlahHalaman)
   const dari = (aktif - 1) * perHalaman
   const tampil = hasil.slice(dari, dari + perHalaman)
-  const jumlahEvent = log.filter(x => x.jenis === 'event').length
+  const jumlahEvent = log.filter(x => x.jenis === 'event' && !x.arsip).length
   const kontrol = 'px-3 py-2.5 rounded-xl border border-gray-200 bg-[#fff] text-sm font-medium text-gray-700 outline-none focus:border-emerald-600 cursor-pointer'
   const tombolHal = 'px-3 py-1.5 rounded-lg border border-gray-200 bg-[#fff] font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
 
@@ -1083,7 +1140,7 @@ function PenghuniRiwayat({ riwayat, eventSaya, children }: { riwayat: ReturnType
         <div className="flex items-center gap-4 md:pr-6 md:border-r md:border-gray-100 shrink-0">
           <div className="relative w-28 h-28 shrink-0">
             <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-              <circle cx="50" cy="50" r={R} fill="none" stroke="#eef1ef" strokeWidth="10" />
+              <circle cx="50" cy="50" r={R} fill="none" stroke="var(--color-gray-100)" strokeWidth="10" />
               <circle
                 cx="50" cy="50" r={R} fill="none" stroke={warnaPersen} strokeWidth="10" strokeLinecap="round"
                 strokeDasharray={keliling} strokeDashoffset={keliling * (1 - c.persen / 100)}
@@ -1121,7 +1178,7 @@ function PenghuniRiwayat({ riwayat, eventSaya, children }: { riwayat: ReturnType
         <div className="px-5 py-4 border-b border-gray-100 flex flex-col xl:flex-row xl:items-center gap-3">
           <div className="xl:mr-auto">
             <h3 className="text-base font-extrabold text-gray-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>Log Riwayat Presensi</h3>
-            <p className="text-xs text-gray-500">{riwayat.length} sesi harian · {jumlahEvent} absen event</p>
+            <p className="text-xs text-gray-500">{riwayat.length} sesi harian · {jumlahEvent} absen event{ditolak.length > 0 ? ` · ${ditolak.length} percobaan ditolak` : ''}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative w-full sm:w-60">
@@ -1164,7 +1221,7 @@ function PenghuniRiwayat({ riwayat, eventSaya, children }: { riwayat: ReturnType
                 <tr><td colSpan={6} className="px-5 py-10 text-center text-sm text-gray-400">{log.length === 0 ? 'Belum ada riwayat presensi.' : 'Tidak ada riwayat yang cocok dengan filter.'}</td></tr>
               )}
               {tampil.map(x => (
-                <tr key={x.kunci} className="hover:bg-gray-50/80 transition-colors">
+                <tr key={x.kunci} className={`hover:bg-gray-50/80 transition-colors ${x.arsip ? 'bg-rose-50/30' : ''}`}>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
                       <IkonLog item={x} />
@@ -1180,7 +1237,7 @@ function PenghuniRiwayat({ riwayat, eventSaya, children }: { riwayat: ReturnType
                     </span>
                   </td>
                   <td className="px-5 py-3 mono text-xs font-semibold text-gray-700">{x.jam || <span className="text-gray-300">–</span>}</td>
-                  <td className="px-5 py-3"><Badge status={x.status} /></td>
+                  <td className="px-5 py-3 whitespace-nowrap"><Badge status={x.status} /></td>
                   <td className="px-5 py-3 text-xs">
                     {x.statusFoto ? (
                       <div className="space-y-1">

@@ -2,11 +2,18 @@
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>SIP Asrama · Universitas Andalas</title>
     <meta name="description" content="Sistem Informasi Presensi Asrama Universitas Andalas — presensi, perizinan, dan pemantauan penghuni asrama." />
     <meta name="theme-color" content="#0c2a1c" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Pasang tema sebelum halaman digambar agar tidak berkedip putih (logika sama dengan src/tema.ts)
+      try {
+        var t = localStorage.getItem('sip-tema')
+        if (t === 'gelap' || (t !== 'terang' && window.matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

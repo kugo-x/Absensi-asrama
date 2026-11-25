@@ -204,6 +204,8 @@ export interface KamarFormModalProps {
   // Untuk menampilkan isi kamar & penghuni yang belum dapat kamar (mode edit)
   penghuni?: Penghuni[]
   onTempatkan?: (p: Penghuni, nomorKamar: string) => Promise<{ ok: boolean; message: string }>
+  // Keluarkan penghuni dari kamar ini (tetap aktif, tanpa kamar) — langkah pertama pindah kamar
+  onKeluarkan?: (p: Penghuni) => Promise<{ ok: boolean; message: string }>
   defaultGedungId?: number
   onClose: () => void
   onSave: (data: KamarInput, isEdit: boolean) => Promise<{ ok: boolean; message: string }>
@@ -213,6 +215,7 @@ export function KamarFormModal({
   kamar,
   penghuni = [],
   onTempatkan,
+  onKeluarkan,
   gedungList,
   defaultGedungId,
   onClose,
@@ -220,6 +223,8 @@ export function KamarFormModal({
 }: KamarFormModalProps) {
   const isEdit = Boolean(kamar)
 
+  // Penghuni yang sedang dikonfirmasi untuk dikeluarkan dari kamar
+  const [keluarNim, setKeluarNim] = useState<string | null>(null)
   const [nomorKamar, setNomorKamar] = useState(kamar?.nomorKamar ?? '')
   const [idGedung, setIdGedung] = useState<number>(kamar?.idGedung ?? defaultGedungId ?? gedungList[0]?.id ?? 1)
   const [lantai, setLantai] = useState<number>(kamar?.lantai ?? 1)
@@ -370,7 +375,8 @@ export function KamarFormModal({
             const gedungKamar = gedungList.find(g => g.id === kamar.idGedung)
             const jk = gedungKamar?.jenis === 'Putri' ? 'P' : 'L'
             const isi = penghuni.filter(p => p.statusAktif && p.nomorKamar === kamar.nomorKamar)
-            const tanpaKamar = penghuni.filter(p => !p.nomorKamar && (!p.jenisKelamin || p.jenisKelamin === jk))
+            // Hanya akun aktif: akun nonaktif (sudah keluar asrama) juga tanpa kamar tetapi bukan untuk ditempatkan
+            const tanpaKamar = penghuni.filter(p => p.statusAktif && !p.nomorKamar && (!p.jenisKelamin || p.jenisKelamin === jk))
             const sisa = kapasitas - isi.length
             return (
               <div className="space-y-3">
@@ -389,7 +395,33 @@ export function KamarFormModal({
                             <span className="block font-semibold text-gray-900 truncate">{p.nama}</span>
                             <span className="block mono text-[11px] text-gray-500">{p.nim}</span>
                           </span>
-                          <span className="shrink-0 px-2 py-0.5 rounded-md bg-gray-100 text-[11px] font-semibold text-gray-600">{p.role === 'fasil' ? 'Fasil' : 'Penghuni'}</span>
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            <span className="px-2 py-0.5 rounded-md bg-gray-100 text-[11px] font-semibold text-gray-600">{p.role === 'fasil' ? 'Fasil' : 'Penghuni'}</span>
+                            {onKeluarkan && (keluarNim === p.nim ? (
+                              <>
+                                <button type="button" onClick={() => setKeluarNim(null)} className="px-2 py-1 rounded-lg text-[11px] font-bold text-gray-600 bg-[#fff] border border-gray-200 cursor-pointer">Batal</button>
+                                <button
+                                  type="button"
+                                  disabled={loading}
+                                  onClick={async () => {
+                                    setErrorMsg('')
+                                    const r = await onKeluarkan(p)
+                                    if (!r.ok) setErrorMsg(r.message)
+                                    setKeluarNim(null)
+                                  }}
+                                  className="px-2 py-1 rounded-lg text-[11px] font-bold text-white bg-amber-700 hover:bg-amber-800 cursor-pointer disabled:opacity-50"
+                                >
+                                  Ya, keluarkan
+                                </button>
+                              </>
+                            ) : (
+                              <button type="button" onClick={() => setKeluarNim(p.nim)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-amber-800 bg-[#fff] border border-amber-200 hover:bg-amber-50 cursor-pointer"
+                                title={`Keluarkan ${p.nama} dari kamar ini`}>
+                                Keluarkan
+                              </button>
+                            ))}
+                          </span>
                         </li>
                       ))}
                     </ul>

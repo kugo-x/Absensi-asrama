@@ -23,6 +23,8 @@ export interface Notifikasi {
   labelWaktu?: string
   // Menu yang dibuka saat notifikasi diklik
   tab?: string
+  // Status yang berlaku terus (mis. "sering tidak hadir", pengaturan belum lengkap): diletakkan di bawah
+  tetap?: boolean
 }
 
 export interface AktivitasDetail {
@@ -137,11 +139,10 @@ export default function NotifikasiBell({ nim, items, onBuka }: { nim: string; it
     return () => clearInterval(t)
   }, [])
 
-  const semua = [...items, ...aktivitas].sort((a, b) => {
-    const ta = keDate(a.waktu)?.getTime() ?? Number.MAX_SAFE_INTEGER
-    const tb = keDate(b.waktu)?.getTime() ?? Number.MAX_SAFE_INTEGER
-    return tb - ta
-  })
+  // Urutan: pengingat yang sedang berjalan (tanpa waktu) → terbaru ke terlama → status tetap
+  const kelompok = (n: Notifikasi) => n.tetap ? 2 : keDate(n.waktu) ? 1 : 0
+  const semua = [...items, ...aktivitas].sort((a, b) =>
+    kelompok(a) - kelompok(b) || (keDate(b.waktu)?.getTime() ?? 0) - (keDate(a.waktu)?.getTime() ?? 0))
   const setDibacaSet = new Set(dibaca)
   const belum = semua.filter(n => !setDibacaSet.has(n.id)).length
 

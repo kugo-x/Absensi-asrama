@@ -19,7 +19,7 @@ import {
   eventList as initialEvent,
 } from '../data/mockData'
 import {
-  fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, updateGedungApi, setPjGedungApi,
+  fetchPenghuni, addPenghuniApi, updatePenghuniApi, fetchGedung, fetchKamar, fetchDataKamarTerbaru, updateGedungApi, setPjGedungApi,
   addGedungApi, updateGedungFullApi, deleteGedungApi, addKamarApi, updateKamarApi, deleteKamarApi,
   fetchEvent, addEventApi, updateEventApi, deleteEventApi, fetchRekapEvent,
   fetchPresensi, fetchIzin, fetchSesi, saveSesiApi, fetchLibur, addLiburApi, deleteLiburApi, updateLiburApi, type ApiResult, type UbahPenghuni,
@@ -28,6 +28,7 @@ import {
 import MapPicker from '../components/MapPicker'
 import { KelolaPengumuman } from '../components/Pengumuman'
 import RekapSemester from '../components/RekapSemester'
+import { KOLOM_TEMPLATE, unduhTemplateImpor } from '../templateImpor'
 import { EventFormModal, EventRekapModal } from '../components/EventModals'
 import { GedungFormModal, KamarFormModal } from '../components/GedungKamarModals'
 import { getCurrentPosition } from '../geo'
@@ -47,6 +48,8 @@ import {
   LayoutDashboard,
   Users,
   Building2,
+  AlertTriangle,
+  Upload,
   ChevronDown,
   ChevronLeft,
   KeyRound,
@@ -86,6 +89,7 @@ import {
   Edit,
   ChevronRight,
   Megaphone,
+  BedDouble,
 } from 'lucide-react'
 
 const navItems = [
@@ -541,6 +545,10 @@ export default function AdminPage({ user, onLogout }: { user: CurrentUser; onLog
             nim: p.nim, nama: p.nama, email: p.email, noHp: p.noHp, asal: p.asal, role: p.role,
             statusAktif: true, nomorKamar, jenisKelamin: p.jenisKelamin ?? undefined,
           })}
+          onKeluarkan={p => handleUpdatePenghuni(p.nim, {
+            nim: p.nim, nama: p.nama, email: p.email, noHp: p.noHp, asal: p.asal, role: p.role,
+            statusAktif: true, nomorKamar: null, jenisKelamin: p.jenisKelamin ?? undefined,
+          })}
           defaultGedungId={kamarModal.defaultGedungId}
           onClose={() => setKamarModal({ open: false, kamar: null })}
           onSave={handleSaveKamar}
@@ -781,7 +789,7 @@ function AdminDashboard({
                 { label: 'Hadir', nilai: rekapHariIni.Hadir, warna: WARNA_STATUS_GRAFIK.Hadir },
                 { label: 'Izin & libur', nilai: rekapHariIni.Izin + rekapHariIni.Libur, warna: WARNA_STATUS_GRAFIK.Izin },
                 { label: 'Tidak hadir', nilai: rekapHariIni['Tidak Hadir'], warna: WARNA_STATUS_GRAFIK['Tidak Hadir'] },
-                { label: 'Belum presensi', nilai: rekapHariIni.Belum, warna: '#d1d5db', teksGelap: true },
+                { label: 'Belum presensi', nilai: rekapHariIni.Belum, warna: 'var(--color-gray-300)', teksGelap: true },
               ]}
             />
 
@@ -902,31 +910,214 @@ function AdminDashboard({
 // Data Penghuni
 // ---------------------------------------------------------------------------
 
-// Template impor penghuni: kolom harus persis seperti ini
-const KOLOM_TEMPLATE = ['NIM', 'Nama Lengkap', 'Jenis Kelamin (L/P)', 'Email', 'No HP', 'Asal Daerah', 'Nomor Kamar'] as const
+interface HasilPeriksaImpor {
+  total: number
+  siap: Partial<Penghuni>[]
+  masalah: string[]
+}
 
-function unduhTemplateImpor() {
-  const data = XLSX.utils.aoa_to_sheet([[...KOLOM_TEMPLATE]])
-  data['!cols'] = KOLOM_TEMPLATE.map(k => ({ wch: Math.max(14, k.length + 4) }))
-  const petunjuk = XLSX.utils.aoa_to_sheet([
-    ['Petunjuk pengisian template impor penghuni'],
-    [],
-    ['Kolom', 'Wajib', 'Keterangan'],
-    ['NIM', 'Ya', 'Huruf/angka tanpa spasi, belum terdaftar'],
-    ['Nama Lengkap', 'Ya', ''],
-    ['Jenis Kelamin (L/P)', 'Ya', 'L = laki-laki, P = perempuan; harus sesuai jenis gedung kamar'],
-    ['Email', 'Tidak', ''],
-    ['No HP', 'Tidak', ''],
-    ['Asal Daerah', 'Tidak', ''],
-    ['Nomor Kamar', 'Ya', 'Harus sudah terdaftar di menu Gedung & Kamar dan masih ada tempat'],
-    [],
-    ['Isi data mulai baris 2 pada sheet "Data". Jangan mengubah judul kolom. Password awal: penghuni123'],
-  ])
-  petunjuk['!cols'] = [{ wch: 22 }, { wch: 8 }, { wch: 70 }]
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, data, 'Data')
-  XLSX.utils.book_append_sheet(wb, petunjuk, 'Petunjuk')
-  XLSX.writeFile(wb, 'template-impor-penghuni.xlsx')
+// Membaca & memeriksa berkas impor. Melempar Error berisi pesan bila format tidak sesuai template.
+async function periksaBerkasImpor(file: File, penghuni: Penghuni[], gedungList: Gedung[], kamarList: Kamar[]): Promise<HasilPeriksaImpor> {
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error('Jenis berkas tidak didukung. Gunakan berkas .xlsx dari template.')
+  let baris: unknown[][]
+  try {
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+    const sheet = workbook.Sheets['Data'] ?? workbook.Sheets[workbook.SheetNames[0]]
+    baris = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
+  } catch {
+    throw new Error('Berkas tidak dapat dibaca. Gunakan template .xlsx yang diunduh dari sini.')
+  }
+  const norm = (v: unknown) => String(v ?? '').trim().toLowerCase()
+  const header = (baris[0] ?? []).map(norm)
+  const hilang = KOLOM_TEMPLATE.filter(k => !header.includes(k.toLowerCase()))
+  if (hilang.length > 0) {
+    throw new Error(`Berkas tidak sesuai template. Kolom tidak ditemukan: ${hilang.join(', ')}. Unduh template, lalu salin data ke sheet "Data" tanpa mengubah judul kolom.`)
+  }
+  const kol = (nama: string) => header.indexOf(nama.toLowerCase())
+  const isi = baris.slice(1).filter(b => b.some(v => String(v ?? '').trim() !== ''))
+  if (isi.length === 0) throw new Error('Sheet "Data" masih kosong. Isi data mulai baris 2 (lihat sheet "Contoh").')
+
+  const terpakai = new Map(kamarList.map(k => [k.nomorKamar, hunianKamar(k, penghuni)]))
+  const nimDipakai = new Set(penghuni.map(p => p.nim))
+  const masalah: string[] = []
+  const siap: Partial<Penghuni>[] = []
+  isi.forEach((b, i) => {
+    const nomorBaris = i + 2
+    const ambil = (k: string) => String(b[kol(k)] ?? '').trim()
+    const nim = ambil('NIM'), nama = ambil('Nama Lengkap'), kamar = ambil('Nomor Kamar').toUpperCase()
+    const jkMentah = ambil('Jenis Kelamin (L/P)').toUpperCase()
+    const jk = jkMentah.startsWith('L') ? 'L' : jkMentah.startsWith('P') ? 'P' : ''
+    const k = kamarList.find(x => x.nomorKamar.toUpperCase() === kamar)
+    const g = k ? gedungList.find(x => x.id === k.idGedung) : undefined
+    const alasan = !nim || !nama ? 'NIM & nama wajib diisi'
+      : !/^[A-Za-z0-9]+$/.test(nim) ? 'NIM hanya huruf/angka'
+      : nimDipakai.has(nim) ? `NIM ${nim} sudah terdaftar`
+      : !jk ? 'jenis kelamin harus L atau P'
+      : kamar && !k ? `kamar "${kamar}" tidak ditemukan`
+      : k && g && (jk === 'P') !== (g.jenis === 'Putri') ? `kamar ${k.nomorKamar} ada di asrama ${g.jenis.toLowerCase()}`
+      : k && (terpakai.get(k.nomorKamar) ?? 0) >= k.kapasitas ? `kamar ${k.nomorKamar} penuh`
+      : ''
+    if (alasan) {
+      masalah.push(`Baris ${nomorBaris}: ${alasan}`)
+      return
+    }
+    nimDipakai.add(nim)
+    if (k) terpakai.set(k.nomorKamar, (terpakai.get(k.nomorKamar) ?? 0) + 1)
+    siap.push({ nim, nama, jenisKelamin: jk as 'L' | 'P', email: ambil('Email'), noHp: ambil('No HP'), asal: ambil('Asal Daerah'), nomorKamar: k?.nomorKamar ?? '', statusAktif: true, role: 'penghuni' })
+  })
+  return { total: isi.length, siap, masalah }
+}
+
+// Popup impor: unduh template + pilih berkas + periksa + impor dalam satu tempat
+function ImporPenghuniModal({ onClose, onImported }: {
+  onClose: () => void
+  onImported?: () => void
+}) {
+  const [berkas, setBerkas] = useState<File | null>(null)
+  const [periksa, setPeriksa] = useState<HasilPeriksaImpor | null>(null)
+  const [galat, setGalat] = useState('')
+  const [memeriksa, setMemeriksa] = useState(false)
+  const [mengimpor, setMengimpor] = useState(false)
+  const [hasil, setHasil] = useState<{ berhasil: number; gagal: string[] } | null>(null)
+  const [seret, setSeret] = useState(false)
+  const [menyiapkan, setMenyiapkan] = useState(false)
+  // Template & pemeriksaan selalu memakai data kamar terbaru dari server (bukan salinan di halaman)
+  const SERVER_GAGAL = 'Data kamar terbaru tidak dapat diambil dari server. Periksa koneksi lalu coba lagi.'
+  const unduh = async () => {
+    setMenyiapkan(true); setGalat('')
+    try {
+      const terbaru = await fetchDataKamarTerbaru()
+      if (!terbaru) setGalat(SERVER_GAGAL)
+      else await unduhTemplateImpor(terbaru.gedung, terbaru.kamar, terbaru.penghuni)
+    } catch { setGalat('Template gagal dibuat. Coba lagi.') }
+    setMenyiapkan(false)
+  }
+
+  const pilih = async (file: File | undefined) => {
+    if (!file || mengimpor) return
+    setBerkas(file); setPeriksa(null); setGalat(''); setHasil(null)
+    setMemeriksa(true)
+    try {
+      const terbaru = await fetchDataKamarTerbaru()
+      if (!terbaru) throw new Error(SERVER_GAGAL)
+      setPeriksa(await periksaBerkasImpor(file, terbaru.penghuni, terbaru.gedung, terbaru.kamar))
+    } catch (e) {
+      setGalat((e as Error).message)
+    }
+    setMemeriksa(false)
+  }
+
+  const impor = async () => {
+    if (!periksa || periksa.siap.length === 0) return
+    setMengimpor(true)
+    let berhasil = 0
+    const gagal = [...periksa.masalah]
+    for (const p of periksa.siap) {
+      const r = await addPenghuniApi(p)
+      if (r.ok || r.offline) berhasil++
+      else gagal.push(`${p.nim}: ${r.message}`)
+    }
+    setMengimpor(false)
+    setHasil({ berhasil, gagal })
+    onImported?.()
+  }
+
+  const tutup = () => { if (!mengimpor) onClose() }
+  const langkah = 'w-6 h-6 shrink-0 rounded-full bg-[#141a17] text-white text-[11px] font-bold flex items-center justify-center'
+
+  return (
+    <ModalShell title="Impor Data Penghuni" subtitle="Tambah banyak penghuni sekaligus dari berkas Excel" icon={<FileSpreadsheet className="w-5 h-5" />} onClose={tutup}>
+      <div className="space-y-4 max-h-[68vh] overflow-y-auto pr-1">
+        {/* Peringatan format */}
+        <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-px text-amber-600" />
+          <span>Berkas <strong>harus sesuai template</strong>: isi di sheet <strong>Data</strong> mulai baris 2 dan jangan mengubah judul kolom. Berkas dengan format lain akan ditolak.</span>
+        </div>
+
+        {/* 1. Unduh template */}
+        <div className="flex items-start gap-3">
+          <span className={langkah}>1</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-gray-900">Unduh template</p>
+            <p className="text-xs text-gray-500 mt-0.5">Berisi sheet <strong>Data</strong> (diisi, dengan pilihan L/P &amp; nomor kamar), <strong>Contoh</strong>, <strong>Petunjuk</strong>, dan <strong>Daftar Kamar</strong> beserta sisa tempat.</p>
+            <button type="button" onClick={unduh} disabled={menyiapkan}
+              className="mt-2 disabled:opacity-60 inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-gray-700 bg-[#fff] hover:bg-gray-50 border border-gray-200 cursor-pointer">
+              <Download className="w-4 h-4" /> {menyiapkan ? 'Menyiapkan…' : 'Unduh template (.xlsx)'}
+            </button>
+          </div>
+        </div>
+
+        {/* 2. Pilih berkas */}
+        <div className="flex items-start gap-3">
+          <span className={langkah}>2</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-gray-900">Masukkan berkas yang sudah diisi</p>
+            <label
+              onDragOver={e => { e.preventDefault(); setSeret(true) }}
+              onDragLeave={() => setSeret(false)}
+              onDrop={e => { e.preventDefault(); setSeret(false); pilih(e.dataTransfer.files?.[0]) }}
+              className={`mt-2 flex flex-col items-center justify-center gap-1 px-4 py-6 rounded-xl border-2 border-dashed text-center transition-colors ${mengimpor ? 'opacity-60 pointer-events-none' : 'cursor-pointer'} ${seret ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300 bg-gray-50'}`}
+            >
+              <Upload className="w-5 h-5 text-gray-500" />
+              <span className="text-xs font-bold text-gray-800">{berkas ? berkas.name : 'Pilih berkas atau seret ke sini'}</span>
+              <span className="text-[11px] text-gray-500">{berkas ? 'Klik untuk mengganti berkas' : 'Format .xlsx sesuai template'}</span>
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" aria-label="Berkas impor penghuni" onChange={e => { pilih(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
+          </div>
+        </div>
+
+        {memeriksa && <p className="text-xs text-gray-500">Memeriksa berkas…</p>}
+        {galat && (
+          <div role="alert" className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800">
+            <XCircle className="w-4 h-4 shrink-0 mt-px text-rose-600" />
+            <span>{galat}</span>
+          </div>
+        )}
+
+        {/* Hasil pemeriksaan sebelum impor */}
+        {periksa && !hasil && (
+          <div className="rounded-xl border border-gray-200 p-3 space-y-2">
+            <p className="text-xs text-gray-700">
+              <strong className="text-emerald-700">{periksa.siap.length} baris siap diimpor</strong>
+              {periksa.masalah.length > 0 && <> · <strong className="text-amber-700">{periksa.masalah.length} baris bermasalah</strong> (dilewati)</>}
+              <span className="text-gray-400"> dari {periksa.total} baris</span>
+            </p>
+            {periksa.masalah.length > 0 && (
+              <ul className="max-h-32 overflow-y-auto text-[11px] text-amber-800 space-y-0.5 list-disc pl-4">
+                {periksa.masalah.map(m => <li key={m}>{m}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {hasil && (
+          <div className={`rounded-xl border p-3 space-y-2 ${hasil.gagal.length ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+            <p className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" /> {hasil.berhasil} dari {periksa?.total ?? hasil.berhasil} baris berhasil diimpor.
+            </p>
+            {hasil.gagal.length > 0 && (
+              <ul className="max-h-32 overflow-y-auto text-[11px] text-amber-800 space-y-0.5 list-disc pl-4">
+                {hasil.gagal.map(m => <li key={m}>{m}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 pt-4 mt-4 border-t border-gray-100">
+        <button type="button" onClick={tutup} disabled={mengimpor}
+          className="flex-1 py-2.5 rounded-xl text-sm font-bold text-gray-700 bg-[#fff] border border-gray-200 hover:bg-gray-50 cursor-pointer disabled:opacity-50">
+          {hasil ? 'Tutup' : 'Batal'}
+        </button>
+        {!hasil && (
+          <button type="button" onClick={impor} disabled={!periksa || periksa.siap.length === 0 || mengimpor}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-[#141a17] hover:bg-[#2a332e] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+            {mengimpor ? 'Mengimpor…' : periksa?.siap.length ? `Impor ${periksa.siap.length} penghuni` : 'Impor'}
+          </button>
+        )}
+      </div>
+    </ModalShell>
+  )
 }
 
 function AdminPenghuni({ penghuni, gedungList = [], kamarList = [], onImported, onAddClick, onKelola, onResetPassword }: {
@@ -942,7 +1133,6 @@ function AdminPenghuni({ penghuni, gedungList = [], kamarList = [], onImported, 
   const [filterStatus, setFilterStatus] = useState<'aktif' | 'nonaktif' | 'semua'>('aktif')
   const [filterGedung, setFilterGedung] = useState('semua')
   const [page, setPage] = useState(1)
-  const [importMessage, setImportMessage] = useState('')
   const pageSize = 8
   const q = search.toLowerCase()
   const filtered = penghuni
@@ -952,72 +1142,7 @@ function AdminPenghuni({ penghuni, gedungList = [], kamarList = [], onImported, 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const rows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
-  const [mengimpor, setMengimpor] = useState(false)
-  const importSpreadsheet = (file: File | undefined) => {
-    if (!file) return
-    setImportMessage('')
-    const reader = new FileReader()
-    reader.onload = async () => {
-      let baris: unknown[][]
-      try {
-        const workbook = XLSX.read(reader.result, { type: 'array' })
-        const sheet = workbook.Sheets['Data'] ?? workbook.Sheets[workbook.SheetNames[0]]
-        baris = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
-      } catch {
-        return setImportMessage('Berkas tidak dapat dibaca. Gunakan template .xlsx dari tombol "Template".')
-      }
-      const norm = (v: unknown) => String(v ?? '').trim().toLowerCase()
-      const header = (baris[0] ?? []).map(norm)
-      const hilang = KOLOM_TEMPLATE.filter(k => !header.includes(k.toLowerCase()))
-      if (hilang.length > 0) {
-        return setImportMessage(`Format tidak sesuai template. Kolom tidak ditemukan: ${hilang.join(', ')}. Unduh template lalu salin data ke sana.`)
-      }
-      const kol = (nama: string) => header.indexOf(nama.toLowerCase())
-      const isi = baris.slice(1).filter(b => b.some(v => String(v ?? '').trim() !== ''))
-      if (isi.length === 0) return setImportMessage('Template kosong: isi data mulai baris 2.')
-
-      const terpakai = new Map(kamarList.map(k => [k.nomorKamar, hunianKamar(k, penghuni)]))
-      const nimDipakai = new Set(penghuni.map(p => p.nim))
-      const gagal: string[] = []
-      const siap: Partial<Penghuni>[] = []
-      isi.forEach((b, i) => {
-        const nomorBaris = i + 2
-        const ambil = (k: string) => String(b[kol(k)] ?? '').trim()
-        const nim = ambil('NIM'), nama = ambil('Nama Lengkap'), kamar = ambil('Nomor Kamar').toUpperCase()
-        const jkMentah = ambil('Jenis Kelamin (L/P)').toUpperCase()
-        const jk = jkMentah.startsWith('L') ? 'L' : jkMentah.startsWith('P') ? 'P' : ''
-        const k = kamarList.find(x => x.nomorKamar.toUpperCase() === kamar)
-        const g = k ? gedungList.find(x => x.id === k.idGedung) : undefined
-        const alasan = !nim || !nama ? 'NIM & nama wajib diisi'
-          : !/^[A-Za-z0-9]+$/.test(nim) ? 'NIM hanya huruf/angka'
-          : nimDipakai.has(nim) ? `NIM ${nim} sudah terdaftar`
-          : !jk ? 'jenis kelamin harus L atau P'
-          : !k ? `kamar "${kamar || '-'}" tidak ditemukan`
-          : g && (jk === 'P') !== (g.jenis === 'Putri') ? `kamar ${k.nomorKamar} ada di asrama ${g.jenis.toLowerCase()}`
-          : (terpakai.get(k.nomorKamar) ?? 0) >= k.kapasitas ? `kamar ${k.nomorKamar} penuh`
-          : ''
-        if (alasan) {
-          gagal.push(`baris ${nomorBaris}: ${alasan}`)
-          return
-        }
-        nimDipakai.add(nim)
-        terpakai.set(k!.nomorKamar, (terpakai.get(k!.nomorKamar) ?? 0) + 1)
-        siap.push({ nim, nama, jenisKelamin: jk as 'L' | 'P', email: ambil('Email'), noHp: ambil('No HP'), asal: ambil('Asal Daerah'), nomorKamar: k!.nomorKamar, statusAktif: true, role: 'penghuni' })
-      })
-
-      setMengimpor(true)
-      let berhasil = 0
-      for (const p of siap) {
-        const r = await addPenghuniApi(p)
-        if (r.ok || r.offline) berhasil++
-        else gagal.push(`${p.nim}: ${r.message}`)
-      }
-      setMengimpor(false)
-      onImported?.()
-      setImportMessage(`${berhasil} dari ${isi.length} baris berhasil diimpor.${gagal.length ? ` Gagal: ${gagal.slice(0, 5).join('; ')}${gagal.length > 5 ? `; dan ${gagal.length - 5} lainnya` : ''}.` : ''}`)
-    }
-    reader.readAsArrayBuffer(file)
-  }
+  const [bukaImpor, setBukaImpor] = useState(false)
 
   const jumlah = {
     aktif: penghuni.filter(p => p.statusAktif).length,
@@ -1079,16 +1204,12 @@ function AdminPenghuni({ penghuni, gedungList = [], kamarList = [], onImported, 
             </select>
             <button
               type="button"
-              onClick={unduhTemplateImpor}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-gray-700 bg-[#fff] hover:bg-gray-50 border border-gray-200 cursor-pointer"
-              title="Unduh template impor (.xlsx)"
+              onClick={() => setBukaImpor(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-emerald-800 bg-[#fff] hover:bg-emerald-50 border border-emerald-200 cursor-pointer"
+              title="Impor penghuni dari template Excel"
             >
-              <Download className="w-4 h-4" /> Template
+              <FileSpreadsheet className="w-4 h-4" /> Impor
             </button>
-            <label className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-emerald-800 bg-[#fff] hover:bg-emerald-50 border border-emerald-200 ${mengimpor ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`} title="Impor dari template">
-              <FileSpreadsheet className="w-4 h-4" /> {mengimpor ? 'Mengimpor…' : 'Impor'}
-              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => { importSpreadsheet(e.target.files?.[0]); e.target.value = '' }} />
-            </label>
             <button
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white bg-[#141a17] hover:bg-[#2a332e] transition-colors shadow-sm cursor-pointer"
               onClick={onAddClick}
@@ -1099,7 +1220,9 @@ function AdminPenghuni({ penghuni, gedungList = [], kamarList = [], onImported, 
             </button>
           </div>
         </div>
-        {importMessage && <p className={`px-5 pt-3 text-xs font-semibold ${/Gagal|tidak|Format|kosong/.test(importMessage) ? 'text-amber-700' : 'text-emerald-700'}`}>{importMessage}</p>}
+        {bukaImpor && (
+          <ImporPenghuniModal onClose={() => setBukaImpor(false)} onImported={onImported} />
+        )}
 
         {/* HP: kartu per penghuni */}
         <ul className="md:hidden divide-y divide-gray-100">
@@ -1247,47 +1370,6 @@ function PilihGender({ value, onChange }: { value: 'L' | 'P' | '' | null | undef
   )
 }
 
-const gedungCocok = (g: Gedung, jk?: 'L' | 'P' | '' | null) => !jk || (jk === 'P') === (g.jenis === 'Putri')
-
-function KamarPicker({ gedungList, kamarList, penghuni, gedung, kamar, kamarSaatIni, onGedung, onKamar, jenisKelamin }: {
-  // Hanya gedung yang sesuai gender ditampilkan
-  jenisKelamin?: 'L' | 'P' | '' | null
-  gedungList: Gedung[]
-  kamarList: Kamar[]
-  penghuni: Penghuni[]
-  gedung: string
-  kamar: string
-  kamarSaatIni?: string
-  onGedung: (v: string) => void
-  onKamar: (v: string) => void
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <div>
-        <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Gedung Asrama</label>
-        <select className={inputCls} value={gedung} onChange={e => { onGedung(e.target.value); onKamar('') }}>
-          <option value="">{jenisKelamin ? 'Pilih Gedung' : 'Pilih jenis kelamin dulu'}</option>
-          {gedungList.filter(g => gedungCocok(g, jenisKelamin)).map(g => <option key={g.id} value={g.nama}>{g.nama}</option>)}
-        </select>
-      </div>
-      <div>
-        <label className={labelCls} style={{ fontFamily: 'Plus Jakarta Sans' }}>Nomor Kamar</label>
-        <select className={inputCls} value={kamar} onChange={e => onKamar(e.target.value)}>
-          <option value="">Pilih Kamar</option>
-          {kamarList.filter(k => k.namaGedung === gedung).map(k => {
-            const isi = hunianKamar(k, penghuni)
-            const penuh = isi >= k.kapasitas && k.nomorKamar !== kamarSaatIni
-            return (
-              <option key={k.nomorKamar} value={k.nomorKamar} disabled={penuh}>
-                {k.nomorKamar} · Lt. {k.lantai} · {isi}/{k.kapasitas}{penuh ? ' (penuh)' : ''}
-              </option>
-            )
-          })}
-        </select>
-      </div>
-    </div>
-  )
-}
 
 function ModalShell({ title, subtitle, icon, onClose, children }: { title: string; subtitle: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -1398,26 +1480,24 @@ function TambahPenghuniModal({ penghuni, gedungList, kamarList, onClose, onSave 
   const [error, setError] = useState('')
 
   const simpan = () => {
-    const pesan = validasiDataDiri(form, penghuni) || (!form.jenisKelamin ? 'Jenis kelamin wajib dipilih.' : '') || (!form.nomorKamar ? 'Kamar wajib dipilih.' : '')
+    const pesan = validasiDataDiri(form, penghuni) || (!form.jenisKelamin ? 'Jenis kelamin wajib dipilih.' : '')
     if (pesan) {
       setError(pesan)
       return
     }
-    onSave({ ...form, jenisKelamin: form.jenisKelamin || null, nim: form.nim.trim(), nama: form.nama.trim(), email: form.email.trim(), statusAktif: true, role: 'penghuni', tanggalMasuk: todayLocal() })
+    // Didaftarkan tanpa kamar; penempatan dilakukan di menu Gedung & Kamar
+    onSave({ ...form, namaGedung: '', nomorKamar: '', jenisKelamin: form.jenisKelamin || null, nim: form.nim.trim(), nama: form.nama.trim(), email: form.email.trim(), statusAktif: true, role: 'penghuni', tanggalMasuk: todayLocal() })
   }
 
   return (
-    <ModalShell title="Tambah Penghuni Baru" subtitle="Daftarkan mahasiswa dan tempatkan ke kamar" icon={<UserPlus className="w-5 h-5" />} onClose={onClose}>
+    <ModalShell title="Tambah Penghuni Baru" subtitle="Daftarkan mahasiswa; kamar ditentukan belakangan" icon={<UserPlus className="w-5 h-5" />} onClose={onClose}>
       <div className="space-y-3.5 max-h-[65vh] overflow-y-auto pr-1">
         <FormDataDiri value={form} onChange={d => setForm(prev => ({ ...prev, ...d }))} />
-        <PilihGender value={form.jenisKelamin} onChange={v => setForm(p => ({ ...p, jenisKelamin: v, ...(gedungList.find(g => g.nama === p.namaGedung && !gedungCocok(g, v)) ? { namaGedung: '', nomorKamar: '' } : {}) }))} />
-        <KamarPicker
-          jenisKelamin={form.jenisKelamin}
-          gedungList={gedungList} kamarList={kamarList} penghuni={penghuni}
-          gedung={form.namaGedung} kamar={form.nomorKamar}
-          onGedung={v => setForm(p => ({ ...p, namaGedung: v }))}
-          onKamar={v => setForm(p => ({ ...p, nomorKamar: v }))}
-        />
+        <PilihGender value={form.jenisKelamin} onChange={v => setForm(p => ({ ...p, jenisKelamin: v }))} />
+        <div className="flex items-start gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-600">
+          <BedDouble className="w-4 h-4 shrink-0 mt-px text-gray-500" />
+          <span>Penghuni didaftarkan tanpa kamar. Tempatkan ke kamar lewat menu <strong className="text-gray-800">Gedung &amp; Kamar</strong> → edit kamar → <strong className="text-gray-800">Tempatkan</strong>.</span>
+        </div>
         <p className="text-[11px] text-gray-500">Password awal akun: <span className="mono font-semibold">penghuni123</span> (minta penghuni menggantinya).</p>
         {error && <p className="text-xs text-rose-700 font-semibold">{error}</p>}
       </div>
@@ -1438,9 +1518,9 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
   onSave: (changes: UbahPenghuni) => Promise<ApiResult>
 }) {
   const [dataDiri, setDataDiri] = useState<DataDiri>({ nim: target.nim, nama: target.nama, email: target.email, noHp: target.noHp, asal: target.asal })
-  const [namaGedung, setNamaGedung] = useState(target.namaGedung)
-  const [nomorKamar, setNomorKamar] = useState(target.nomorKamar)
   const [role, setRole] = useState(target.role)
+  const [konfirmasiKeluarKamar, setKonfirmasiKeluarKamar] = useState(false)
+  const kamarSekarang = target.statusAktif && target.nomorKamar ? target.nomorKamar : null
   const [jk, setJk] = useState<'L' | 'P' | ''>(target.jenisKelamin ?? '')
   const [konfirmasiKeluar, setKonfirmasiKeluar] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1469,24 +1549,16 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
     }
   }
 
-  const simpan = () => {
-    if (!nomorKamar) {
-      setError('Pilih kamar. Untuk mengeluarkan penghuni gunakan tombol "Keluarkan dari Asrama".')
-      return
-    }
-    kirim({ nomorKamar, role, statusAktif: true })
-  }
+  // Kamar tidak diubah dari sini (pindah kamar = keluarkan dulu, lalu tempatkan lewat Gedung & Kamar)
+  const simpan = () => kirim({ nomorKamar: kamarSekarang, role, statusAktif: true })
 
   return (
-    <ModalShell title={`Kelola ${target.nama}`} subtitle={`${target.nim} · ${target.statusAktif ? `${target.namaGedung} / ${target.nomorKamar}` : 'Nonaktif / sudah keluar'}`} icon={<Users className="w-5 h-5" />} onClose={onClose}>
+    <ModalShell title={`Kelola ${target.nama}`} subtitle={`${target.nim} · ${!target.statusAktif ? 'Nonaktif / sudah keluar' : kamarSekarang ? `${target.namaGedung} / ${kamarSekarang}` : 'Belum menempati kamar'}`} icon={<Users className="w-5 h-5" />} onClose={onClose}>
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
         <div className="space-y-3.5">
           <p className="text-xs font-bold text-gray-700">Data Diri</p>
           <FormDataDiri value={dataDiri} onChange={setDataDiri} />
-          <PilihGender value={jk} onChange={v => {
-            setJk(v)
-            if (gedungList.find(g => g.nama === namaGedung && !gedungCocok(g, v))) { setNamaGedung(''); setNomorKamar('') }
-          }} />
+          <PilihGender value={jk} onChange={setJk} />
           {!target.jenisKelamin && <p className="text-[11px] text-amber-700 font-semibold">Jenis kelamin akun ini belum diisi.</p>}
           {dataDiri.nim.trim() !== target.nim && (
             <p className="text-[11px] text-amber-700 font-semibold">
@@ -1495,14 +1567,48 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
           )}
         </div>
 
+        {/* Kamar: hanya bisa dikeluarkan; penempatan lewat menu Gedung & Kamar */}
         <div className="pt-4 border-t border-gray-100">
-          <p className="text-xs font-bold text-gray-700 mb-2">{target.statusAktif ? 'Pindah Kamar' : 'Aktifkan Kembali & Tempatkan ke Kamar'}</p>
-          <KamarPicker
-            jenisKelamin={jk}
-            gedungList={gedungList} kamarList={kamarList} penghuni={penghuni}
-            gedung={namaGedung} kamar={nomorKamar} kamarSaatIni={target.statusAktif ? target.nomorKamar : undefined}
-            onGedung={setNamaGedung} onKamar={v => { setNomorKamar(v); setError('') }}
-          />
+          <p className="text-xs font-bold text-gray-700 mb-2">Kamar</p>
+          {kamarSekarang ? (
+            <div className="rounded-xl border border-gray-200 p-3 space-y-2.5">
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 shrink-0 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center"><BedDouble className="w-4 h-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-gray-900">Kamar {kamarSekarang}</p>
+                  <p className="text-[11px] text-gray-500">{target.namaGedung}</p>
+                </div>
+                {!konfirmasiKeluarKamar && (
+                  <button type="button" onClick={() => setKonfirmasiKeluarKamar(true)}
+                    className="shrink-0 px-3 py-2 rounded-lg text-xs font-bold text-amber-800 bg-[#fff] border border-amber-200 hover:bg-amber-50 cursor-pointer">
+                    Keluarkan dari kamar
+                  </button>
+                )}
+              </div>
+              {konfirmasiKeluarKamar ? (
+                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 space-y-2">
+                  <p className="text-[11px] text-amber-900">{target.nama} akan dikeluarkan dari kamar {kamarSekarang} dan tetap aktif sebagai penghuni tanpa kamar (belum wajib presensi). Setelah itu tempatkan di kamar baru lewat menu Gedung &amp; Kamar.</p>
+                  <div className="flex gap-2">
+                    <button type="button" className="flex-1 py-2 rounded-lg text-xs font-bold text-gray-700 bg-[#fff] border border-gray-200 cursor-pointer" onClick={() => setKonfirmasiKeluarKamar(false)}>Batal</button>
+                    <button type="button" disabled={saving} className="flex-1 py-2 rounded-lg text-xs font-bold text-white bg-amber-700 hover:bg-amber-800 cursor-pointer disabled:opacity-60"
+                      onClick={() => kirim({ nomorKamar: null, role, statusAktif: true })}>
+                      Ya, keluarkan dari kamar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-gray-500">Mau pindah kamar? Keluarkan dulu dari kamar ini, lalu tempatkan di kamar baru lewat menu Gedung &amp; Kamar.</p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-600">
+              <BedDouble className="w-4 h-4 shrink-0 mt-px text-gray-500" />
+              <span>
+                {target.statusAktif ? 'Belum menempati kamar.' : 'Akun ini nonaktif. Setelah diaktifkan kembali, penghuni belum menempati kamar.'}{' '}
+                Tempatkan lewat menu <strong className="text-gray-800">Gedung &amp; Kamar</strong> → edit kamar → <strong className="text-gray-800">Tempatkan</strong>.
+              </span>
+            </div>
+          )}
         </div>
 
         <div>
@@ -1538,7 +1644,7 @@ function KelolaPenghuniModal({ target, penghuni, gedungList, kamarList, onClose,
             ) : (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 space-y-2">
                 <p className="text-xs text-rose-900 font-medium">
-                  Akun akan dinonaktifkan dan kamar {target.nomorKamar} dikosongkan (misal: lulus / habis kontrak). Riwayat presensi tetap tersimpan.
+                  Akun akan dinonaktifkan{kamarSekarang ? ` dan kamar ${kamarSekarang} dikosongkan` : ''} (misal: lulus / habis kontrak). Riwayat presensi tetap tersimpan.
                 </p>
                 <div className="flex gap-2">
                   <button className="flex-1 py-2 rounded-lg text-xs font-bold text-gray-700 bg-white border border-gray-200 cursor-pointer" onClick={() => setKonfirmasiKeluar(false)}>Batal</button>
